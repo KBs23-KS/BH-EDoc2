@@ -58,7 +58,7 @@ import {
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
-import { eventTime,recipientSnapshot,recipientsOf,isRecipient,URGENCY,sortUrgency } from "./workflow";
+import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortUrgency, canReadDoc } from "./workflow";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
