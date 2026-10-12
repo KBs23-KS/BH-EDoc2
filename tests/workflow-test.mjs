@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {recipientSnapshot,recipientsOf,isRecipient,matchingDocs,pendingAgeDays,sortUrgency,canReadDoc,docYear} from '../src/workflow.js';
+const users=[{id:'a',name:'A',role:'teacher',status:'active',adminDept:'science'}, {id:'b',name:'B',role:'teacher',status:'active',adminDept:'math'}];
+const order={id:'1',type:'คำสั่งโรงเรียน',status:'เผยแพร่แล้ว',date:'2026-01-04',createdBy:'z',assignedTo:'science'};
+const snap=recipientSnapshot(order,users);
+assert.deepEqual(snap.map(x=>x.id),['a']);
+const withSnap={...order,recipientsSnapshot:snap};
+assert.equal(isRecipient(withSnap,users[0],[]),true);
+assert.equal(isRecipient(withSnap,users[1],users),false);
+assert.equal(canReadDoc(users[0],withSnap),true);
+assert.equal(canReadDoc(users[1],withSnap),false);
+assert.equal(docYear(order),2569);
+assert.equal(matchingDocs([order],{year:2569}).length,1);
+assert.equal(matchingDocs([order],{year:2568}).length,0);
+assert.equal(sortUrgency([{urgency:'ปกติ'},{urgency:'ด่วนที่สุด'}])[0].urgency,'ด่วนที่สุด');
+assert.equal(pendingAgeDays({status:'รอผู้อำนวยการ',sentToDirectorAt:1000},86400000+1000),1);
+console.log('workflow tests passed');
