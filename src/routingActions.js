@@ -56,7 +56,7 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
  async function acknowledge(d){
    return guarded(async()=>{
     const snap=await getDoc(item(d.id));
-    if(!snap.exists()||!isFinalDoc(snap.data())||!(snap.data().recipientsSnapshot||[]).some(x=>x.id===user.id))
+    if(!snap.exists()||!isFinalDoc(snap.data())||!recipientsOf(snap.data(),users).some(x=>x.id===user.id))
       throw new Error("ไม่มีสิทธิ์รับทราบหนังสือ");
     const b=writeBatch(db);
     b.update(item(d.id),{acknowledgedBy:arrayUnion(user.id),["acknowledgedAt."+user.id]:Date.now()});
