@@ -1,1 +1,182 @@
 @import "tailwindcss";
+
+/* BHS Luxury Navy & Gold / scoped visual layer.
+   This stylesheet does not modify Firestore, access rules or existing workflows. */
+.bhs-luxury-shell{--bhs-navy:#132e46;--bhs-navy-deep:#0e2336;--bhs-gold:#c6a673;--bhs-ink:#172f43;--bhs-paper:#f7f8f7;--bhs-stroke:#e8ebed;font-family:'Sarabun',sans-serif;background:var(--bhs-paper);}
+.bhs-luxury-shell .bhs-luxury-sidebar{background:linear-gradient(165deg,#15344f 0%,#102a40 60%,#0c2235 100%);color:#f9fafb;border-right:1px solid rgba(200,180,141,.15);}
+.bhs-luxury-brand{padding:29px 21px 25px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.095);min-height:121px;}
+.bhs-luxury-emblem{width:49px;height:49px;flex-shrink:0;border-radius:14px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.08);color:#e5c996;border:1px solid rgba(218,189,138,.45);font-weight:700;font-size:15px;box-shadow:inset 0 0 0 3px rgba(255,255,255,.025)}
+.bhs-luxury-brand-copy{min-width:0}
+.bhs-luxury-wordmark{font-family:system-ui,sans-serif;font-weight:750;font-size:15px;letter-spacing:.1em;white-space:nowrap;color:#f7f6f2}
+.bhs-luxury-wordmark span{font-size:10px;letter-spacing:.075em;color:#ddc390}
+.bhs-luxury-subbrand{font-size:12px;color:#d6e0e6;margin-top:4px;white-space:nowrap}
+.bhs-luxury-school{color:#a6b8c6;font-size:10px;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bhs-luxury-nav{flex:1;overflow-y:auto;padding:22px 12px 18px}
+.bhs-luxury-nav-section+.bhs-luxury-nav-section{margin-top:24px}
+.bhs-luxury-nav-caption{padding:0 14px 9px;color:#7e9aaf;font-weight:700;font-size:10px;letter-spacing:.08em}
+.bhs-luxury-nav nav{display:flex;flex-direction:column;gap:3px}
+.bhs-luxury-nav-link{border:1px solid transparent;border-radius:9px;padding:11px 12px;display:flex;align-items:center;gap:11px;min-height:42px;width:100%;color:#bacbd8;font-size:12.5px;text-align:left;transition:background .18s,border .18s,color .18s;position:relative}
+.bhs-luxury-nav-link:hover{background:rgba(255,255,255,.065);color:#fff}
+.bhs-luxury-nav-link.is-active{background:rgba(205,177,127,.14);border-color:rgba(206,174,114,.28);color:#f9f5ea;font-weight:700}
+.bhs-luxury-nav-link.is-active:before{content:"";position:absolute;left:-13px;top:10px;bottom:10px;width:3px;border-radius:5px;background:#d3af77}
+.bhs-luxury-nav-icon{display:flex;color:#89a6ba;flex-shrink:0}
+.bhs-luxury-nav-icon svg{width:18px;height:18px}
+.bhs-luxury-nav-link.is-active .bhs-luxury-nav-icon{color:#d4b77e}
+.bhs-luxury-nav-text{flex:1;min-width:0}
+.bhs-luxury-nav-count{font-size:10px;color:#e7ca95;background:rgba(196,152,85,.16);border-radius:5px;padding:2px 6px;font-weight:700}
+.bhs-luxury-account{padding:17px 16px;display:flex;gap:9px;align-items:center;border-top:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.11)}
+.bhs-luxury-avatar{width:35px;height:35px;flex-shrink:0;border-radius:10px;background:rgba(211,181,128,.18);border:1px solid rgba(217,188,139,.24);color:#e7ca95;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+.bhs-luxury-account-info{min-width:0;flex:1}
+.bhs-luxury-account-name{font-size:11.5px;font-weight:700;color:#eff4f6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bhs-luxury-account-role{font-size:10px;margin-top:3px;color:#9db3c3}
+.bhs-luxury-account-control{color:#9db3c3;border-radius:8px;padding:6px;transition:background .18s,color .18s}
+.bhs-luxury-account-control:hover{background:rgba(255,255,255,.1);color:#f6e0ad}
+.bhs-luxury-topbar{background:rgba(255,255,255,.96);border-bottom:1px solid #e7ebed;box-shadow:0 2px 18px rgba(23,46,68,.025)}
+.bhs-luxury-topbar-kicker{font-size:11px;color:#c2a575;font-weight:750;letter-spacing:.1em}
+.bhs-luxury-topbar-divider{height:17px;width:1px;background:#e5e8eb}
+.bhs-luxury-topbar-title{color:#4b6173;font-size:12.5px;font-weight:600}
+.bhs-luxury-main{background:#f6f8f8;}
+.bhs-luxury-dashboard{max-width:1400px;margin:0 auto}
+.bhs-luxury-pageheading{display:flex;align-items:flex-end;justify-content:space-between;gap:22px;margin-bottom:26px;flex-wrap:wrap}
+.bhs-luxury-eyebrow{font-size:10px;color:#ad8a55;letter-spacing:.12em;font-weight:800;display:flex;gap:9px;align-items:center}
+.bhs-luxury-eyebrow span{height:3px;width:3px;background:#d3b489;border-radius:50%}
+.bhs-luxury-pageheading h1{color:#142f44;font-weight:750;font-size:clamp(24px,2.8vw,34px);letter-spacing:-.025em;line-height:1.25;margin:9px 0 8px}
+.bhs-luxury-welcome{color:#8796a1;font-size:12px}
+.bhs-luxury-welcome strong{color:#344d60;font-weight:700}
+.bhs-luxury-welcome-divider{padding:0 4px;color:#d1bb94}
+.bhs-luxury-departments{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.bhs-luxury-departments span{border:1px solid #e2e8e8;background:#fff;border-radius:6px;font-size:10px;padding:4px 9px;color:#6e8190}
+.bhs-luxury-heading-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.bhs-luxury-primary-btn,.bhs-luxury-secondary-btn{display:inline-flex;justify-content:center;align-items:center;gap:8px;padding:10px 14px;font-size:12px;font-weight:700;border-radius:8px;transition:transform .15s,box-shadow .15s}
+.bhs-luxury-primary-btn{background:#183950;color:#fff;border:1px solid #183950;box-shadow:0 5px 14px rgba(29,61,83,.12)}
+.bhs-luxury-secondary-btn{background:#fff;color:#335269;border:1px solid #dce5e9}
+.bhs-luxury-primary-btn:hover{background:#254f67;transform:translateY(-1px)}
+.bhs-luxury-secondary-btn:hover{border-color:#c5ad85;background:#fcfaf6}
+.bhs-luxury-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}
+.bhs-luxury-metric{position:relative;overflow:hidden;text-align:left;padding:22px 21px 19px;border:1px solid #e6eaec;border-radius:13px;min-height:182px;background:#fff;box-shadow:0 4px 20px rgba(15,38,58,.025);display:flex;flex-direction:column;transition:border .2s,box-shadow .2s,transform .2s}
+.bhs-luxury-metric:not(.is-disabled):hover{transform:translateY(-3px);border-color:#d3bb93;box-shadow:0 12px 30px rgba(23,50,74,.09)}
+.bhs-luxury-metric:before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#c6a673,rgba(198,166,115,0))}
+.bhs-luxury-metric.is-disabled{opacity:.55;cursor:not-allowed}
+.bhs-luxury-metric-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.bhs-luxury-metric-icon{display:flex;align-items:center;justify-content:center;background:#f1f4f5;color:#25475d;border-radius:9px;padding:10px}
+.bhs-luxury-metric-number{font-size:11px;color:#c7d0d7;font-weight:700;letter-spacing:.06em}
+.bhs-luxury-metric-label{color:#708496;font-size:12px;font-weight:600}
+.bhs-luxury-metric-value{font-family:system-ui,'Sarabun',sans-serif;font-size:33px;color:#16354b;font-weight:750;line-height:1.4;margin:2px 0 10px}
+.bhs-luxury-metric-footer{font-size:10px;color:#9cabb6;margin-top:auto;display:flex;justify-content:space-between;gap:4px}
+.bhs-luxury-metric-footer>span{font-size:15px;color:#bba276}
+.bhs-luxury-activity{margin-top:29px}
+.bhs-luxury-section-header{display:flex;justify-content:space-between;align-items:end;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.bhs-luxury-section-header h2{font-size:18px;color:#203d53;font-weight:750;margin:5px 0 3px}
+.bhs-luxury-section-header p:not(.bhs-luxury-eyebrow){font-size:11px;color:#93a1ac}
+.bhs-luxury-text-action{font-size:11.5px;color:#8b6c39;font-weight:750;background:transparent;padding:5px}
+.bhs-luxury-text-action:hover{text-decoration:underline}
+.bhs-luxury-activity>.bg-white,.bhs-luxury-activity>div:last-child{border-radius:12px;border-color:#e6ebed;overflow:hidden}
+.bhs-luxury-stats{max-width:1400px;margin-left:auto;margin-right:auto}
+.bhs-luxury-main :focus-visible{outline:2px solid #c6a673;outline-offset:2px}
+@media(max-width:1190px){.bhs-luxury-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.bhs-luxury-pageheading{margin-bottom:20px}.bhs-luxury-heading-actions{width:100%}.bhs-luxury-summary{gap:10px}.bhs-luxury-metric{padding:15px;min-height:161px}.bhs-luxury-metric-value{font-size:28px}.bhs-luxury-metric-footer{font-size:9px}.bhs-luxury-primary-btn,.bhs-luxury-secondary-btn{flex:1}.bhs-luxury-topbar{height:64px}}
+
+
+/* Modern Colorful — keeps original blue/green/violet/coral status colors
+   while retaining all existing roles, routes, data and actions. */
+.bhs-luxury-shell {
+  --bhs-navy:#122b4b;
+  --bhs-navy-deep:#0e2440;
+  --bhs-gold:#356cf0;
+  --bhs-ink:#193653;
+  --bhs-paper:#f5f7fc;
+  --bhs-stroke:#e8edf5;
+  background:#f6f8fc;
+}
+.bhs-luxury-shell .bhs-luxury-sidebar {
+  background:linear-gradient(170deg,#163b65 0%,#112f53 44%,#0b223e 100%);
+  border-right:1px solid rgba(143,194,253,.15);
+  box-shadow:3px 0 25px rgba(22,51,92,.06);
+}
+.bhs-luxury-brand { border-bottom-color:rgba(199,220,247,.13); }
+.bhs-luxury-emblem {
+  border-radius:15px;
+  color:#fff;
+  border:1px solid rgba(144,192,255,.5);
+  background:linear-gradient(135deg,#2f77ed,#7658e9);
+  box-shadow:0 9px 22px rgba(15,89,196,.25),inset 0 1px 0 rgba(255,255,255,.16);
+}
+.bhs-luxury-wordmark span {color:#7ccaff}
+.bhs-luxury-nav-caption {color:#83a9d0}
+.bhs-luxury-nav-link { color:#c5d5e9; border-radius:10px; }
+.bhs-luxury-nav-link:hover {background:rgba(105,166,243,.12);color:#fff}
+.bhs-luxury-nav-link.is-active {
+  background:linear-gradient(100deg,rgba(56,121,239,.40),rgba(68,130,239,.16));
+  border-color:rgba(99,169,252,.34);
+  color:#fff;
+  box-shadow:0 4px 14px rgba(0,20,55,.09);
+}
+.bhs-luxury-nav-link.is-active:before {background:#66c9ff}
+.bhs-luxury-nav-link.is-active .bhs-luxury-nav-icon {color:#94d4ff}
+.bhs-luxury-nav-icon {color:#90b8d9}
+.bhs-luxury-nav-count {
+  background:rgba(255,255,255,.14);
+  color:#e7f5ff;
+  border:1px solid rgba(196,224,255,.14);
+}
+.bhs-luxury-avatar {
+  border-color:rgba(148,199,249,.4);
+  background:linear-gradient(130deg,#2c69b5,#5c60bf);
+  color:#fff;
+}
+.bhs-luxury-account-control:hover {color:#9bdcff}
+.bhs-luxury-topbar {border-color:#e8edf5}
+.bhs-luxury-topbar-kicker {color:#3278e9}
+.bhs-luxury-topbar-title {color:#45607d}
+.bhs-luxury-main {
+  background:radial-gradient(ellipse 44% 27% at 100% 0%,rgba(62,118,249,.055),transparent 75%),#f6f8fc;
+}
+.bhs-luxury-eyebrow {color:#4878de}
+.bhs-luxury-eyebrow span {background:#5f9df0}
+.bhs-luxury-pageheading h1 {color:#192f50;letter-spacing:-.035em}
+.bhs-luxury-welcome strong {color:#314b6a}
+.bhs-luxury-welcome-divider {color:#85afe9}
+.bhs-luxury-departments span {background:#fff;border-color:#dce8f9;color:#49678b}
+.bhs-luxury-primary-btn {
+  background:linear-gradient(110deg,#246bed,#455edc);
+  border-color:#3476e9;
+  box-shadow:0 6px 18px rgba(36,107,237,.17);
+}
+.bhs-luxury-primary-btn:hover {background:linear-gradient(110deg,#165ddd,#3d55cf)}
+.bhs-luxury-secondary-btn {background:#fff;border-color:#dce5f1;color:#375778}
+.bhs-luxury-secondary-btn:hover {background:#f6faff;border-color:#a7c7f0}
+.bhs-luxury-summary {gap:17px}
+.bhs-luxury-metric {
+  border-radius:17px;
+  border:1px solid #e5ebf4;
+  box-shadow:0 5px 24px rgba(29,62,110,.035);
+  padding:22px;
+  background:#fff;
+}
+.bhs-luxury-metric:nth-child(1){--metric:#286bec;--metric-light:#ecf3ff;--metric-shade:rgba(52,115,247,.10)}
+.bhs-luxury-metric:nth-child(2){--metric:#099e78;--metric-light:#e5f8ef;--metric-shade:rgba(21,176,125,.09)}
+.bhs-luxury-metric:nth-child(3){--metric:#8259d9;--metric-light:#f2eaff;--metric-shade:rgba(135,91,217,.09)}
+.bhs-luxury-metric:nth-child(4){--metric:#ed6b59;--metric-light:#fff0eb;--metric-shade:rgba(240,121,97,.09)}
+.bhs-luxury-metric:before {
+  height:4px;background:var(--metric);
+  left:20px;right:20px;border-radius:0 0 10px 10px;
+}
+.bhs-luxury-metric:after{content:none;display:none}
+.bhs-luxury-metric-top,.bhs-luxury-metric-label,.bhs-luxury-metric-value,.bhs-luxury-metric-footer{position:relative;z-index:1}
+.bhs-luxury-metric-icon {
+  background:var(--metric-light);color:var(--metric);
+  border-radius:13px;padding:11px;
+}
+.bhs-luxury-metric-value {color:#173454}
+.bhs-luxury-metric-number {color:#b5c4d6}
+.bhs-luxury-metric-footer>span {color:var(--metric)}
+.bhs-luxury-metric:not(.is-disabled):hover {
+  border-color:var(--metric);
+  box-shadow:0 15px 32px rgba(36,76,128,.10);
+}
+.bhs-luxury-section-header h2 {color:#1b3856}
+.bhs-luxury-text-action {color:#2568d6}
+.bhs-luxury-activity>.bg-white,
+.bhs-luxury-activity>div:last-child {border-radius:16px}
+.bhs-luxury-stats>div {border-radius:16px}
+.bhs-luxury-main :focus-visible {outline:2px solid #3b82f6;outline-offset:3px}
