@@ -740,7 +740,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const openDocument=id=>{
     const d=activeDocs.find(x=>x.id===id);
     if(!d)return showToast("ไม่พบเอกสาร","error");
-    if(!(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers)||(currentUser.role==="deputy"&&d.status===DOC_STATUS.WAITING_DEPUTY)))
+    if(!(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)||(currentUser.role==="deputy"&&d.status===DOC_STATUS.WAITING_DEPUTY)))
       return showToast("ไม่มีสิทธิ์ดูเอกสาร","error");
     setFocusDocId(id);setActiveMenu("document_detail");setIsNotifOpen(false);
   };
@@ -750,7 +750,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   },[documents.length,currentUser.id]);
   useEffect(()=>{
     if(!("setAppBadge" in navigator))return;
-    const n=activeDocs.filter(d=>isFinalDoc(d)&&canViewRouted(currentUser,d,dbUsers)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length
+    const n=activeDocs.filter(d=>isFinalDoc(d)&&canViewRouted(currentUser,d,dbUsers,systemSettings)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length
       +activeDocs.reduce((sum,d)=>sum+pendingAssignmentEvents(d,currentUser).length+pendingHeadGroups(d,currentUser,systemSettings).length,0);
     Promise.resolve(navigator.setAppBadge(n)).catch(()=>{});
   },[documents,currentUser.id,dbUsers,systemSettings]);
@@ -811,7 +811,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   notifications.sort((a, b) => b.time - a.time);
   const notificationHistory=[
     ...routingHistory(activeDocs,currentUser,systemSettings),
-    ...activeDocs.filter(d=>isFinalDoc(d)&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers)))
+    ...activeDocs.filter(d=>isFinalDoc(d)&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)))
       .map(d=>({id:"history-published:"+d.id,docId:d.id,title:"หนังสือเผยแพร่แล้ว",desc:d.subject,time:d.publishedAt||d.createdAt||0,type:"info"}))
   ].sort((a,b)=>b.time-a.time);
 
