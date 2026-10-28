@@ -1884,7 +1884,7 @@ function IncomingView({ documents, currentUser, dbUsers, systemSettings, changeM
   const incomingDocs = documents.filter((doc) => {
     if (doc.type !== "หนังสือเข้า") return false;
     if (["admin", "director", "deputy", "clerk"].includes(currentUser.role)) return true;
-    return doc.assignedTo === "ทุกคน" || doc.assignedTo === currentUser.adminDept || doc.assignedTo === currentUser.subjectArea;
+    return canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings);
   });
 
   return (
@@ -1905,7 +1905,7 @@ function IncomingView({ documents, currentUser, dbUsers, systemSettings, changeM
 function OrdersView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast }) {
   const orders = documents.filter((doc) => doc.type === "คำสั่งโรงเรียน" &&
     (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) &&
-    canReadDoc(currentUser,doc,dbUsers));
+    (canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings)));
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -1924,7 +1924,7 @@ function OrdersView({ documents, currentUser, dbUsers, systemSettings, changeMen
 function CircularsView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast }) {
   const circulars = documents.filter((doc) => doc.type === "หนังสือเวียนแจ้งรับทราบ" &&
     (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) &&
-    canReadDoc(currentUser,doc,dbUsers));
+    (canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings)));
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
