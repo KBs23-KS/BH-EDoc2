@@ -1036,9 +1036,9 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           {activeMenu === "audit" && <AuditLogView currentUser={currentUser} showToast={showToast} />}
           {activeMenu === "trash" && <TrashView documents={documents} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast} />}
 
-          {activeMenu === "form_incoming" && <FormDocument docType="หนังสือเข้า" changeMenu={setActiveMenu} backMenu="incoming" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
-          {activeMenu === "form_orders" && <FormDocument docType="คำสั่งโรงเรียน" changeMenu={setActiveMenu} backMenu="orders" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} orderReservations={orderReservations} />}
-          {activeMenu === "form_circular" && <FormDocument docType="หนังสือเวียนแจ้งรับทราบ" changeMenu={setActiveMenu} backMenu="circulars" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
+          {activeMenu === "form_incoming" && <FormDocument docType="หนังสือเข้า" documents={activeDocs} changeMenu={setActiveMenu} backMenu="incoming" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
+          {activeMenu === "form_orders" && <FormDocument docType="คำสั่งโรงเรียน" documents={activeDocs} changeMenu={setActiveMenu} backMenu="orders" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} orderReservations={orderReservations} />}
+          {activeMenu === "form_circular" && <FormDocument docType="หนังสือเวียนแจ้งรับทราบ" documents={activeDocs} changeMenu={setActiveMenu} backMenu="circulars" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
         </main>
       </div>
 
@@ -2824,19 +2824,17 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   );
 }
 
-function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettings, showToast, orderReservations = [] }) {
+function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUser, systemSettings, showToast, orderReservations = [] }) {
   let defaultDept = "";
   if (currentUser.adminDept && currentUser.adminDept !== "-") defaultDept = currentUser.adminDept;
   else if (currentUser.subjectArea && currentUser.subjectArea !== "-" && currentUser.subjectArea !== "ไม่มีกลุ่มสาระการเรียนรู้") defaultDept = currentUser.subjectArea;
 
-  const [form, setForm] = useState({ 
-     subject: "", 
-     docNumber: "", 
-     date: getTodayIso(), 
-     urgency: "ปกติ", 
-     from: currentUser.name, 
-     department: defaultDept 
+  const draftKey="bhs-edoc-draft-"+currentUser.id+"-"+docType;
+  const [form, setForm] = useState(()=>{
+    const blank={subject:"",docNumber:"",date:getTodayIso(),urgency:"ปกติ",from:currentUser.name,department:defaultDept};
+    try{const saved=localStorage.getItem(draftKey);return saved?{...blank,...JSON.parse(saved)}:blank}catch{return blank;}
   });
+  useEffect(()=>{try{localStorage.setItem(draftKey,JSON.stringify(form))}catch{}},[draftKey,form]);
   
   const [rawFiles, setRawFiles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -2850,9 +2848,14 @@ function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettin
   const chosenReservation = availableReservations.find(r => r.id === selectedReservation);
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting)return;
+    if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
     if (docType === "คำสั่งโรงเรียน" && !chosenReservation) return showToast("กรุณาเลือกเลขคำสั่งที่จองไว้ก่อน", "error");
     if (docType === "คำสั่งโรงเรียน" && !rawFiles.some(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"))) return showToast("กรุณาแนบ PDF สำหรับเสนอ ผอ.ลงนาม", "error");
+    const number=docType==="คำสั่งโรงเรียน"?chosenReservation?.orderNumber:form.docNumber;
+    const possibleDup=documents.filter(d=>d.type===docType && !d.isDeleted && ((number&&d.docNumber===number)||(d.subject||"").trim().toLowerCase()===form.subject.trim().toLowerCase()));
+    if(possibleDup.length&&!window.confirm("พบเอกสารที่มีเลขที่หรือชื่อเรื่องเหมือนกัน "+possibleDup.length+" รายการ\nคุณต้องการบันทึกต่อหรือไม่?"))return;
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
       return showToast("กรุณาตั้งค่า GAS_WEB_APP_URL ให้ถูกต้องในโค้ดก่อนใช้งาน", "error");
     }
@@ -2911,6 +2914,7 @@ function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettin
         batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"สร้างเอกสาร","DOCUMENT",newDocId,`${docType}: ${form.subject}`));
         await batch.commit();
       }
+      try{localStorage.removeItem(draftKey)}catch{}
       if (docType === "คำสั่งโรงเรียน") {
         setCreatedSummary({ number: newDoc.docNumber || "ไม่มีเลข", subject: newDoc.subject, status: "รอรองผู้อำนวยการ", id:newDocId });
       } else changeMenu(backMenu);
