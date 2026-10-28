@@ -950,12 +950,11 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                   <div className="bg-slate-50 border-b border-gray-200 px-4 py-3 flex justify-between items-center">
                     <h3 className="font-bold text-gray-800 text-sm flex items-center"><Bell size={16} className="mr-1.5 text-blue-600"/> การแจ้งเตือน</h3>
                     <div className="flex items-center gap-2">
-                       <button onClick={(e) => { e.stopPropagation(); setSoundEnabled(!soundEnabled); }} className="text-gray-500 hover:text-blue-600 outline-none" title={soundEnabled ? "ปิดเสียงแจ้งเตือน" : "เปิดเสียงแจ้งเตือน"}>
-                         {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} className="text-red-400" />}
-                       </button>
+                       <label className="flex items-center gap-1 text-xs text-slate-600"><Volume2 size={15}/><input aria-label="ความดังเสียงแจ้งเตือน" type="range" min="0" max="100" step="5" value={soundVolume} onChange={e=>setSoundVolume(Number(e.target.value))} className="w-20 accent-blue-600"/><span>{soundVolume}%</span></label>
                        {notifications.length > 0 && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold">{notifications.length} รายการ</span>}
                     </div>
                   </div>
+                  <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
                   <div className="max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
                     {notifications.length === 0 ? (
                       <div className="py-10 text-center text-gray-400 flex flex-col items-center">
@@ -964,10 +963,10 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-100">
-                        {notifications.map(notif => (
+                        {notifications.filter(n=>notifFilter==="all"||(notifFilter==="tasks"?n.id.startsWith("assignment:")||n.id.startsWith("head:")||n.id.startsWith("task-"):n.id.startsWith("inc-")||n.id.startsWith("ord-")||n.id.startsWith("circ-")||n.id.startsWith("rem-"))).map(notif => (
                           <div key={notif.id} className="p-3.5 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => {
                             setIsNotifOpen(false);
-                            setActiveMenu(notif.targetMenu);
+                            if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
                           }}>
                             <div className="flex gap-3 items-start">
                                <div className={`mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm ${notif.type === 'warning' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' : notif.type === 'error' ? 'bg-red-100 text-red-600 border-red-200' : 'bg-blue-100 text-blue-600 border-blue-200'}`}>
@@ -1022,6 +1021,9 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
             }catch(e){showToast(e.message,"error");}
           }}/>}
           {activeMenu === "export_register" && <ExportRegisters documents={activeDocs} orderReservations={orderReservations} outgoingReservations={outgoingReservations} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast}/>}
+          {activeMenu==="document_detail" && <DocumentDetail doc={openedDoc} allDocs={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onAcknowledge={ackDocument} onAcknowledgeAssignment={ackAssignment} onOpenRouting={()=>setActiveMenu("routing")} onBack={id=>id?openDocument(id):setActiveMenu("dashboard")}/>}
+          {activeMenu==="routing" && <RoutingWorkspace documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onRoute={routeDocument} onHeadAction={headAction} onOpen={openDocument}/>}
+          {activeMenu==="assignments" && <section className="bhs-modern-panel p-5 space-y-3"><h2 className="text-xl font-bold">งานที่ได้รับมอบหมาย</h2>{activeDocs.filter(d=>pendingAssignmentEvents(d,currentUser).length).map(d=><button key={d.id} onClick={()=>openDocument(d.id)} className="w-full text-left border p-4 rounded-xl hover:bg-blue-50 text-sm"><b>{d.subject}</b><div className="text-xs text-blue-700 mt-1">รอรับทราบงาน {pendingAssignmentEvents(d,currentUser).length} รายการ · เปิดหนังสือและข้อเกษียณ</div></button>)}{assignmentCount===0&&<p className="text-slate-500 text-sm">ไม่มีงานมอบหมายที่ยังไม่รับทราบ</p>}</section>}
           {activeMenu === "tasks" && <TasksView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "incoming" && <IncomingView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "orders" && <OrdersView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
