@@ -684,6 +684,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const [activeMenu, setActiveMenu] = useState("dashboard");
   const [focusDocId,setFocusDocId]=useState(null);
   const [notifFilter,setNotifFilter]=useState("all");
+  const [notifQuery,setNotifQuery]=useState("");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [changePasswordModal, setChangePasswordModal] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -815,6 +816,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
       .map(d=>({id:"history-published:"+d.id,docId:d.id,title:"หนังสือเผยแพร่แล้ว",desc:d.subject,time:d.publishedAt||d.createdAt||0,type:"info"}))
   ].sort((a,b)=>b.time-a.time);
 
+  const shownNotifications=(notifFilter==="history"?notificationHistory:notifications.filter(n=>notifFilter==="all"||(notifFilter==="tasks"?n.id.startsWith("assignment:")||n.id.startsWith("head:")||n.id.startsWith("task-"):n.id.startsWith("inc-")||n.id.startsWith("ord-")||n.id.startsWith("circ-")||n.id.startsWith("rem-")))).filter(n=>(n.title+" "+n.desc).toLocaleLowerCase("th-TH").includes(notifQuery.toLocaleLowerCase("th-TH")));
   const latestNotifTime = notifications.length > 0 ? notifications[0].time : 0;
   useEffect(() => {
     if (latestNotifTime > lastNotifTime) {
@@ -959,15 +961,16 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                     </div>
                   </div>
                   <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"],["history","ย้อนหลัง"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
+                  <div className="px-3 py-2 border-b"><input aria-label="ค้นหาการแจ้งเตือน" placeholder="ค้นหาชื่อเรื่องหรือข้อความแจ้งเตือน..." value={notifQuery} onChange={e=>setNotifQuery(e.target.value)} className="w-full border px-3 py-2 text-xs rounded-lg"/></div>
                   <div className="max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
-                    {notifications.length === 0 ? (
+                    {shownNotifications.length === 0 ? (
                       <div className="py-10 text-center text-gray-400 flex flex-col items-center">
                         <CheckCircle size={36} className="text-gray-200 mb-3"/>
-                        <p className="text-sm font-medium">ไม่มีการแจ้งเตือนใหม่</p>
+                        <p className="text-sm font-medium">ไม่มีรายการในหมวดนี้</p>
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-100">
-                        {(notifFilter==="history"?notificationHistory:notifications.filter(n=>notifFilter==="all"||(notifFilter==="tasks"?n.id.startsWith("assignment:")||n.id.startsWith("head:")||n.id.startsWith("task-"):n.id.startsWith("inc-")||n.id.startsWith("ord-")||n.id.startsWith("circ-")||n.id.startsWith("rem-")))).map(notif => (
+                        {shownNotifications.map(notif => (
                           <div key={notif.id} className="p-3.5 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => {
                             setIsNotifOpen(false);
                             if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
