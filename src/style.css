@@ -183,3 +183,51 @@
 .bhs-luxury-activity>div:last-child {border-radius:16px}
 .bhs-luxury-stats>div {border-radius:16px}
 .bhs-luxury-main :focus-visible {outline:2px solid #3b82f6;outline-offset:3px}
+
+
+/* BHS Modern Colorful workflow rollout — consistent tablets, cards, menu icons */
+.bhs-luxury-welcome{font-size:15px;line-height:1.65;color:#53657f}
+.bhs-luxury-welcome strong{font-size:19px;font-weight:800;color:#14375f}
+.bhs-luxury-dashboard .bhs-luxury-pageheading{background:linear-gradient(115deg,#fff,#f5f9ff);border:1px solid #e4ecf7;border-radius:18px;padding:24px 26px}
+.bhs-luxury-shell .bhs-luxury-nav-link .bhs-luxury-nav-icon{width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:rgba(255,255,255,.075)}
+.bhs-luxury-shell .bhs-nav-icon-dashboard{color:#70acff;background:rgba(67,139,255,.16)!important}
+.bhs-luxury-shell .bhs-nav-icon-tasks{color:#ffbd75;background:rgba(255,173,76,.13)!important}
+.bhs-luxury-shell .bhs-nav-icon-routing{color:#ffa6e3;background:rgba(223,106,199,.15)!important}
+.bhs-luxury-shell .bhs-nav-icon-assignments{color:#86e9b4;background:rgba(53,203,145,.14)!important}
+.bhs-luxury-shell .bhs-nav-icon-incoming{color:#72d3ff;background:rgba(57,173,239,.13)!important}
+.bhs-luxury-shell .bhs-nav-icon-order_reservations{color:#cab1ff;background:rgba(160,111,244,.15)!important}
+.bhs-luxury-shell .bhs-nav-icon-orders{color:#a6b6ff;background:rgba(96,120,234,.16)!important}
+.bhs-luxury-shell .bhs-nav-icon-outgoing_reservations{color:#66edda;background:rgba(61,198,176,.14)!important}
+.bhs-luxury-shell .bhs-nav-icon-circulars{color:#ffce79;background:rgba(255,193,93,.13)!important}
+.bhs-luxury-shell .bhs-nav-icon-mydocs{color:#8fc0ff;background:rgba(98,152,232,.14)!important}
+.bhs-luxury-shell .bhs-nav-icon-ack_report{color:#93e9ba;background:rgba(65,205,132,.14)!important}
+.bhs-luxury-shell .bhs-nav-icon-global_search{color:#a5baf0;background:rgba(92,132,238,.13)!important}
+.bhs-luxury-shell .bhs-nav-icon-pending_report{color:#f5b97b;background:rgba(243,155,94,.14)!important}
+.bhs-luxury-shell .bhs-nav-icon-export_register{color:#77e2d1;background:rgba(53,210,181,.14)!important}
+.bhs-luxury-shell .bhs-nav-icon-users{color:#c7a5ff;background:rgba(167,108,225,.15)!important}
+.bhs-luxury-shell .bhs-nav-icon-settings{color:#94bbff;background:rgba(122,157,231,.13)!important}
+.bhs-luxury-shell .bhs-nav-icon-audit{color:#ffe294;background:rgba(235,194,99,.13)!important}
+.bhs-luxury-shell .bhs-nav-icon-trash{color:#ff9d9d;background:rgba(234,94,114,.13)!important}
+.bhs-luxury-nav-count{color:#fff!important;background:#e45b65!important;border-radius:999px!important;min-width:23px;text-align:center;font-size:10px!important}
+.bhs-modern-page-title{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.bhs-modern-panel{background:#fff;border:1px solid #e6ebf4;border-radius:16px;box-shadow:0 5px 18px rgba(25,65,112,.035)}
+.bhs-modern-counter{color:#2362c7;font-size:12px;border:1px solid #cde1ff;background:#eff6ff;border-radius:999px;padding:5px 12px;font-weight:700}
+.bhs-modern-outline{border:1px solid #cbdaf0;border-radius:10px;background:#fff;padding:9px 12px;color:#285d9f;font-size:12px;font-weight:700}
+.bhs-modern-outline:hover{background:#eff6ff}
+.bhs-luxury-main .bg-white.rounded-xl{border-color:#e7edf6;border-radius:16px}
+.bhs-luxury-main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),.bhs-luxury-main select,.bhs-luxury-main textarea{border-radius:10px}
+.bhs-luxury-main table{border-collapse:separate;border-spacing:0}
+.bhs-luxury-main thead tr{background:#f1f5fc}
+.bhs-luxury-main thead th{color:#355070;font-size:12px;letter-spacing:.01em}
+.bhs-luxury-main tbody tr{transition:background .16s}
+.bhs-luxury-main tbody tr:hover{background:#f3f7ff}
+.bhs-luxury-main tbody td{border-bottom:1px solid #eef2f7}
+.bhs-luxury-main button:disabled{cursor:not-allowed}
+@media(max-width:700px){
+ .bhs-luxury-dashboard .bhs-luxury-pageheading{padding:18px}
+ .bhs-luxury-welcome{font-size:13px}
+ .bhs-luxury-welcome strong{font-size:17px}
+ .bhs-luxury-main table{min-width:0}
+ .bhs-modern-panel iframe{min-height:280px}
+}
+@media print{.bhs-luxury-dashboard .bhs-luxury-pageheading{background:#fff;box-shadow:none}}
