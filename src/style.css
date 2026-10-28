@@ -75,3 +75,111 @@
 .bhs-luxury-main :focus-visible{outline:2px solid #c6a673;outline-offset:2px}
 @media(max-width:1190px){.bhs-luxury-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.bhs-luxury-pageheading{margin-bottom:20px}.bhs-luxury-heading-actions{width:100%}.bhs-luxury-summary{gap:10px}.bhs-luxury-metric{padding:15px;min-height:161px}.bhs-luxury-metric-value{font-size:28px}.bhs-luxury-metric-footer{font-size:9px}.bhs-luxury-primary-btn,.bhs-luxury-secondary-btn{flex:1}.bhs-luxury-topbar{height:64px}}
+
+
+/* Modern Colorful — keeps original blue/green/violet/coral status colors
+   while retaining all existing roles, routes, data and actions. */
+.bhs-luxury-shell {
+  --bhs-navy:#122b4b;
+  --bhs-navy-deep:#0e2440;
+  --bhs-gold:#356cf0;
+  --bhs-ink:#193653;
+  --bhs-paper:#f5f7fc;
+  --bhs-stroke:#e8edf5;
+  background:#f6f8fc;
+}
+.bhs-luxury-shell .bhs-luxury-sidebar {
+  background:linear-gradient(170deg,#163b65 0%,#112f53 44%,#0b223e 100%);
+  border-right:1px solid rgba(143,194,253,.15);
+  box-shadow:3px 0 25px rgba(22,51,92,.06);
+}
+.bhs-luxury-brand { border-bottom-color:rgba(199,220,247,.13); }
+.bhs-luxury-emblem {
+  border-radius:15px;
+  color:#fff;
+  border:1px solid rgba(144,192,255,.5);
+  background:linear-gradient(135deg,#2f77ed,#7658e9);
+  box-shadow:0 9px 22px rgba(15,89,196,.25),inset 0 1px 0 rgba(255,255,255,.16);
+}
+.bhs-luxury-wordmark span {color:#7ccaff}
+.bhs-luxury-nav-caption {color:#83a9d0}
+.bhs-luxury-nav-link { color:#c5d5e9; border-radius:10px; }
+.bhs-luxury-nav-link:hover {background:rgba(105,166,243,.12);color:#fff}
+.bhs-luxury-nav-link.is-active {
+  background:linear-gradient(100deg,rgba(56,121,239,.40),rgba(68,130,239,.16));
+  border-color:rgba(99,169,252,.34);
+  color:#fff;
+  box-shadow:0 4px 14px rgba(0,20,55,.09);
+}
+.bhs-luxury-nav-link.is-active:before {background:#66c9ff}
+.bhs-luxury-nav-link.is-active .bhs-luxury-nav-icon {color:#94d4ff}
+.bhs-luxury-nav-icon {color:#90b8d9}
+.bhs-luxury-nav-count {
+  background:rgba(255,255,255,.14);
+  color:#e7f5ff;
+  border:1px solid rgba(196,224,255,.14);
+}
+.bhs-luxury-avatar {
+  border-color:rgba(148,199,249,.4);
+  background:linear-gradient(130deg,#2c69b5,#5c60bf);
+  color:#fff;
+}
+.bhs-luxury-account-control:hover {color:#9bdcff}
+.bhs-luxury-topbar {border-color:#e8edf5}
+.bhs-luxury-topbar-kicker {color:#3278e9}
+.bhs-luxury-topbar-title {color:#45607d}
+.bhs-luxury-main {
+  background:radial-gradient(ellipse 44% 27% at 100% 0%,rgba(62,118,249,.055),transparent 75%),#f6f8fc;
+}
+.bhs-luxury-eyebrow {color:#4878de}
+.bhs-luxury-eyebrow span {background:#5f9df0}
+.bhs-luxury-pageheading h1 {color:#192f50;letter-spacing:-.035em}
+.bhs-luxury-welcome strong {color:#314b6a}
+.bhs-luxury-welcome-divider {color:#85afe9}
+.bhs-luxury-departments span {background:#fff;border-color:#dce8f9;color:#49678b}
+.bhs-luxury-primary-btn {
+  background:linear-gradient(110deg,#246bed,#455edc);
+  border-color:#3476e9;
+  box-shadow:0 6px 18px rgba(36,107,237,.17);
+}
+.bhs-luxury-primary-btn:hover {background:linear-gradient(110deg,#165ddd,#3d55cf)}
+.bhs-luxury-secondary-btn {background:#fff;border-color:#dce5f1;color:#375778}
+.bhs-luxury-secondary-btn:hover {background:#f6faff;border-color:#a7c7f0}
+.bhs-luxury-summary {gap:17px}
+.bhs-luxury-metric {
+  border-radius:17px;
+  border:1px solid #e5ebf4;
+  box-shadow:0 5px 24px rgba(29,62,110,.035);
+  padding:22px;
+  background:#fff;
+}
+.bhs-luxury-metric:nth-child(1){--metric:#286bec;--metric-light:#ecf3ff;--metric-shade:rgba(52,115,247,.10)}
+.bhs-luxury-metric:nth-child(2){--metric:#099e78;--metric-light:#e5f8ef;--metric-shade:rgba(21,176,125,.09)}
+.bhs-luxury-metric:nth-child(3){--metric:#8259d9;--metric-light:#f2eaff;--metric-shade:rgba(135,91,217,.09)}
+.bhs-luxury-metric:nth-child(4){--metric:#ed6b59;--metric-light:#fff0eb;--metric-shade:rgba(240,121,97,.09)}
+.bhs-luxury-metric:before {
+  height:4px;background:var(--metric);
+  left:20px;right:20px;border-radius:0 0 10px 10px;
+}
+.bhs-luxury-metric:after {
+  content:"";position:absolute;right:-48px;top:-52px;height:140px;width:140px;
+  border-radius:50%;background:var(--metric-shade);pointer-events:none;
+}
+.bhs-luxury-metric-top,.bhs-luxury-metric-label,.bhs-luxury-metric-value,.bhs-luxury-metric-footer{position:relative;z-index:1}
+.bhs-luxury-metric-icon {
+  background:var(--metric-light);color:var(--metric);
+  border-radius:13px;padding:11px;
+}
+.bhs-luxury-metric-value {color:#173454}
+.bhs-luxury-metric-number {color:#b5c4d6}
+.bhs-luxury-metric-footer>span {color:var(--metric)}
+.bhs-luxury-metric:not(.is-disabled):hover {
+  border-color:var(--metric);
+  box-shadow:0 15px 32px rgba(36,76,128,.10);
+}
+.bhs-luxury-section-header h2 {color:#1b3856}
+.bhs-luxury-text-action {color:#2568d6}
+.bhs-luxury-activity>.bg-white,
+.bhs-luxury-activity>div:last-child {border-radius:16px}
+.bhs-luxury-stats>div {border-radius:16px}
+.bhs-luxury-main :focus-visible {outline:2px solid #3b82f6;outline-offset:3px}
