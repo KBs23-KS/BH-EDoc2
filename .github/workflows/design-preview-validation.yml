@@ -18,5 +18,7 @@ jobs:
         run: node tests/test-numbering.cjs
       - name: Document workflow rules
         run: node tests/workflow-test.mjs
+      - name: Routing and assignment rules
+        run: node tests/routing-upgrade-test.mjs
       - name: Vite production build
         run: npm run build
