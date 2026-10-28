@@ -63,6 +63,7 @@ import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routi
 import {makeRoutingActions} from "./routingActions";
 import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace";
 import OrgHeads from "./OrgHeads";
+import {playNotification} from "./notificationSound";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -818,9 +819,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   useEffect(() => {
     if (latestNotifTime > lastNotifTime) {
       if (soundEnabled) {
-        const audio = new Audio("https://actions.google.com/sounds/v1/ui/message_notification.ogg");
-        audio.volume = soundVolume / 100;
-        audio.play().catch(e => console.log("Audio autoplay prevented by browser", e));
+        playNotification(soundVolume).catch(()=>{});
       }
       setLastNotifTime(latestNotifTime);
     }
@@ -955,7 +954,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                   <div className="bg-slate-50 border-b border-gray-200 px-4 py-3 flex justify-between items-center">
                     <h3 className="font-bold text-gray-800 text-sm flex items-center"><Bell size={16} className="mr-1.5 text-blue-600"/> การแจ้งเตือน</h3>
                     <div className="flex items-center gap-2">
-                       <label className="flex items-center gap-1 text-xs text-slate-600"><Volume2 size={15}/><input aria-label="ความดังเสียงแจ้งเตือน" type="range" min="0" max="100" step="5" value={soundVolume} onChange={e=>setSoundVolume(Number(e.target.value))} className="w-20 accent-blue-600"/><span>{soundVolume}%</span></label>
+                       <label className="flex items-center gap-1 text-xs text-slate-600"><Volume2 size={15}/><input aria-label="ความดังเสียงแจ้งเตือน" type="range" min="0" max="100" step="5" value={soundVolume} onChange={e=>setSoundVolume(Number(e.target.value))} className="w-20 accent-blue-600"/><span>{soundVolume}%</span><button type="button" onClick={()=>playNotification(soundVolume)} className="text-blue-700 underline" title="ทดลองเสียง">ทดสอบ</button></label>
                        {notifications.length > 0 && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold">{notifications.length} รายการ</span>}
                     </div>
                   </div>
