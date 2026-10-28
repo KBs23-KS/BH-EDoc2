@@ -1,9 +1,12 @@
 import {doc,runTransaction,arrayUnion,getDoc,writeBatch} from "firebase/firestore";
 import {audienceSnapshot,canHeadAct,isFinalDoc,routeMessage,assignmentKey,headGroups} from "./routing";
+import {recipientsOf} from "./workflow";
 export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,user,users,settings,showToast}) {
  const audit=(name,id,detail)=>({action:name,userId:user.id,userName:user.name,role:user.role,targetType:"DOCUMENT",targetId:id,detail,timestamp:Date.now()});
  const item=(id)=>getDocumentRef(paths.documents,id);
  const auditRef=()=>doc(getCollectionRef(paths.audit));
+ // Preserve old recipients when upgrading legacy documents that predate recipient snapshots.
+ const previousRecipients=fresh=>Array.isArray(fresh.recipientsSnapshot)?fresh.recipientsSnapshot:recipientsOf(fresh,users).map(r=>({id:r.id,name:r.name,role:r.role||"teacher",addedBy:"legacy",reason:"ผู้รับเดิมก่อนอัปเกรด"}));
  const guarded=async (fn,success)=>{try{await fn();showToast(success,"success")}catch(e){showToast(e.message,"error");throw e;}};
  async function route(d,{groups=[],userIds=[],all=false,message="",supersedes=""}){
    if(!["admin","director"].includes(user.role))throw new Error("ไม่มีสิทธิ์เกษียณเอกสาร");
@@ -22,7 +25,7 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
      if(supersedes&&!userIds.length)throw new Error("กรุณาเลือกผู้รับมอบหมายใหม่");
      const event={...routeMessage("director",user,d),groups,userIds,all,message,...(supersedes?{supersedes}:{})};
      tx.update(ref,{routingEntries:[...(fresh.routingEntries||[]),event],
-       recipientsSnapshot:audienceSnapshot({groups,users:userIds,all},users,fresh.recipientsSnapshot||[],user.id,event.at),
+       recipientsSnapshot:audienceSnapshot({groups,users:userIds,all},users,previousRecipients(fresh),user.id,event.at),
        history:arrayUnion({action:"ผอ. เกษียณหนังสือ",by:user.id,byName:user.name,timestamp:event.at,detail:message||"แจ้งเพื่อทราบ"}),lastEventAt:event.at});
      tx.set(auditRef(),audit("เกษียณหนังสือ",d.id,message||"เพิ่มผู้รับ"));
    }),"เกษียณหนังสือสำเร็จ");
@@ -44,7 +47,7 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
      if(reassign&&!userIds.length)throw new Error("กรุณาเลือกครูผู้รับมอบหมายใหม่");
      const event={...routeMessage("head",user,d),group,userIds,message,...(old?{supersedes:old.id}:{})};
      tx.update(ref,{headActions:[...(fresh.headActions||[]),event],
-       recipientsSnapshot:audienceSnapshot({users:userIds},users,fresh.recipientsSnapshot||[],user.id,event.at),
+       recipientsSnapshot:audienceSnapshot({users:userIds},users,previousRecipients(fresh),user.id,event.at),
        history:arrayUnion({action:reassign?"หัวหน้าเปลี่ยนผู้รับมอบหมาย":userIds.length?"หัวหน้าเกษียณต่อ":"หัวหน้ารับทราบ",by:user.id,byName:user.name,timestamp:event.at,detail:group+" "+message}),
        lastEventAt:event.at});
      tx.set(auditRef(),audit(reassign?"หัวหน้าเปลี่ยนผู้รับมอบหมาย":userIds.length?"หัวหน้าเกษียณต่อ":"หัวหน้ารับทราบ",d.id,group));
