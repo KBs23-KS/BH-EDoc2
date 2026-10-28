@@ -161,10 +161,7 @@
   height:4px;background:var(--metric);
   left:20px;right:20px;border-radius:0 0 10px 10px;
 }
-.bhs-luxury-metric:after {
-  content:"";position:absolute;right:-48px;top:-52px;height:140px;width:140px;
-  border-radius:50%;background:var(--metric-shade);pointer-events:none;
-}
+.bhs-luxury-metric:after{content:none;display:none}
 .bhs-luxury-metric-top,.bhs-luxury-metric-label,.bhs-luxury-metric-value,.bhs-luxury-metric-footer{position:relative;z-index:1}
 .bhs-luxury-metric-icon {
   background:var(--metric-light);color:var(--metric);
