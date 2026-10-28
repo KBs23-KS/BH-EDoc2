@@ -231,3 +231,22 @@
  .bhs-modern-panel iframe{min-height:280px}
 }
 @media print{.bhs-luxury-dashboard .bhs-luxury-pageheading{background:#fff;box-shadow:none}}
+
+
+/* Transform long document/number registers into readable cards on narrow screens. */
+@media (max-width:720px){
+ .bhs-luxury-main .bhs-doc-table,.bhs-luxury-main .bhs-reservation-table{display:block!important;width:100%!important;min-width:0!important}
+ .bhs-luxury-main .bhs-doc-table thead,.bhs-luxury-main .bhs-reservation-table thead{display:none}
+ .bhs-luxury-main .bhs-doc-table tbody,.bhs-luxury-main .bhs-reservation-table tbody{display:grid;gap:12px;padding:12px;background:#f6f8fc}
+ .bhs-luxury-main .bhs-doc-table tbody tr,.bhs-luxury-main .bhs-reservation-table tbody tr{display:block;border:1px solid #e4ecf7;border-radius:14px;background:#fff!important;box-shadow:0 3px 12px rgba(21,66,125,.04);overflow:hidden}
+ .bhs-luxury-main .bhs-doc-table tbody td,.bhs-luxury-main .bhs-reservation-table tbody td{display:block;width:100%!important;min-width:0!important;padding:12px 14px!important;border:0!important}
+ .bhs-luxury-main .bhs-doc-table tbody td+td,.bhs-luxury-main .bhs-reservation-table tbody td+td{border-top:1px solid #eff3f9!important}
+ .bhs-luxury-main .bhs-reservation-table tbody td::before{display:block;font-size:10px;text-transform:none;color:#7788a3;font-weight:700;margin-bottom:4px}
+ .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(1)::before{content:"เลขที่หนังสือ / เลขคำสั่ง"}
+ .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(2)::before{content:"เรื่อง"}
+ .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(3)::before{content:"วันที่"}
+ .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(4)::before{content:"ผู้รับผิดชอบ"}
+ .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(5)::before{content:"กลุ่มงานหรือกลุ่มสาระ"}
+ .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(6)::before{content:"หมายเหตุและไฟล์แนบ"}
+ .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(7)::before{content:"จัดการ"}
+}
