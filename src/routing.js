@@ -45,7 +45,9 @@ export function pendingHeadGroups(doc,user,settings) {
   return isFinalDoc(doc) ? headGroups(user,settings).filter(g=>routingGroups(doc).includes(g.group)&&!headCompleted(doc,g.group)) : [];
 }
 export function assignedEvents(doc,user) {
-  return [...(doc?.routingEntries||[]),...(doc?.headActions||[])].filter(e=>(e.userIds||[]).includes(user.id));
+  const events=[...(doc?.routingEntries||[]),...(doc?.headActions||[])];
+  const superseded=new Set(events.map(e=>e.supersedes).filter(Boolean));
+  return events.filter(e=>!superseded.has(e.id)&&(e.userIds||[]).includes(user.id));
 }
 export function assignmentKey(entry,userId){return String(entry.id)+"::"+String(userId);}
 export function pendingAssignmentEvents(doc,user) {
@@ -67,7 +69,7 @@ export function routingAlerts(docs,user,settings) {
   for(const d of docs||[]) {
     if(!isFinalDoc(d)||d.isDeleted)continue;
     for(const g of pendingHeadGroups(d,user,settings))items.push({id:"head:"+d.id+":"+g.group,docId:d.id,title:"หนังสือรอเกษียณต่อ",desc:d.subject,detail:g.group,time:d.publishedAt||d.createdAt||0,type:"warning",targetMenu:"routing"});
-    for(const e of pendingAssignmentEvents(d,user))items.push({id:"assignment:"+d.id+":"+e.id,docId:d.id,entryId:e.id,title:e.kind==="director"?"ผอ. เกษียณหนังสือถึงคุณ":"คุณได้รับมอบหมายงานใหม่",desc:d.subject,detail:e.message||"",time:e.at||d.publishedAt||0,type:"warning",targetMenu:"document_detail"});
+    for(const e of pendingAssignmentEvents(d,user))items.push({id:"assignment:"+d.id+":"+e.id,docId:d.id,entryId:e.id,title:e.supersedes?"มีการเปลี่ยนผู้รับมอบหมาย":e.kind==="director"?"ผอ. เกษียณหนังสือถึงคุณ":"คุณได้รับมอบหมายงานใหม่",desc:d.subject,detail:e.message||"",time:e.at||d.publishedAt||0,type:"warning",targetMenu:"document_detail"});
   }
   return items;
 }
