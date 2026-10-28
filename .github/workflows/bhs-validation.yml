@@ -1,0 +1,23 @@
+name: BHS E-Document validation
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  build-and-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: |
+          if test -f package-lock.json; then npm ci; else npm install --no-audit --no-fund; fi
+      - name: Test numbering
+        run: node tests/test-numbering.cjs
+      - name: Test workflow rules
+        run: node tests/workflow-test.mjs
+      - name: Production build
+        run: npm run build

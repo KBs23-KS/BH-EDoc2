@@ -198,6 +198,17 @@ const commitDocumentWithAudit = async (user, docId, updates, action, detail) => 
   batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(user, action, "DOCUMENT", docId, detail));
   await batch.commit();
 };
+// Commit the data mutation and its audit log in one Firestore batch.
+const commitEntityWithAudit = async (user, path, id, operation, data, action, targetType, detail = "") => {
+  const batch = writeBatch(db);
+  const ref = getDocumentRef(path, id);
+  if (operation === "set") batch.set(ref, data);
+  else if (operation === "delete") batch.delete(ref);
+  else if (operation === "update") batch.update(ref, data);
+  else throw new Error("Unsupported audited operation");
+  batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(user, action, targetType, id, detail));
+  await batch.commit();
+};
 const fileIdentity = (item) => JSON.stringify([(item.files||[]).map(f=>f.driveId||f.url||f.name),item.activeFileVersion||1,item.status]);
 const commitCheckedAction = async (user, item, updates, action, detail) => {
   const ref=getDocumentRef(DOCS_PATH,item.id);
@@ -349,8 +360,7 @@ function ForcePasswordChange({ user, onPasswordChanged, showToast, onLogout, sys
 
     setLoading(true);
     try {
-      await updateDoc(getDocumentRef(USERS_PATH, user.id), { password: newPassword });
-      writeAuditLog(user, "เปลี่ยนรหัสผ่าน", "AUTH", user.id, "บังคับเปลี่ยนรหัสผ่านเริ่มต้น");
+      await commitEntityWithAudit(user, USERS_PATH, user.id, "update", { password: newPassword }, "เปลี่ยนรหัสผ่าน", "AUTH", "บังคับเปลี่ยนรหัสผ่านเริ่มต้น");
       showToast("เปลี่ยนรหัสผ่านสำเร็จ!", "success");
       onPasswordChanged(newPassword);
     } catch (err) {
@@ -992,8 +1002,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                if(np !== cp) return showToast("รหัสผ่านไม่ตรงกัน", "error");
                if(np.length < 6) return showToast("รหัสผ่านต้องมี 6 ตัวอักษรขึ้นไป", "error");
                try {
-                 await updateDoc(getDocumentRef(USERS_PATH, currentUser.id), { password: np });
-                 writeAuditLog(currentUser, "เปลี่ยนรหัสผ่าน", "AUTH", currentUser.id, "ผู้ใช้เปลี่ยนรหัสผ่านของตนเอง");
+                 await commitEntityWithAudit(currentUser, USERS_PATH, currentUser.id, "update", { password: np }, "เปลี่ยนรหัสผ่าน", "AUTH", "ผู้ใช้เปลี่ยนรหัสผ่านของตนเอง");
                  showToast("เปลี่ยนรหัสผ่านสำเร็จ!", "success");
                  setChangePasswordModal(false);
                } catch(err) { showToast(err.message, "error"); }
@@ -1099,11 +1108,10 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
       if (form.id) {
         const original = reservations.find(r => r.id === form.id);
         if (original?.status === "canceled") throw new Error("ต้องใช้เมนูคืนเลขที่ยกเลิกสำหรับรายการนี้");
-        await updateDoc(getDocumentRef(OUTGOING_RESERVE_PATH, form.id), {
+        await commitEntityWithAudit(currentUser, OUTGOING_RESERVE_PATH, form.id, "update", {
           subject: payload.subject, responsibleDept: payload.responsibleDept,
           remark: payload.remark, updatedAt: Date.now(), updatedBy: currentUser.id
-        });
-        writeAuditLog(currentUser, "แก้ไขรายการจองเลข", "OUT", form.id, payload.subject);
+        }, "แก้ไขรายการจองเลข", "OUT", payload.subject);
         showToast("แก้ไขข้อมูลสำเร็จ", "success");
       } else {
         const number = await reserveSequentialNumber({
@@ -1153,12 +1161,11 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
       const existingFiles = currentRes.attachedFiles || (currentRes.attachedFile ? [currentRes.attachedFile] : []);
       const newFilesArray = [...existingFiles, ...uploadedFiles];
 
-      await updateDoc(getDocumentRef(OUTGOING_RESERVE_PATH, resId), {
+      await commitEntityWithAudit(currentUser, OUTGOING_RESERVE_PATH, resId, "update", {
         attachedFiles: newFilesArray,
         updatedAt: Date.now(),
         updatedBy: currentUser.id
-      });
-      writeAuditLog(currentUser, "อัปโหลดไฟล์หนังสือออก", "OUTGOING_RESERVATION", resId, `อัปโหลด ${files.length} ไฟล์`);
+      }, "อัปโหลดไฟล์หนังสือออก", "OUTGOING_RESERVATION", `อัปโหลด ${files.length} ไฟล์`);
       showToast("อัปโหลดไฟล์สำเร็จ", "success");
     } catch (err) {
       showToast("อัปโหลดไฟล์ไม่สำเร็จ: " + err.message, "error");
@@ -1472,11 +1479,10 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
         const original = reservations.find(r => r.id === form.id);
         if (original?.status === "canceled") throw new Error("ต้องใช้เมนูคืนเลขที่ยกเลิกสำหรับรายการนี้");
         if (original?.linkedDocumentId) throw new Error("เลขนี้เชื่อมกับเอกสารคำสั่งแล้ว กรุณาแก้ที่เอกสารคำสั่ง");
-        await updateDoc(getDocumentRef(ORDER_RESERVE_PATH, form.id), {
+        await commitEntityWithAudit(currentUser, ORDER_RESERVE_PATH, form.id, "update", {
           subject: payload.subject, responsibleDept: payload.responsibleDept,
           remark: payload.remark, updatedAt: Date.now(), updatedBy: currentUser.id
-        });
-        writeAuditLog(currentUser, "แก้ไขรายการจองเลข", "ORDER", form.id, payload.subject);
+        }, "แก้ไขรายการจองเลข", "ORDER", payload.subject);
         showToast("แก้ไขข้อมูลสำเร็จ", "success");
       } else {
         const number = await reserveSequentialNumber({
@@ -1875,8 +1881,7 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   
   const handleRestore = async (docId) => {
     try {
-      await updateDoc(getDocumentRef(DOCS_PATH, docId), { isDeleted: false });
-      writeAuditLog(currentUser, "กู้คืนเอกสาร", "DOCUMENT", docId, "กู้คืนเอกสารจากถังขยะ");
+      await commitDocumentWithAudit(currentUser, docId, { isDeleted: false }, "กู้คืนเอกสาร", "กู้คืนเอกสารจากถังขยะ");
       showToast("กู้คืนเอกสารสำเร็จ", "success");
     } catch(err) { showToast(err.message, "error"); }
   };
@@ -1884,8 +1889,7 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   const handlePermanentDelete = async (docId) => {
     if(window.confirm("คุณแน่ใจหรือไม่ที่จะลบเอกสารนี้ถาวร? ข้อมูลจะไม่สามารถกู้คืนได้")) {
       try {
-        await deleteDoc(getDocumentRef(DOCS_PATH, docId));
-        writeAuditLog(currentUser, "ลบเอกสารถาวร", "DOCUMENT", docId, "ลบเอกสารออกจากฐานข้อมูลอย่างถาวร");
+        await commitEntityWithAudit(currentUser, DOCS_PATH, docId, "delete", null, "ลบเอกสารถาวร", "DOCUMENT", "ลบเอกสารออกจากฐานข้อมูลอย่างถาวร");
         showToast("ลบถาวรสำเร็จ", "success");
       } catch(err) { showToast(err.message, "error"); }
     }
@@ -2296,7 +2300,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
     if(!editForm.subject || !editForm.from || !editForm.date) return showToast("กรุณากรอกข้อมูลให้ครบถ้วน", "error");
     setIsSavingEdit(true);
     try {
-      await updateDoc(getDocumentRef(DOCS_PATH, docToEdit.id), { 
+      await commitDocumentWithAudit(currentUser, docToEdit.id, { 
         subject: editForm.subject, 
         docNumber: editForm.docNumber,
         date: editForm.date, 
@@ -2304,8 +2308,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
         from: editForm.from, 
         type: editForm.type,
         history: arrayUnion({ action: "ผู้ดูแลระบบแก้ไขข้อมูล", by: currentUser.id, byName: currentUser.name, role: ROLES[currentUser.role.toUpperCase()]?.name, timestamp: Date.now(), detail: "-" })
-      });
-      writeAuditLog(currentUser, "แก้ไขเอกสาร", "DOCUMENT", docToEdit.id, `แก้ไขเรื่อง: ${editForm.subject}`);
+      }, "แก้ไขเอกสาร", `แก้ไขเรื่อง: ${editForm.subject}`);
       showToast("แก้ไขข้อมูลเอกสารสำเร็จ", "success");
       setDocToEdit(null);
     } catch(err) {
@@ -2974,8 +2977,7 @@ function SystemSettingsView({ systemSettings, showToast, currentUser }) {
     if (!form.schoolName || !form.schoolLogoText) return showToast("กรุณาระบุชื่อโรงเรียนและอักษรย่อ", "error");
     setIsSaving(true);
     try {
-      await setDoc(getDocumentRef(SETTINGS_PATH, 'system'), form);
-      writeAuditLog(currentUser, "แก้ไขการตั้งค่าระบบ", "SYSTEM", "settings", "อัปเดตข้อมูลโรงเรียน/กลุ่มงาน");
+      await commitEntityWithAudit(currentUser, SETTINGS_PATH, "system", "set", form, "แก้ไขการตั้งค่าระบบ", "SYSTEM", "อัปเดตข้อมูลโรงเรียน/กลุ่มงาน");
       showToast("บันทึกการตั้งค่าระบบเรียบร้อยแล้ว", "success");
     } catch (e) {
       showToast(e.message, "error");
@@ -3113,8 +3115,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const toggleStatus = async (user) => {
     const newStatus = user.status === "inactive" ? "active" : "inactive";
     try {
-      await updateDoc(getDocumentRef(USERS_PATH, user.id), { status: newStatus });
-      writeAuditLog(currentUser, newStatus === "active" ? "เปิดใช้งานผู้ใช้" : "ปิดใช้งานผู้ใช้", "USER", user.id, `ผู้ใช้: ${user.name}`);
+      await commitEntityWithAudit(currentUser, USERS_PATH, user.id, "update", { status: newStatus }, newStatus === "active" ? "เปิดใช้งานผู้ใช้" : "ปิดใช้งานผู้ใช้", "USER", `ผู้ใช้: ${user.name}`);
       showToast(`เปลี่ยนสถานะบัญชี ${user.name} เป็น ${newStatus} แล้ว`, "success");
     } catch (err) {
       showToast(err.message, "error");
@@ -3141,12 +3142,10 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
       if (modalMode === 'add') {
         userProfile.id = `U${Date.now()}`;
         if (!userProfile.password) userProfile.password = "123456";
-        await setDoc(getDocumentRef(USERS_PATH, userProfile.id), userProfile);
-        writeAuditLog(currentUser, "เพิ่มผู้ใช้", "USER", userProfile.id, `ชื่อ: ${userProfile.name}, Username: ${userProfile.username}`);
+        await commitEntityWithAudit(currentUser, USERS_PATH, userProfile.id, "set", userProfile, "เพิ่มผู้ใช้", "USER", `ชื่อ: ${userProfile.name}, Username: ${userProfile.username}`);
         showToast("เพิ่มผู้ใช้สำเร็จ", "success");
       } else if (modalMode === 'edit') {
-        await updateDoc(getDocumentRef(USERS_PATH, userProfile.id), userProfile);
-        writeAuditLog(currentUser, "แก้ไขผู้ใช้", "USER", userProfile.id, `แก้ไขข้อมูลของ: ${userProfile.name}`);
+        await commitEntityWithAudit(currentUser, USERS_PATH, userProfile.id, "update", userProfile, "แก้ไขผู้ใช้", "USER", `แก้ไขข้อมูลของ: ${userProfile.name}`);
         showToast("แก้ไขข้อมูลผู้ใช้สำเร็จ", "success");
       }
       
@@ -3160,8 +3159,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const executeDelete = async () => {
     if(!userToDelete) return;
     try {
-      await deleteDoc(getDocumentRef(USERS_PATH, userToDelete));
-      writeAuditLog(currentUser, "ลบผู้ใช้", "USER", userToDelete, "ลบบัญชีออกจากระบบถาวร");
+      await commitEntityWithAudit(currentUser, USERS_PATH, userToDelete, "delete", null, "ลบผู้ใช้", "USER", "ลบบัญชีออกจากระบบถาวร");
       showToast("ลบผู้ใช้สำเร็จ", "success");
     } catch(err) {
       showToast("ลบไม่สำเร็จ: " + err.message, "error");
