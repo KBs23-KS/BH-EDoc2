@@ -88,7 +88,7 @@ export function DocumentDetail({doc,allDocs=[],currentUser,dbUsers,systemSetting
   const target=recipients.some(x=>x.id===currentUser.id);
   const acked=(doc.acknowledgedBy||[]).includes(currentUser.id);
   const assigned=pendingAssignmentEvents(doc,currentUser);
-  const canRead=canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers);
+  const canRead=canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings);
   const visible=allDocs.filter(d=>canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers));
   const idx=visible.findIndex(d=>d.id===doc.id);
   const entries=[...(doc.history||[]).map(h=>({id:h.timestamp||h.time,actor:h.byName||h.role||"ระบบ",desc:h.action+(h.detail&&h.detail!=="-"?" — "+h.detail:""),date:h.timestamp||h.time})),...(doc.routingEntries||[]).map(e=>({id:e.id,actor:e.byName||"ผู้อำนวยการ",desc:"เกษียณ: "+(e.message||"แจ้งเพื่อทราบ"),date:e.at})),...(doc.headActions||[]).map(e=>({id:e.id,actor:e.byName||"หัวหน้ากลุ่ม",desc:e.group+" — "+(e.userIds?.length?"มอบหมายให้ "+e.userIds.length+" คน":"รับทราบ")+" "+(e.message||""),date:e.at}))].sort((a,b)=>(b.date||0)-(a.date||0));
