@@ -62,6 +62,7 @@ import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortU
 import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routingHistory,canViewRouted,isFinalDoc,audienceSnapshot,routeMessage} from "./routing";
 import {makeRoutingActions} from "./routingActions";
 import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace";
+import OrgHeads from "./OrgHeads";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -774,35 +775,35 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     return false;
   });
   pendingTasks.forEach(doc => {
-    notifications.push({ id: `task-${doc.id}`, title: "งานรอพิจารณา/ลงนาม", desc: doc.subject, type: "warning", time: eventTime(doc,doc.status===DOC_STATUS.WAITING_DIRECTOR?"director":"deputy"), targetMenu: "tasks" });
+    notifications.push({ docId:doc.id,id: `task-${doc.id}`, title: "งานรอพิจารณา/ลงนาม", desc: doc.subject, type: "warning", time: eventTime(doc,doc.status===DOC_STATUS.WAITING_DIRECTOR?"director":"deputy"), targetMenu: "tasks" });
   });
 
   const returnedDocs = activeDocs.filter(doc => doc.createdBy === currentUser.id && doc.status === DOC_STATUS.RETURNED);
   returnedDocs.forEach(doc => {
-    notifications.push({ id: `ret-${doc.id}`, title: "เอกสารส่งกลับแก้ไข", desc: doc.subject, type: "error", time: eventTime(doc,"returned"), targetMenu: "mydocs" });
+    notifications.push({ docId:doc.id,id: `ret-${doc.id}`, title: "เอกสารส่งกลับแก้ไข", desc: doc.subject, type: "error", time: eventTime(doc,"returned"), targetMenu: "mydocs" });
   });
 
   const isAcknowledgeRole = ["clerk", "teacher"].includes(currentUser.role);
   if (isAcknowledgeRole) {
     const unreadIncoming = activeDocs.filter(doc => doc.type === "หนังสือเข้า" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc));
     unreadIncoming.forEach(doc => {
-      notifications.push({ id: `inc-${doc.id}`, title: "หนังสือเข้าใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "incoming" });
+      notifications.push({ docId:doc.id,id: `inc-${doc.id}`, title: "หนังสือเข้าใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "incoming" });
     });
 
     const unreadOrders = activeDocs.filter(doc => doc.type === "คำสั่งโรงเรียน" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc));
     unreadOrders.forEach(doc => {
-      notifications.push({ id: `ord-${doc.id}`, title: "คำสั่งโรงเรียนใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "orders" });
+      notifications.push({ docId:doc.id,id: `ord-${doc.id}`, title: "คำสั่งโรงเรียนใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "orders" });
     });
 
     const unreadCirculars = activeDocs.filter(doc => doc.type === "หนังสือเวียนแจ้งรับทราบ" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc));
     unreadCirculars.forEach(doc => {
-      notifications.push({ id: `circ-${doc.id}`, title: "หนังสือเวียนแจ้งรับทราบใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "circulars" });
+      notifications.push({ docId:doc.id,id: `circ-${doc.id}`, title: "หนังสือเวียนแจ้งรับทราบใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "circulars" });
     });
   }
 
   reminders.filter(r=>r.targetUserId===currentUser.id &&
     !activeDocs.find(d=>d.id===r.docId)?.acknowledgedBy?.includes(currentUser.id)).forEach(r=>notifications.push({
-    id:r.id,title:"แจ้งเตือนให้รับทราบเอกสาร",desc:r.subject||r.docNumber,
+    docId:r.docId,id:r.id,title:"แจ้งเตือนให้รับทราบเอกสาร",desc:r.subject||r.docNumber,
     type:"warning",time:r.createdAt||0,targetMenu:r.targetMenu||"orders"
   }));
   notifications.push(...documentAlerts);
@@ -830,6 +831,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { id: "pending_report", label: "ติดตามงานค้าง", icon: <History size={20}/>, roles: ["admin","director","deputy","clerk","teacher"] },
     { id: "ack_report", label: "รายงานการรับทราบ", icon: <CheckCircle size={20}/>, roles: ["admin","director","deputy"] },
     { id: "export_register", label: "ส่งออกทะเบียน Excel/PDF", icon: <Download size={20}/>, roles: ["admin","director","deputy","clerk","teacher"] },
+    { id:"routing",label:"หนังสือรอเกษียณต่อ",icon:<FileSignature size={20}/>,roles:["admin","director","deputy","clerk","teacher"],badge:headCount },
+    { id:"assignments",label:"งานที่ได้รับมอบหมาย",icon:<CheckCircle size={20}/>,roles:["admin","director","deputy","clerk","teacher"],badge:assignmentCount },
     { id: "tasks", label: "งานที่ต้องดำเนินการ", icon: <FileSignature size={20} />, roles: ["admin", "director", "deputy"], badge: pendingTasks.length },
     { id: "incoming", label: "ทะเบียนหนังสือเข้า", icon: <Inbox size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"], badge: incomingUnreadCount },
     { id: "order_reservations", label: "เลขคำสั่งโรงเรียน", icon: <Hash size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"] },
@@ -843,12 +846,15 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { id: "trash", label: "ถังขยะ", icon: <Trash2 size={20} />, roles: ["admin"] },
   ];
 
-  const allowedMenus = menus.filter((m) => m.roles.includes(currentUser.role));
+  const allowedMenus = menus.filter((m) => m.roles.includes(currentUser.role) && (m.id!=="routing"||["admin","director"].includes(currentUser.role)||managedGroups.length>0));
 
   const navSections = [
-    { title: "ภาพรวมระบบ", ids: ["dashboard","global_search","pending_report","ack_report","export_register"] },
-    { title: "งานสารบรรณ", ids: ["tasks","incoming","order_reservations","orders","outgoing_reservations","circulars","mydocs"] },
-    { title: "จัดการระบบ", ids: ["users","settings","audit","trash"] }
+    { title:"ภาพรวม",ids:["dashboard"] },
+    { title:"งานของฉัน",ids:["tasks","routing","assignments","mydocs"] },
+    { title:"งานสารบรรณ",ids:["incoming","order_reservations","orders","outgoing_reservations","circulars"] },
+    { title:"รายงาน",ids:["ack_report"] },
+    { title:"บริหารระบบ",ids:["users","settings","audit","trash"] },
+    { title:"เครื่องมือเพิ่มเติม",ids:["global_search","pending_report","export_register"] }
   ];
 
   const SidebarContent = () => (
@@ -881,7 +887,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                     aria-current={activeMenu === m.id ? "page" : undefined}
                     className={`bhs-luxury-nav-link ${activeMenu === m.id ? "is-active" : ""}`}
                   >
-                    <span className="bhs-luxury-nav-icon">{m.icon}</span>
+                    <span className={"bhs-luxury-nav-icon bhs-nav-icon-"+m.id}>{m.icon}</span>
                     <span className="bhs-luxury-nav-text">{m.label}</span>
                     {m.badge > 0 && <span className="bhs-luxury-nav-count">{m.badge > 99 ? "99+" : m.badge}</span>}
                   </button>
@@ -1024,7 +1030,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           {activeMenu === "circulars" && <CircularsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "mydocs" && <MyDocsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "users" && <UserManagementView dbUsers={dbUsers} documents={documents} systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} />}
-          {activeMenu === "settings" && <SystemSettingsView systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} />}
+          {activeMenu === "settings" && <SystemSettingsView systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} dbUsers={dbUsers} />}
           {activeMenu === "audit" && <AuditLogView currentUser={currentUser} showToast={showToast} />}
           {activeMenu === "trash" && <TrashView documents={documents} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast} />}
 
@@ -3012,7 +3018,7 @@ function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettin
   );
 }
 
-function SystemSettingsView({ systemSettings, showToast, currentUser }) {
+function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers }) {
   const [form, setForm] = useState(systemSettings);
   const [newDept, setNewDept] = useState("");
   const [newSubj, setNewSubj] = useState("");
@@ -3111,6 +3117,7 @@ function SystemSettingsView({ systemSettings, showToast, currentUser }) {
           </div>
         </div>
       </div>
+      <OrgHeads form={form} setForm={setForm} dbUsers={dbUsers}/>
     </div>
   );
 }
