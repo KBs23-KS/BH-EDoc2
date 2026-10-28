@@ -2029,8 +2029,15 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
     const isDirectorStage = currentUser.role === "director" || (currentUser.role === "admin" && docObj.status === DOC_STATUS.WAITING_DIRECTOR);
     const isDeputyStage = currentUser.role === "deputy" || (currentUser.role === "admin" && docObj.status === DOC_STATUS.WAITING_DEPUTY);
     
-    if (actionType === "APPROVE" && isDirectorStage && docObj.type === "หนังสือเข้า" && !docInput.assign) {
-      return showToast("กรุณาระบุกลุ่มงานที่มอบหมาย หรือเลือก แจ้งทุกคน", "error");
+    if (actionType === "APPROVE" && isDirectorStage && docObj.type === "หนังสือเข้า") {
+      const groupIds=docInput.routeGroups||[],individualIds=docInput.routeUserIds||[];
+      if(!docInput.routeAll&&!groupIds.length&&!individualIds.length)
+        return showToast("กรุณาเลือกกลุ่มงาน กลุ่มสาระ หรือครูผู้รับอย่างน้อยหนึ่งรายการ","error");
+      if(!signedPdf) {
+        const names=individualIds.map(id=>dbUsers.find(u=>u.id===id)?.name).filter(Boolean);
+        const message="ตรวจสอบก่อนเกษียณหนังสือ:\nเรื่อง "+docObj.subject+"\nกลุ่ม: "+(docInput.routeAll?"ทุกคน":groupIds.join(", ")||"—")+"\nถึงครู: "+(names.join(", ")||"—")+"\nข้อสั่งการ: "+(docInput.command||"อนุมัติ / ดำเนินการ")+"\n\nยืนยันการเกษียณ?";
+        if(!window.confirm(message))return;
+      }
     }
 
     if (actionType === "APPROVE" && isDirectorStage && docObj.type === "คำสั่งโรงเรียน" && !signedPdf) {
@@ -2101,14 +2108,19 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
         const cmdTxt = docInput.command || "อนุมัติ / ดำเนินการ";
         setUploadStatus("กำลังบันทึกข้อมูลลงฐานระบบ...");
         const publishAt=Date.now();
-        const recipientList=recipientSnapshot({...docObj,assignedTo:docInput.assign || (docObj.type === "คำสั่งโรงเรียน" ? "ทุกคน" : docObj.assignedTo)},dbUsers,publishAt);
+        const groups=docInput.routeGroups||[];
+        const userIds=docInput.routeUserIds||[];
+        const all=docObj.type==="หนังสือเข้า"?!!docInput.routeAll:true;
+        const recipientList=audienceSnapshot({groups,users:userIds,all},dbUsers,[],currentUser.id,publishAt);
+        const routingEntry={...routeMessage("director",currentUser,docObj),at:publishAt,groups,userIds,all,message:cmdTxt};
         updates = {
           recipientsSnapshot:recipientList,
+          routingEntries:[...(docObj.routingEntries||[]),routingEntry],
           lastEventAt: publishAt,
           status: docObj.type === "คำสั่งโรงเรียน" || docObj.type === "หนังสือเวียนแจ้งรับทราบ" ? DOC_STATUS.PUBLISHED : DOC_STATUS.COMPLETED,
           publishedAt: Date.now(),
           directorCommand: cmdTxt,
-          assignedTo: docInput.assign || (docObj.type === "คำสั่งโรงเรียน" ? "ทุกคน" : ""),
+          assignedTo: all?"ทุกคน":groups.length===1?groups[0]:groups.length?"หลายกลุ่ม":userIds.length?"ระบุบุคคล":"",
           signedFiles: uploadedSignedFiles,
           history: arrayUnion(createHistoryEntry("อนุมัติและเผยแพร่", cmdTxt))
         };
@@ -2221,14 +2233,12 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                 <div className="space-y-4 pt-4 border-t border-gray-100">
                   <textarea className="w-full border rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500" rows="2" placeholder="ข้อสั่งการ หรือ เหตุผลกรณีส่งกลับแก้ไข..." value={inputs[docObj.id]?.command || ""} onChange={(e) => handleInput(docObj.id, "command", e.target.value)}></textarea>
                   {docObj.type === "หนังสือเข้า" && (
-                    <div>
-                      <label className="text-xs md:text-sm font-bold text-gray-700 block mb-1">กลุ่มงานที่ต้องดำเนินการต่อ <span className="text-red-500">*</span></label>
-                      <select className="w-full border rounded-lg p-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500" value={inputs[docObj.id]?.assign || ""} onChange={(e) => handleInput(docObj.id, "assign", e.target.value)}>
-                        <option value="">-- กรุณาเลือกผู้รับผิดชอบ --</option>
-                        <option value="ทุกคน" className="font-bold text-blue-600">แจ้งทุกคน (All)</option>
-                        <optgroup label="กลุ่มบริหารงาน">{systemSettings.adminDepts.map((d) => <option key={d}>{d}</option>)}</optgroup>
-                        <optgroup label="กลุ่มสาระ">{systemSettings.subjectAreas.map((d) => <option key={d}>{d}</option>)}</optgroup>
-                      </select>
+                    <div className="bg-slate-50 border rounded-xl p-3 space-y-2">
+                      <p className="font-bold text-sm text-slate-700">เลือกกลุ่มงาน กลุ่มสาระ หรือครูโดยตรง</p>
+                      <RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings}
+                        groups={inputs[docObj.id]?.routeGroups||[]} setGroups={v=>handleInput(docObj.id,"routeGroups",v)}
+                        userIds={inputs[docObj.id]?.routeUserIds||[]} setUserIds={v=>handleInput(docObj.id,"routeUserIds",v)}
+                        all={!!inputs[docObj.id]?.routeAll} setAll={v=>handleInput(docObj.id,"routeAll",v)} allowAll/>
                     </div>
                   )}
                   {docObj.type === "หนังสือเวียนแจ้งรับทราบ" && (
