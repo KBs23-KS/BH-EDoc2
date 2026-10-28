@@ -1280,7 +1280,7 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
         </div>
         
         <div className="overflow-x-auto custom-scrollbar w-full pb-1">
-          <table className="min-w-[1000px] w-full text-left text-sm text-gray-600">
+          <table className="bhs-reservation-table min-w-[1000px] w-full text-left text-sm text-gray-600">
             <thead className="bg-blue-50 text-[#003366] text-xs uppercase font-bold border-b border-gray-200">
               <tr>
                 <th className="px-5 py-3.5 w-24">เลขที่</th>
@@ -1648,7 +1648,7 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
         </div>
         
         <div className="overflow-x-auto custom-scrollbar w-full pb-1">
-          <table className="min-w-[1000px] w-full text-left text-sm text-gray-600">
+          <table className="bhs-reservation-table min-w-[1000px] w-full text-left text-sm text-gray-600">
             <thead className="bg-blue-50 text-[#003366] text-xs uppercase font-bold border-b border-gray-200">
               <tr>
                 <th className="px-5 py-3.5 w-24">เลขที่</th>
@@ -2493,7 +2493,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
       )}
       
       <div className="overflow-x-auto w-full">
-        <table className="min-w-full text-left text-sm text-gray-600">
+        <table className="bhs-doc-table min-w-full text-left text-sm text-gray-600">
           <thead className="bg-gray-50 text-gray-700 text-xs uppercase font-bold border-b border-gray-200">
             <tr>
               <th className="px-4 md:px-5 py-3 md:py-4 min-w-[200px] md:min-w-[300px]">รายละเอียดเอกสาร</th>
@@ -2518,6 +2518,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                        </span>
                     )}
                     {docObj.subject}
+                    <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5 whitespace-nowrap">แนบ {(docObj.files?.length||0)+(docObj.signedFiles?.length||0)+(docObj.extraAttachments?.length||0)} ไฟล์</span>
                     {docObj.date === getTodayIso() && <span className="text-[9px] md:text-[10px] bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-sm px-2 py-0.5 rounded-full whitespace-nowrap">ใหม่ วันนี้</span>}
                   </div>
                   <div className="text-[11px] md:text-xs text-gray-500 mb-0.5 flex flex-wrap gap-x-3 gap-y-1">
