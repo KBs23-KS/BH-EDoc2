@@ -1,0 +1,22 @@
+name: BHS Design Preview Validation
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install packages
+        run: npm install --no-audit --no-fund
+      - name: Numbering rules
+        run: node tests/test-numbering.cjs
+      - name: Document workflow rules
+        run: node tests/workflow-test.mjs
+      - name: Vite production build
+        run: npm run build

@@ -802,73 +802,85 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
 
   const allowedMenus = menus.filter((m) => m.roles.includes(currentUser.role));
 
+  const navSections = [
+    { title: "ภาพรวมระบบ", ids: ["dashboard","global_search","pending_report","ack_report","export_register"] },
+    { title: "งานสารบรรณ", ids: ["tasks","incoming","order_reservations","orders","outgoing_reservations","circulars","mydocs"] },
+    { title: "จัดการระบบ", ids: ["users","settings","audit","trash"] }
+  ];
+
   const SidebarContent = () => (
     <>
-      <div className="flex flex-col items-center justify-center h-32 border-b border-blue-800 p-4 shrink-0">
-        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mb-2 shadow-lg">
-          <span className="text-[#003366] font-bold text-xl">{systemSettings.schoolLogoText || "บ.ศ."}</span>
+      <div className="bhs-luxury-brand">
+        <div className="bhs-luxury-emblem" aria-hidden="true">
+          <span>{systemSettings.schoolLogoText || "บ.ศ."}</span>
         </div>
-        <h1 className="text-sm font-bold text-center text-[#D4AF37] leading-tight break-words line-clamp-2">{systemSettings.schoolName || "BHS E-Document"}</h1>
-      </div>
-      <div className="flex-1 overflow-y-auto custom-scrollbar py-4 px-2">
-        <nav className="space-y-1">
-          {allowedMenus.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => { setActiveMenu(m.id); setIsMobileMenuOpen(false); }}
-              className={`w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-colors outline-none focus:ring-2 focus:ring-[#D4AF37]/50 ${
-                activeMenu === m.id ? "bg-[#0055A4] text-white shadow-md border-l-4 border-[#D4AF37]" : "text-blue-100 hover:bg-blue-800 hover:text-white"
-              }`}
-            >
-              {m.icon} <span className="ml-3 flex-1 text-left">{m.label}</span>
-              {m.badge > 0 && <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">{m.badge}</span>}
-            </button>
-          ))}
-        </nav>
-      </div>
-      <div className="p-3 border-t border-blue-800 flex flex-col gap-2 text-blue-100 shrink-0">
-        <div className="flex items-center min-w-0 px-1 mb-1">
-          <div className="w-9 h-9 rounded-full bg-blue-800 flex items-center justify-center text-sm font-bold shrink-0 border border-blue-700">
-            {currentUser.name.charAt(0)}
-          </div>
-          <div className="ml-2 min-w-0">
-            <p className="text-sm font-bold leading-none truncate text-white">{currentUser.name}</p>
-            <p className="text-[10px] text-blue-300 mt-1.5 truncate uppercase tracking-wide">{ROLES[currentUser.role.toUpperCase()]?.name}</p>
+        <div className="bhs-luxury-brand-copy">
+          <div className="bhs-luxury-wordmark">BHS <span>E-DOCUMENT</span></div>
+          <div className="bhs-luxury-subbrand">ระบบสารบรรณอิเล็กทรอนิกส์</div>
+          <div className="bhs-luxury-school" title={systemSettings.schoolName || "โรงเรียนบ้านแฮดศึกษา"}>
+            {systemSettings.schoolName || "โรงเรียนบ้านแฮดศึกษา"}
           </div>
         </div>
-        <div className="flex flex-col gap-2 mt-1">
-          <button onClick={() => setChangePasswordModal(true)} className="w-full text-xs py-2 bg-[#004080] hover:bg-[#0055A4] border border-[#0055A4] rounded-lg flex items-center justify-center transition-colors text-blue-50">
-            <KeyRound size={14} className="mr-1.5" /> เปลี่ยนรหัสผ่าน
-          </button>
-          <button onClick={onLogout} className="w-full text-xs py-2 bg-red-500 hover:bg-red-400 border border-red-400 rounded-lg flex items-center justify-center transition-colors text-white font-bold shadow-md">
-            <LogOut size={14} className="mr-1.5" /> ออกจากระบบ
-          </button>
+      </div>
+      <div className="bhs-luxury-nav custom-scrollbar">
+        {navSections.map(section => {
+          const entries = allowedMenus.filter(m => section.ids.includes(m.id));
+          if (!entries.length) return null;
+          return (
+            <section key={section.title} className="bhs-luxury-nav-section">
+              <p className="bhs-luxury-nav-caption">{section.title}</p>
+              <nav aria-label={section.title}>
+                {entries.map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => { setActiveMenu(m.id); setIsMobileMenuOpen(false); }}
+                    aria-current={activeMenu === m.id ? "page" : undefined}
+                    className={`bhs-luxury-nav-link ${activeMenu === m.id ? "is-active" : ""}`}
+                  >
+                    <span className="bhs-luxury-nav-icon">{m.icon}</span>
+                    <span className="bhs-luxury-nav-text">{m.label}</span>
+                    {m.badge > 0 && <span className="bhs-luxury-nav-count">{m.badge > 99 ? "99+" : m.badge}</span>}
+                  </button>
+                ))}
+              </nav>
+            </section>
+          );
+        })}
+      </div>
+      <div className="bhs-luxury-account">
+        <div className="bhs-luxury-avatar">{currentUser.name.charAt(0)}</div>
+        <div className="bhs-luxury-account-info">
+          <div className="bhs-luxury-account-name" title={currentUser.name}>{currentUser.name}</div>
+          <div className="bhs-luxury-account-role">{ROLES[currentUser.role.toUpperCase()]?.name}</div>
         </div>
+        <button type="button" onClick={() => setChangePasswordModal(true)} className="bhs-luxury-account-control" title="เปลี่ยนรหัสผ่าน" aria-label="เปลี่ยนรหัสผ่าน"><KeyRound size={17}/></button>
+        <button type="button" onClick={onLogout} className="bhs-luxury-account-control" title="ออกจากระบบ" aria-label="ออกจากระบบ"><LogOut size={17}/></button>
       </div>
     </>
   );
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 overflow-hidden">
+    <div className="bhs-luxury-shell flex h-screen w-full overflow-hidden">
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
           <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={() => setIsMobileMenuOpen(false)}></div>
-          <aside className="relative w-72 max-w-[80%] h-full bg-[#003366] text-white shadow-xl z-50 flex flex-col">
+          <aside className="bhs-luxury-sidebar relative w-72 max-w-[85%] h-full z-50 flex flex-col">
             <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-4 right-4 text-blue-100 hover:text-white"><X size={24} /></button>
             <SidebarContent />
           </aside>
         </div>
       )}
       
-      <aside className="hidden md:flex flex-col w-64 shrink-0 bg-[#003366] text-white shadow-xl z-20">
+      <aside className="bhs-luxury-sidebar hidden md:flex flex-col w-[278px] shrink-0 z-20">
         <SidebarContent />
       </aside>
       
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <header className="bg-white shadow-sm z-10 border-b border-gray-200 flex justify-between items-center px-4 md:px-6 h-16 shrink-0">
+        <header className="bhs-luxury-topbar z-10 flex justify-between items-center px-4 md:px-8 h-[74px] shrink-0">
           <div className="flex items-center">
             <button onClick={() => setIsMobileMenuOpen(true)} className="text-gray-500 hover:text-gray-700 mr-4 md:hidden"><Menu size={24} /></button>
-            <h2 className="text-lg font-bold text-gray-800 truncate md:hidden">{allowedMenus.find((m) => m.id === activeMenu)?.label}</h2>
+            <h2 className="text-lg font-semibold text-[#17324a] truncate md:hidden">{allowedMenus.find((m) => m.id === activeMenu)?.label}</h2><div className="hidden md:flex items-center gap-3"><span className="bhs-luxury-topbar-kicker">BHS / E-DOCUMENT</span><span className="bhs-luxury-topbar-divider"></span><span className="bhs-luxury-topbar-title">{allowedMenus.find((m) => m.id === activeMenu)?.label || "ระบบสารบรรณ"}</span></div>
           </div>
           
           <div className="flex items-center relative">
@@ -931,8 +943,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-6 bg-slate-50 relative w-full">
-          {activeMenu === "dashboard" && <><DashboardView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast}/><div className="mt-5"><StatsDashboard documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} changeMenu={setActiveMenu}/></div></>}
+        <main className="bhs-luxury-main flex-1 overflow-y-auto custom-scrollbar p-4 md:p-7 xl:p-9 relative w-full">
+          {activeMenu === "dashboard" && <><DashboardView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast}/><div className="bhs-luxury-stats mt-6"><StatsDashboard documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} changeMenu={setActiveMenu}/></div></>}
           {activeMenu === "global_search" && <SearchCenter documents={activeDocs} orderReservations={orderReservations} outgoingReservations={outgoingReservations} currentUser={currentUser} dbUsers={dbUsers} changeMenu={setActiveMenu}/>} 
           {activeMenu === "pending_report" && <PendingReport documents={activeDocs} currentUser={currentUser}/>} 
           {activeMenu === "ack_report" && <AckReport documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} onAddRecipient={async (item,userId,reason)=>{
@@ -1735,67 +1747,71 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
 }
 
 function DashboardView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast }) {
+  // All counts remain derived from the same permitted documents as the original dashboard.
   const visibleDocs = documents.filter(doc=>canReadDoc(currentUser,doc,dbUsers));
-
-  const latestDocs = visibleDocs.slice(0, 10);
-  const inToday = visibleDocs.filter((doc) => doc.type === "หนังสือเข้า" && doc.date === getTodayIso()).length;
-  const circulars = visibleDocs.filter((doc) => doc.type === "หนังสือเวียนแจ้งรับทราบ" && doc.date === getTodayIso()).length;
-  const ordersToday = visibleDocs.filter((doc) => doc.type === "คำสั่งโรงเรียน" && doc.date === getTodayIso()).length;
-  const myTasks = documents.filter((doc) => 
-    (currentUser.role === "deputy" && doc.status === DOC_STATUS.WAITING_DEPUTY) ||
-    (currentUser.role === "director" && doc.status === DOC_STATUS.WAITING_DIRECTOR)
+  const latestDocs = visibleDocs.slice(0,10);
+  const inToday = visibleDocs.filter(doc=>doc.type==="หนังสือเข้า" && doc.date===getTodayIso()).length;
+  const circulars = visibleDocs.filter(doc=>doc.type==="หนังสือเวียนแจ้งรับทราบ" && doc.date===getTodayIso()).length;
+  const ordersToday = visibleDocs.filter(doc=>doc.type==="คำสั่งโรงเรียน" && doc.date===getTodayIso()).length;
+  const myTasks = documents.filter(doc=>
+    (currentUser.role==="deputy" && doc.status===DOC_STATUS.WAITING_DEPUTY) ||
+    (currentUser.role==="director" && doc.status===DOC_STATUS.WAITING_DIRECTOR)
   ).length;
-
-  const canViewTasks = ["admin", "director", "deputy"].includes(currentUser.role);
-
+  const canViewTasks = ["admin","director","deputy"].includes(currentUser.role);
+  const cards=[
+    {id:"incoming",label:"หนังสือเข้าวันนี้",value:inToday,icon:<Inbox size={21}/>,hint:"ทะเบียนหนังสือเข้า"},
+    {id:"circulars",label:"หนังสือเวียนวันนี้",value:circulars,icon:<Bell size={21}/>,hint:"หนังสือเวียนแจ้งรับทราบ"},
+    {id:"orders",label:"คำสั่งโรงเรียนวันนี้",value:ordersToday,icon:<FileText size={21}/>,hint:"ทะเบียนคำสั่งโรงเรียน"},
+    {id:"tasks",label:"งานรอพิจารณา",value:myTasks,icon:<FileSignature size={21}/>,hint:canViewTasks?"เปิดงานที่ต้องดำเนินการ":"เฉพาะผู้มีสิทธิ์",disabled:!canViewTasks}
+  ];
   return (
-    <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-3">
+    <div className="bhs-luxury-dashboard">
+      <div className="bhs-luxury-pageheading">
         <div>
-          <h2 className="text-xl md:text-2xl font-bold text-gray-800 break-words">ยินดีต้อนรับ, {currentUser.name}</h2>
-          
+          <p className="bhs-luxury-eyebrow">EXECUTIVE OVERVIEW <span></span> ระบบสารบรรณอิเล็กทรอนิกส์</p>
+          <h1>ภาพรวมงานสารบรรณ</h1>
+          <p className="bhs-luxury-welcome">ยินดีต้อนรับ, <strong>{currentUser.name}</strong> <span className="bhs-luxury-welcome-divider">·</span> {getThaiDateLong()}</p>
           {(currentUser.adminDept !== "-" || currentUser.subjectArea !== "-") && (
-            <div className="flex flex-wrap gap-2 mt-2 mb-1">
-              {currentUser.adminDept !== "-" && (
-                <span className="text-[10px] md:text-[11px] font-bold px-2 py-1 bg-blue-100 text-[#003366] rounded-md border border-blue-200 shadow-sm">
-                  {currentUser.adminDept}
-                </span>
-              )}
-              {currentUser.subjectArea !== "-" && (
-                <span className="text-[10px] md:text-[11px] font-bold px-2 py-1 bg-green-100 text-green-800 rounded-md border border-green-200 shadow-sm">
-                  {currentUser.subjectArea}
-                </span>
-              )}
+            <div className="bhs-luxury-departments">
+              {currentUser.adminDept && currentUser.adminDept !== "-" && <span>{currentUser.adminDept}</span>}
+              {currentUser.subjectArea && currentUser.subjectArea !== "-" && <span>{currentUser.subjectArea}</span>}
             </div>
           )}
-
-          <p className="text-xs md:text-sm text-gray-500 mt-1">สรุปภาพรวมระบบ ประจำวันที่ {getThaiDateLong()}</p>
+        </div>
+        <div className="bhs-luxury-heading-actions">
+          <button type="button" onClick={()=>changeMenu("global_search")} className="bhs-luxury-secondary-btn"><Search size={16}/> ค้นหาเอกสาร</button>
+          {canViewTasks && <button type="button" onClick={()=>changeMenu("tasks")} className="bhs-luxury-primary-btn"><FileSignature size={16}/> งานที่ต้องดำเนินการ</button>}
         </div>
       </div>
-      
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <button onClick={() => changeMenu("incoming")} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5 flex flex-col md:flex-row items-start md:items-center cursor-pointer hover:shadow-md hover:-translate-y-1 hover:border-blue-300 transition-all text-left w-full outline-none focus:ring-2 focus:ring-blue-500">
-          <div className="p-2 md:p-3 rounded-lg md:mr-4 mb-2 md:mb-0 bg-blue-50 text-blue-600"><Inbox size={20} className="md:w-6 md:h-6" /></div>
-          <div><p className="text-[10px] md:text-sm font-medium text-gray-500">หนังสือเข้าวันนี้</p><h3 className="text-xl md:text-2xl font-bold text-gray-800">{inToday}</h3></div>
-        </button>
-        
-        <button onClick={() => changeMenu("circulars")} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5 flex flex-col md:flex-row items-start md:items-center cursor-pointer hover:shadow-md hover:-translate-y-1 hover:border-green-300 transition-all text-left w-full outline-none focus:ring-2 focus:ring-green-500">
-          <div className="p-2 md:p-3 rounded-lg md:mr-4 mb-2 md:mb-0 bg-green-50 text-green-600"><Bell size={20} className="md:w-6 md:h-6" /></div>
-          <div><p className="text-[10px] md:text-sm font-medium text-gray-500">หนังสือเวียนวันนี้</p><h3 className="text-xl md:text-2xl font-bold text-gray-800">{circulars}</h3></div>
-        </button>
-        
-        <button onClick={() => changeMenu("orders")} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-5 flex flex-col md:flex-row items-start md:items-center cursor-pointer hover:shadow-md hover:-translate-y-1 hover:border-purple-300 transition-all text-left w-full outline-none focus:ring-2 focus:ring-purple-500">
-          <div className="p-2 md:p-3 rounded-lg md:mr-4 mb-2 md:mb-0 bg-purple-50 text-purple-600"><FileText size={20} className="md:w-6 md:h-6" /></div>
-          <div><p className="text-[10px] md:text-sm font-medium text-gray-500">คำสั่งโรงเรียนวันนี้</p><h3 className="text-xl md:text-2xl font-bold text-gray-800">{ordersToday}</h3></div>
-        </button>
-        
-        <button onClick={() => canViewTasks ? changeMenu("tasks") : undefined} className={`bg-white rounded-xl border border-gray-100 p-4 md:p-5 flex flex-col md:flex-row items-start md:items-center text-left w-full outline-none ${canViewTasks ? "shadow-sm cursor-pointer hover:shadow-md hover:-translate-y-1 hover:border-red-300 transition-all focus:ring-2 focus:ring-red-500" : "opacity-60 cursor-not-allowed"}`}>
-          <div className={`p-2 md:p-3 rounded-lg md:mr-4 mb-2 md:mb-0 ${canViewTasks ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-400'}`}><FileSignature size={20} className="md:w-6 md:h-6" /></div>
-          <div><p className="text-[10px] md:text-sm font-medium text-gray-500">งานรอพิจารณา</p><h3 className={`text-xl md:text-2xl font-bold ${canViewTasks ? 'text-gray-800' : 'text-gray-400'}`}>{myTasks}</h3></div>
-        </button>
+
+      <div className="bhs-luxury-summary">
+        {cards.map((item,index)=>(
+          <button
+            key={item.id}
+            type="button"
+            onClick={()=>!item.disabled && changeMenu(item.id)}
+            disabled={item.disabled}
+            className={`bhs-luxury-metric ${item.disabled?"is-disabled":""}`}
+          >
+            <span className="bhs-luxury-metric-top"><span className="bhs-luxury-metric-icon">{item.icon}</span><span className="bhs-luxury-metric-number">0{index+1}</span></span>
+            <span className="bhs-luxury-metric-label">{item.label}</span>
+            <span className="bhs-luxury-metric-value">{Number(item.value).toLocaleString("th-TH")}</span>
+            <span className="bhs-luxury-metric-footer">{item.hint}<span aria-hidden="true">↗</span></span>
+          </button>
+        ))}
       </div>
-      
-      <AdvancedSearchTable documents={latestDocs} title="ความเคลื่อนไหวล่าสุด (10 ลำดับ)" currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />
+
+      <section className="bhs-luxury-activity">
+        <div className="bhs-luxury-section-header">
+          <div>
+            <p className="bhs-luxury-eyebrow">RECENT ACTIVITY</p>
+            <h2>ความเคลื่อนไหวล่าสุด</h2>
+            <p>รายการเอกสารล่าสุดที่คุณมีสิทธิ์เข้าถึง</p>
+          </div>
+          <button type="button" onClick={()=>changeMenu("global_search")} className="bhs-luxury-text-action">ดูรายการทั้งหมด <span aria-hidden="true">↗</span></button>
+        </div>
+        <AdvancedSearchTable documents={latestDocs} title="10 รายการล่าสุด" currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast}/>
+      </section>
     </div>
   );
 }
