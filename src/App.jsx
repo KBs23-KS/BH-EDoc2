@@ -1773,8 +1773,8 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
           <p className="bhs-luxury-welcome">ยินดีต้อนรับ, <strong>{currentUser.name}</strong> <span className="bhs-luxury-welcome-divider">·</span> {getThaiDateLong()}</p>
           {(currentUser.adminDept !== "-" || currentUser.subjectArea !== "-") && (
             <div className="bhs-luxury-departments">
-              {currentUser.adminDept && currentUser.adminDept !== "-" && <span>{currentUser.adminDept}</span>}
-              {currentUser.subjectArea && currentUser.subjectArea !== "-" && <span>{currentUser.subjectArea}</span>}
+              {currentUser.adminDept && currentUser.adminDept !== "-" && <span className="bhs-department-tag">{currentUser.adminDept}</span>}
+              {currentUser.subjectArea && currentUser.subjectArea !== "-" && <span className="bhs-subject-tag">{currentUser.subjectArea}</span>}
             </div>
           )}
         </div>
