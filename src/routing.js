@@ -52,11 +52,13 @@ export function pendingAssignmentEvents(doc,user) {
   const done=doc?.assignmentAcknowledged||[];
   return assignedEvents(doc,user).filter(e=>!done.includes(assignmentKey(e,user.id)));
 }
-export function canViewRouted(user,doc,dbUsers) {
+export function canViewRouted(user,doc,dbUsers,settings={}) {
   if(!user||!doc||doc.isDeleted)return false;
   if(["admin","director"].includes(user.role)||doc.createdBy===user.id)return true;
   if(!isFinalDoc(doc))return false;
   if((doc.recipientsSnapshot||[]).some(r=>r.id===user.id))return true;
+  // A newly appointed head can continue pending work without modifying the original recipients snapshot.
+  if(headGroups(user,settings).some(h=>routingGroups(doc).includes(h.group)))return true;
   if(assignedEvents(doc,user).length>0)return true;
   return false;
 }
