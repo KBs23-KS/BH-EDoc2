@@ -1803,21 +1803,27 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
 
 function DashboardView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast }) {
   // All counts remain derived from the same permitted documents as the original dashboard.
-  const visibleDocs = documents.filter(doc=>canReadDoc(currentUser,doc,dbUsers));
+  const visibleDocs = documents.filter(doc=>canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings));
   const latestDocs = visibleDocs.slice(0,10);
   const inToday = visibleDocs.filter(doc=>doc.type==="หนังสือเข้า" && doc.date===getTodayIso()).length;
   const circulars = visibleDocs.filter(doc=>doc.type==="หนังสือเวียนแจ้งรับทราบ" && doc.date===getTodayIso()).length;
   const ordersToday = visibleDocs.filter(doc=>doc.type==="คำสั่งโรงเรียน" && doc.date===getTodayIso()).length;
-  const myTasks = documents.filter(doc=>
-    (currentUser.role==="deputy" && doc.status===DOC_STATUS.WAITING_DEPUTY) ||
-    (currentUser.role==="director" && doc.status===DOC_STATUS.WAITING_DIRECTOR)
-  ).length;
-  const canViewTasks = ["admin","director","deputy"].includes(currentUser.role);
-  const cards=[
+  const myTasks=documents.filter(d=>(currentUser.role==="deputy"&&d.status===DOC_STATUS.WAITING_DEPUTY)||(currentUser.role==="director"&&d.status===DOC_STATUS.WAITING_DIRECTOR)||(currentUser.role==="admin"&&[DOC_STATUS.WAITING_DEPUTY,DOC_STATUS.WAITING_DIRECTOR].includes(d.status))).length;
+  const canViewTasks=["admin","director","deputy"].includes(currentUser.role);
+  const reader=["teacher","clerk"].includes(currentUser.role),hasHead=headGroups(currentUser,systemSettings).length>0;
+  const headCount=documents.reduce((n,d)=>n+pendingHeadGroups(d,currentUser,systemSettings).length,0);
+  const ownAssignments=documents.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
+  const pending=(kind)=>visibleDocs.filter(d=>d.type===kind&&isFinalDoc(d)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length;
+  const cards=reader?[
+    {id:"incoming",label:"หนังสือเข้ารอรับทราบ",value:pending("หนังสือเข้า"),icon:<Inbox size={21}/>,hint:"เปิดหนังสือใหม่"},
+    {id:"circulars",label:"หนังสือเวียนรอรับทราบ",value:pending("หนังสือเวียนแจ้งรับทราบ"),icon:<Bell size={21}/>,hint:"อ่านและรับทราบ"},
+    hasHead?{id:"routing",label:"รอเกษียณต่อในฐานะหัวหน้า",value:headCount,icon:<FileSignature size={21}/>,hint:"งานหัวหน้ากลุ่ม"}:{id:"orders",label:"คำสั่งรอรับทราบ",value:pending("คำสั่งโรงเรียน"),icon:<FileText size={21}/>,hint:"ทะเบียนคำสั่ง"},
+    {id:"assignments",label:"งานที่ได้รับมอบหมาย",value:ownAssignments,icon:<CheckCircle size={21}/>,hint:"จาก ผอ. หรือหัวหน้ากลุ่ม"}
+  ]:[
     {id:"incoming",label:"หนังสือเข้าวันนี้",value:inToday,icon:<Inbox size={21}/>,hint:"ทะเบียนหนังสือเข้า"},
     {id:"circulars",label:"หนังสือเวียนวันนี้",value:circulars,icon:<Bell size={21}/>,hint:"หนังสือเวียนแจ้งรับทราบ"},
     {id:"orders",label:"คำสั่งโรงเรียนวันนี้",value:ordersToday,icon:<FileText size={21}/>,hint:"ทะเบียนคำสั่งโรงเรียน"},
-    {id:"tasks",label:"งานรอพิจารณา",value:myTasks,icon:<FileSignature size={21}/>,hint:canViewTasks?"เปิดงานที่ต้องดำเนินการ":"เฉพาะผู้มีสิทธิ์",disabled:!canViewTasks}
+    {id:"tasks",label:"งานรอพิจารณา",value:myTasks,icon:<FileSignature size={21}/>,hint:"เปิดงานที่ต้องดำเนินการ"}
   ];
   return (
     <div className="bhs-luxury-dashboard">
