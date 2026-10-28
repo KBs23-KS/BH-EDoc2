@@ -59,6 +59,9 @@ import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
 import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortUrgency, canReadDoc } from "./workflow";
+import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routingHistory,canViewRouted,isFinalDoc,audienceSnapshot,routeMessage} from "./routing";
+import {makeRoutingActions} from "./routingActions";
+import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -119,6 +122,8 @@ const DEFAULT_SETTINGS = {
     "กลุ่มบริหารงานทั่วไป",
     "กลุ่มบริหารงานกิจการนักเรียน",
   ],
+  adminHeads: {},
+  subjectHeads: {},
   subjectAreas: [
     "ภาษาไทย",
     "คณิตศาสตร์",
@@ -675,11 +680,22 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const [outgoingReservations, setOutgoingReservations] = useState([]);
   const [reminders,setReminders] = useState([]);
   const [activeMenu, setActiveMenu] = useState("dashboard");
+  const [focusDocId,setFocusDocId]=useState(null);
+  const [notifFilter,setNotifFilter]=useState("all");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [changePasswordModal, setChangePasswordModal] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundVolume,setSoundVolume]=useState(()=>{try{const v=localStorage.getItem("bhs-edoc-volume");return v===null?50:Math.max(0,Math.min(100,Number(v)||0))}catch{return 50}});
+  const soundEnabled=soundVolume>0;
+  useEffect(()=>{try{localStorage.setItem("bhs-edoc-volume",String(soundVolume))}catch{}},[soundVolume]);
+  useEffect(()=>{
+    const onOffline=()=>showToast("การเชื่อมต่อขาดหาย กรุณาตรวจสอบก่อนบันทึก","error");
+    const onOnline=()=>showToast("กลับมาเชื่อมต่ออินเทอร์เน็ตแล้ว","success");
+    window.addEventListener("offline",onOffline);window.addEventListener("online",onOnline);
+    return ()=>{window.removeEventListener("offline",onOffline);window.removeEventListener("online",onOnline)};
+  },[]);
+  useEffect(()=>{if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});},[]);
   const [lastNotifTime, setLastNotifTime] = useState(Date.now());
 
   useEffect(() => {
@@ -714,6 +730,32 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }, [firebaseUser]);
 
   const activeDocs = documents.filter(d => !d.isDeleted);
+  const managedGroups=headGroups(currentUser,systemSettings);
+  const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
+    db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
+    user:currentUser,users:dbUsers,settings:systemSettings,showToast
+  });
+  const openDocument=id=>{
+    const d=activeDocs.find(x=>x.id===id);
+    if(!d)return showToast("ไม่พบเอกสาร","error");
+    if(!(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers)||(currentUser.role==="deputy"&&d.status===DOC_STATUS.WAITING_DEPUTY)))
+      return showToast("ไม่มีสิทธิ์ดูเอกสาร","error");
+    setFocusDocId(id);setActiveMenu("document_detail");setIsNotifOpen(false);
+  };
+  useEffect(()=>{
+    const id=new URLSearchParams(window.location.search).get("doc");
+    if(id&&activeDocs.some(d=>d.id===id))openDocument(id);
+  },[documents.length,currentUser.id]);
+  useEffect(()=>{
+    if(!("setAppBadge" in navigator))return;
+    const n=activeDocs.filter(d=>isFinalDoc(d)&&canViewRouted(currentUser,d,dbUsers)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length
+      +activeDocs.reduce((sum,d)=>sum+pendingAssignmentEvents(d,currentUser).length+pendingHeadGroups(d,currentUser,systemSettings).length,0);
+    Promise.resolve(navigator.setAppBadge(n)).catch(()=>{});
+  },[documents,currentUser.id,dbUsers,systemSettings]);
+  const openedDoc=activeDocs.find(d=>d.id===focusDocId);
+  const documentAlerts=routingAlerts(activeDocs,currentUser,systemSettings);
+  const assignmentCount=activeDocs.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
+  const headCount=activeDocs.reduce((n,d)=>n+pendingHeadGroups(d,currentUser,systemSettings).length,0);
 
   const isUserInTarget = (user, docObj) => {
     if (!docObj.assignedTo || docObj.assignedTo === "ทุกคน") return true;
@@ -763,6 +805,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     id:r.id,title:"แจ้งเตือนให้รับทราบเอกสาร",desc:r.subject||r.docNumber,
     type:"warning",time:r.createdAt||0,targetMenu:r.targetMenu||"orders"
   }));
+  notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
 
   const latestNotifTime = notifications.length > 0 ? notifications[0].time : 0;
@@ -770,12 +813,12 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     if (latestNotifTime > lastNotifTime) {
       if (soundEnabled) {
         const audio = new Audio("https://actions.google.com/sounds/v1/ui/message_notification.ogg");
-        audio.volume = 0.5;
+        audio.volume = soundVolume / 100;
         audio.play().catch(e => console.log("Audio autoplay prevented by browser", e));
       }
       setLastNotifTime(latestNotifTime);
     }
-  }, [latestNotifTime, lastNotifTime, soundEnabled]);
+  }, [latestNotifTime, lastNotifTime, soundEnabled, soundVolume]);
 
   const incomingUnreadCount = isAcknowledgeRole ? activeDocs.filter(doc => doc.type === "หนังสือเข้า" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc)).length : 0;
   const ordersUnreadCount = isAcknowledgeRole ? activeDocs.filter(doc => doc.type === "คำสั่งโรงเรียน" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc)).length : 0;
