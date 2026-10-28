@@ -808,6 +808,11 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }));
   notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
+  const notificationHistory=[
+    ...routingHistory(activeDocs,currentUser,systemSettings),
+    ...activeDocs.filter(d=>isFinalDoc(d)&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers)))
+      .map(d=>({id:"history-published:"+d.id,docId:d.id,title:"หนังสือเผยแพร่แล้ว",desc:d.subject,time:d.publishedAt||d.createdAt||0,type:"info"}))
+  ].sort((a,b)=>b.time-a.time);
 
   const latestNotifTime = notifications.length > 0 ? notifications[0].time : 0;
   useEffect(() => {
@@ -954,7 +959,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                        {notifications.length > 0 && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold">{notifications.length} รายการ</span>}
                     </div>
                   </div>
-                  <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
+                  <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"],["history","ย้อนหลัง"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
                   <div className="max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
                     {notifications.length === 0 ? (
                       <div className="py-10 text-center text-gray-400 flex flex-col items-center">
@@ -963,7 +968,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-100">
-                        {notifications.filter(n=>notifFilter==="all"||(notifFilter==="tasks"?n.id.startsWith("assignment:")||n.id.startsWith("head:")||n.id.startsWith("task-"):n.id.startsWith("inc-")||n.id.startsWith("ord-")||n.id.startsWith("circ-")||n.id.startsWith("rem-"))).map(notif => (
+                        {(notifFilter==="history"?notificationHistory:notifications.filter(n=>notifFilter==="all"||(notifFilter==="tasks"?n.id.startsWith("assignment:")||n.id.startsWith("head:")||n.id.startsWith("task-"):n.id.startsWith("inc-")||n.id.startsWith("ord-")||n.id.startsWith("circ-")||n.id.startsWith("rem-")))).map(notif => (
                           <div key={notif.id} className="p-3.5 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => {
                             setIsNotifOpen(false);
                             if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
