@@ -3083,6 +3083,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   // Temporary admin-entered secret; never store it in GitHub, Firestore or localStorage.
   const [backupSecret,setBackupSecret] = useState("");
   const [backupStatus, setBackupStatus] = useState("");
+  const [backupReport, setBackupReport] = useState(null);
   const [restoreFile, setRestoreFile] = useState(null);
   const [restoreConfirm, setRestoreConfirm] = useState("");
   const [restoreMode,setRestoreMode]=useState("selected");
@@ -3091,15 +3092,25 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [preBackupReady,setPreBackupReady]=useState(false);
   const handleBackup = async () => {
     if(!backupSecret.trim())return showToast("กรุณาระบุรหัสสำรองข้อมูล Google Drive ที่ตั้งไว้ใน Apps Script ก่อน","error");
+    setBackupReport(null);
     setBackupBusy(true);
     try {
-      const result = await createFullBackup({db, getCollectionRef, appId, onStatus:setBackupStatus, gasUrl:GAS_WEB_APP_URL, backupSecret:backupSecret.trim()});
-      const url=URL.createObjectURL(result);
-      const a=document.createElement("a"); a.href=url; a.download=`BHS-FULL-BACKUP-${getTodayIso()}.zip`; a.click();
+      const {blob,summary}=await createFullBackup({db,getCollectionRef,appId,onStatus:setBackupStatus,
+        gasUrl:GAS_WEB_APP_URL,backupSecret:backupSecret.trim()});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");a.href=url;
+      a.download=`BHS-${summary.complete?"FULL":"PARTIAL"}-BACKUP-${getTodayIso()}.zip`;a.click();
       setTimeout(()=>URL.revokeObjectURL(url),60000);
-      await writeAuditLog(currentUser,"สำรองข้อมูลครบชุด","SYSTEM","backup","JSON และไฟล์แนบ");
-      showToast("สำรองข้อมูลสำเร็จ","success");
-    } catch(e){showToast("สำรองข้อมูลไม่ครบ: "+e.message,"error");}
+      setBackupReport(summary);
+      if(summary.complete) {
+        showToast("สร้าง ZIP สำรองครบแล้ว กรุณาตรวจไฟล์ที่ดาวน์โหลด","success");
+        writeAuditLog(currentUser,"สำรองข้อมูลครบชุด","SYSTEM","backup","JSON และไฟล์แนบ");
+      } else {
+        showToast(`ได้ ZIP สำรองบางส่วน: ไฟล์ Drive ขาด ${summary.missingFiles.length}/${summary.expectedFiles} ไฟล์ ตรวจ MISSING-DRIVE-FILES.json`,"error");
+        writeAuditLog(currentUser,"สำรองข้อมูลบางส่วน","SYSTEM","backup",
+          `ไฟล์ Drive ขาด ${summary.missingFiles.length}/${summary.expectedFiles} ไฟล์`);
+      }
+    } catch(e){showToast("สำรองข้อมูลไม่สำเร็จ: "+e.message,"error");}
     finally{setBackupBusy(false);setBackupStatus("");setBackupSecret("");}
   };
   const handleInspect=async()=>{
@@ -3208,6 +3219,15 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
            </button>
         </div>
       </div>
+      {backupReport&&<div className={"rounded-xl border p-4 text-sm space-y-2 "+(backupReport.complete?"border-green-200 bg-green-50 text-green-900":"border-amber-300 bg-amber-50 text-amber-900")}>
+        <b>{backupReport.complete?"สร้างไฟล์ ZIP สำรองครบตามรายการอ้างอิง":"สร้างไฟล์ ZIP สำรองบางส่วน (ยังไม่ใช่ข้อมูลสำรองที่กู้คืนได้ครบ)"}</b>
+        <p>ไฟล์แนบที่สำรองได้ {backupReport.archivedFiles}/{backupReport.expectedFiles} ไฟล์ — ตรวจ ZIP ที่ดาวน์โหลด</p>
+        {!backupReport.complete&&<>
+          <p>ไฟล์ที่ขาด {backupReport.missingFiles.length} รายการ เก็บรายชื่อและเอกสารที่อ้างอิงไว้ใน MISSING-DRIVE-FILES.json</p>
+          <div className="max-h-32 overflow-y-auto">{backupReport.missingFiles.map(f=><p key={f.driveId}>• {f.name}</p>)}</div>
+          <p className="font-semibold">ห้ามใช้ ZIP นี้เป็นจุดกู้คืนระบบเต็มรูปแบบ</p>
+        </>}
+      </div>}
 
       <div className="bg-white border border-amber-200 rounded-xl shadow-sm p-4 space-y-3">
         <h3 className="font-bold text-amber-900">กู้คืนข้อมูลจาก ZIP (แอดมิน)</h3>
@@ -3215,6 +3235,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
         <input type="file" accept=".zip" onChange={e=>{setRestoreFile(e.target.files?.[0]||null);setRestorePreview(null);setPreBackupReady(false)}}/>
         <button className="border rounded p-2 text-xs" onClick={handleInspect} disabled={!restoreFile||backupBusy}>1. ตรวจสอบความต่างของข้อมูล</button>
         {restorePreview&&<div className="bg-slate-50 p-3 rounded text-xs space-y-2"><p>ชุดสำรองวันที่ {restorePreview.createdAt}; ไฟล์แนบ {restorePreview.fileCount} ไฟล์</p>
+          {restorePreview.incomplete&&<p className="text-red-700 font-bold">คำเตือน: ชุดสำรองนี้ขาดไฟล์ Drive {restorePreview.missingFiles.length} รายการ ไม่สามารถกู้คืนอัตโนมัติได้</p>}
           <div className="max-h-52 overflow-y-auto">{restorePreview.details.map(d=><p key={d.name}>{d.name}: สำรอง {d.saved} / ปัจจุบัน {d.current} / ใหม่ในปัจจุบัน {d.onlyInCurrent} / เปลี่ยนแปลง {d.changed}</p>)}</div></div>}
         <select className="border rounded p-2 block text-sm" value={restoreMode} onChange={e=>{setRestoreMode(e.target.value);setPreBackupReady(false)}}>
           <option value="selected">เฉพาะรายการที่ระบุ</option>
@@ -3227,7 +3248,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
           <button disabled={backupBusy} onClick={async()=>{await handleBackup();setPreBackupReady(false)}} className="border rounded p-2">2. ดาวน์โหลด Backup ปัจจุบัน</button>
           <label className="flex gap-2"><input type="checkbox" checked={preBackupReady} onChange={e=>setPreBackupReady(e.target.checked)}/> ยืนยันว่าดาวน์โหลดและเก็บไฟล์ Backup ปัจจุบันไว้แล้ว</label></div>}
         <input className="border rounded p-2 text-xs block" placeholder="พิมพ์ RESTORE เพื่อยืนยัน" value={restoreConfirm} onChange={e=>setRestoreConfirm(e.target.value)}/>
-        <button disabled={backupBusy||!restorePreview||restoreConfirm!=="RESTORE"||(restoreMode==="replace"&&!preBackupReady)} onClick={handleRestore} className="bg-amber-700 text-white p-2 rounded text-sm disabled:opacity-40">เริ่มกู้คืนตามรูปแบบที่เลือก</button>
+        <button disabled={backupBusy||!restorePreview||restorePreview.incomplete||restoreConfirm!=="RESTORE"||(restoreMode==="replace"&&!preBackupReady)} onClick={handleRestore} className="bg-amber-700 text-white p-2 rounded text-sm disabled:opacity-40">เริ่มกู้คืนตามรูปแบบที่เลือก</button>
         {backupBusy&&<p className="text-blue-700 text-xs">{backupStatus||"กำลังดำเนินการ..."}</p>}
       </div>
       <div className="bg-white shadow-sm rounded-xl border border-gray-200 overflow-hidden w-full">
