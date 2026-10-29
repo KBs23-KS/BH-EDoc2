@@ -59,6 +59,8 @@ import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
 import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortUrgency, canReadDoc } from "./workflow";
+import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
+import OrgHeads from "./OrgHeads";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -119,6 +121,8 @@ const DEFAULT_SETTINGS = {
     "กลุ่มบริหารงานทั่วไป",
     "กลุ่มบริหารงานกิจการนักเรียน",
   ],
+  adminHeads: {},
+  subjectHeads: {},
   subjectAreas: [
     "ภาษาไทย",
     "คณิตศาสตร์",
@@ -853,6 +857,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
         <div className="bhs-luxury-account-info">
           <div className="bhs-luxury-account-name" title={currentUser.name}>{currentUser.name}</div>
           <div className="bhs-luxury-account-role">{ROLES[currentUser.role.toUpperCase()]?.name}</div>
+          <RoleIndicators user={currentUser} settings={systemSettings} compact/>
         </div>
         <button type="button" onClick={() => setChangePasswordModal(true)} className="bhs-luxury-account-control" title="เปลี่ยนรหัสผ่าน" aria-label="เปลี่ยนรหัสผ่าน"><KeyRound size={17}/></button>
         <button type="button" onClick={onLogout} className="bhs-luxury-account-control" title="ออกจากระบบ" aria-label="ออกจากระบบ"><LogOut size={17}/></button>
@@ -981,7 +986,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           {activeMenu === "circulars" && <CircularsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "mydocs" && <MyDocsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "users" && <UserManagementView dbUsers={dbUsers} documents={documents} systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} />}
-          {activeMenu === "settings" && <SystemSettingsView systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} />}
+          {activeMenu === "settings" && <SystemSettingsView systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} dbUsers={dbUsers} />}
           {activeMenu === "audit" && <AuditLogView currentUser={currentUser} showToast={showToast} />}
           {activeMenu === "trash" && <TrashView documents={documents} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast} />}
 
@@ -1771,6 +1776,7 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
           <p className="bhs-luxury-eyebrow">EXECUTIVE OVERVIEW <span></span> ระบบสารบรรณอิเล็กทรอนิกส์</p>
           <h1>ภาพรวมงานสารบรรณ</h1>
           <p className="bhs-luxury-welcome">ยินดีต้อนรับ, <strong>{currentUser.name}</strong> <span className="bhs-luxury-welcome-divider">·</span> {getThaiDateLong()}</p>
+          <RoleIndicators user={currentUser} settings={systemSettings}/>
           {(currentUser.adminDept !== "-" || currentUser.subjectArea !== "-") && (
             <div className="bhs-luxury-departments">
               {currentUser.adminDept && currentUser.adminDept !== "-" && <span className="bhs-department-tag">{currentUser.adminDept}</span>}
@@ -1801,17 +1807,7 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
         ))}
       </div>
 
-      <section className="bhs-luxury-activity">
-        <div className="bhs-luxury-section-header">
-          <div>
-            <p className="bhs-luxury-eyebrow">RECENT ACTIVITY</p>
-            <h2>ความเคลื่อนไหวล่าสุด</h2>
-            <p>รายการเอกสารล่าสุดที่คุณมีสิทธิ์เข้าถึง</p>
-          </div>
-          <button type="button" onClick={()=>changeMenu("global_search")} className="bhs-luxury-text-action">ดูรายการทั้งหมด <span aria-hidden="true">↗</span></button>
-        </div>
-        <AdvancedSearchTable documents={latestDocs} title="10 รายการล่าสุด" currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast}/>
-      </section>
+      <DashboardHomePanels documents={documents} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={changeMenu}/>
     </div>
   );
 }
@@ -2382,20 +2378,24 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
               <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
               <input type="text" placeholder="ค้นหาเรื่อง, เลขที่คำสั่ง, ผู้ส่ง..." className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <select className="border rounded px-2 py-2 text-xs" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>
-              <option value={20}>20 / หน้า</option><option value={40}>40 / หน้า</option><option value={60}>60 / หน้า</option>
-            </select>
-            <select className="border rounded px-2 py-2 text-xs" value={filterYear} onChange={e=>setFilterYear(e.target.value)}>
-              <option value="">ทุกปี</option>
-              {[...new Set(documents.map(d=>buddhistYear(d.date)).filter(y=>y>=2500))].sort((a,b)=>b-a).map(y=><option key={y} value={y}>{y}</option>)}
-            </select>
-            <button onClick={() => setShowFilterBar(!showFilterBar)} className={`w-full md:w-auto px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center transition-colors border ${showFilterBar ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                        <button onClick={() => setShowFilterBar(!showFilterBar)} className={`w-full md:w-auto px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center transition-colors border ${showFilterBar ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
               <Filter size={16} className="mr-2"/> ตัวกรอง
             </button>
           </div>
           
           {showFilterBar && (
              <div className="p-3 md:p-4 bg-gray-50 border-t grid grid-cols-1 md:grid-cols-3 gap-3 animate-fade-in">
+               <label className="block text-xs font-bold text-gray-600">ปี พ.ศ.
+<select className="border rounded px-2 py-2 text-xs" value={filterYear} onChange={e=>setFilterYear(e.target.value)}>
+              <option value="">ทุกปี</option>
+              {[...new Set(documents.map(d=>buddhistYear(d.date)).filter(y=>y>=2500))].sort((a,b)=>b-a).map(y=><option key={y} value={y}>{y}</option>)}
+            </select>
+               </label>
+               <label className="block text-xs font-bold text-gray-600">รายการต่อหน้า
+<select className="border rounded px-2 py-2 text-xs" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>
+              <option value={20}>20 / หน้า</option><option value={40}>40 / หน้า</option><option value={60}>60 / หน้า</option>
+            </select>
+               </label>
                <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">ประเภทเอกสาร</label>
                  <select className="w-full border p-2 rounded text-sm bg-white" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
@@ -2969,7 +2969,7 @@ function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettin
   );
 }
 
-function SystemSettingsView({ systemSettings, showToast, currentUser }) {
+function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers }) {
   const [form, setForm] = useState(systemSettings);
   const [newDept, setNewDept] = useState("");
   const [newSubj, setNewSubj] = useState("");
@@ -3068,6 +3068,7 @@ function SystemSettingsView({ systemSettings, showToast, currentUser }) {
           </div>
         </div>
       </div>
+      <OrgHeads form={form} setForm={setForm} dbUsers={dbUsers}/>
     </div>
   );
 }
@@ -3238,6 +3239,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
                 <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${u.status === 'inactive' ? 'opacity-60' : ''}`}>
                   <td className="px-4 md:px-6 py-4">
                     <div className="font-bold text-gray-900 text-sm md:text-base break-words">{u.name}</div>
+                    <RoleIndicators user={u} settings={systemSettings} compact/>
                     <div className="text-[11px] md:text-xs text-gray-500 mt-0.5 break-words">Username: {u.username}</div>
                     {u.password && u.password !== "123456" && (
                       <div className="text-[9px] md:text-[10px] font-medium text-[#D4AF37] mt-1 bg-yellow-50 px-2 py-0.5 rounded inline-block border border-yellow-100">
