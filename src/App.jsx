@@ -2378,20 +2378,24 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
               <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
               <input type="text" placeholder="ค้นหาเรื่อง, เลขที่คำสั่ง, ผู้ส่ง..." className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <select className="border rounded px-2 py-2 text-xs" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>
-              <option value={20}>20 / หน้า</option><option value={40}>40 / หน้า</option><option value={60}>60 / หน้า</option>
-            </select>
-            <select className="border rounded px-2 py-2 text-xs" value={filterYear} onChange={e=>setFilterYear(e.target.value)}>
-              <option value="">ทุกปี</option>
-              {[...new Set(documents.map(d=>buddhistYear(d.date)).filter(y=>y>=2500))].sort((a,b)=>b-a).map(y=><option key={y} value={y}>{y}</option>)}
-            </select>
-            <button onClick={() => setShowFilterBar(!showFilterBar)} className={`w-full md:w-auto px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center transition-colors border ${showFilterBar ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                        <button onClick={() => setShowFilterBar(!showFilterBar)} className={`w-full md:w-auto px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center transition-colors border ${showFilterBar ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
               <Filter size={16} className="mr-2"/> ตัวกรอง
             </button>
           </div>
           
           {showFilterBar && (
              <div className="p-3 md:p-4 bg-gray-50 border-t grid grid-cols-1 md:grid-cols-3 gap-3 animate-fade-in">
+               <label className="block text-xs font-bold text-gray-600">ปี พ.ศ.
+<select className="border rounded px-2 py-2 text-xs" value={filterYear} onChange={e=>setFilterYear(e.target.value)}>
+              <option value="">ทุกปี</option>
+              {[...new Set(documents.map(d=>buddhistYear(d.date)).filter(y=>y>=2500))].sort((a,b)=>b-a).map(y=><option key={y} value={y}>{y}</option>)}
+            </select>
+               </label>
+               <label className="block text-xs font-bold text-gray-600">รายการต่อหน้า
+<select className="border rounded px-2 py-2 text-xs" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>
+              <option value={20}>20 / หน้า</option><option value={40}>40 / หน้า</option><option value={60}>60 / หน้า</option>
+            </select>
+               </label>
                <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">ประเภทเอกสาร</label>
                  <select className="w-full border p-2 rounded text-sm bg-white" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
