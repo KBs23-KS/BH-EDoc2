@@ -22,5 +22,7 @@ jobs:
         run: node tests/gas-backup-auth-test.cjs
       - name: Missing Drive attachment policy
         run: node tests/backup-policy-test.mjs
+      - name: Remember backup secret preference
+        run: node tests/backup-secret-prefs-test.mjs
       - name: Vite production build
         run: npm run build

@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import {backupSecretKey,loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "../src/backupSecretPrefs.js";
+const store=new Map();
+const storage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
+assert.equal(loadSavedBackupSecret(storage,"adminA"),"");
+assert.equal(saveBackupSecret(storage,"adminA",""),false);
+assert.equal(saveBackupSecret(storage,"adminA","  abc-secret  "),true);
+assert.equal(loadSavedBackupSecret(storage,"adminA"),"abc-secret");
+assert.equal(loadSavedBackupSecret(storage,"adminB"),"");
+assert.notEqual(backupSecretKey("adminA"),backupSecretKey("adminB"));
+assert.equal(forgetBackupSecret(storage,"adminA"),true);
+assert.equal(loadSavedBackupSecret(storage,"adminA"),"");
+assert.equal(loadSavedBackupSecret({getItem(){throw Error("blocked")}},"adminA"),"");
+assert.equal(saveBackupSecret({setItem(){throw Error("blocked")}},"adminA","some-secret"),false);
+console.log("BHS optional locally saved backup credential: passed");

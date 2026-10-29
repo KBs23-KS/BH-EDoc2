@@ -57,6 +57,7 @@ import {
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
+import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
 import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortUrgency, canReadDoc } from "./workflow";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
@@ -3080,8 +3081,10 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [formData, setFormData] = useState({ id: "", name: "", username: "", password: "", role: "teacher", adminDept: systemSettings.adminDepts[0] || "", subjectArea: systemSettings.subjectAreas[0] || "", status: "active" });
 
   const [backupBusy, setBackupBusy] = useState(false);
-  // Temporary admin-entered secret; never store it in GitHub, Firestore or localStorage.
-  const [backupSecret,setBackupSecret] = useState("");
+  // Opt-in local browser storage only; never save the secret to GitHub or Firebase.
+  const [backupSecret,setBackupSecret] = useState(()=>loadSavedBackupSecret(localStorage,currentUser.id));
+  const [rememberBackupSecret,setRememberBackupSecret] = useState(()=>!!loadSavedBackupSecret(localStorage,currentUser.id));
+  const [hasSavedBackupSecret,setHasSavedBackupSecret] = useState(()=>!!loadSavedBackupSecret(localStorage,currentUser.id));
   const [backupStatus, setBackupStatus] = useState("");
   const [backupReport, setBackupReport] = useState(null);
   const [restoreFile, setRestoreFile] = useState(null);
@@ -3102,6 +3105,10 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
       a.download=`BHS-${summary.complete?"FULL":"PARTIAL"}-BACKUP-${getTodayIso()}.zip`;a.click();
       setTimeout(()=>URL.revokeObjectURL(url),60000);
       setBackupReport(summary);
+      if(rememberBackupSecret){
+        if(saveBackupSecret(localStorage,currentUser.id,backupSecret))setHasSavedBackupSecret(true);
+        else showToast("สำรองไฟล์ได้ แต่เบราว์เซอร์ไม่อนุญาตให้จำรหัส โปรดกรอกใหม่ครั้งหน้า","error");
+      }
       if(summary.complete) {
         showToast("สร้าง ZIP สำรองครบแล้ว กรุณาตรวจไฟล์ที่ดาวน์โหลด","success");
         writeAuditLog(currentUser,"สำรองข้อมูลครบชุด","SYSTEM","backup","JSON และไฟล์แนบ");
@@ -3111,7 +3118,17 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
           `ไฟล์ Drive ขาด ${summary.missingFiles.length}/${summary.expectedFiles} ไฟล์`);
       }
     } catch(e){showToast("สำรองข้อมูลไม่สำเร็จ: "+e.message,"error");}
-    finally{setBackupBusy(false);setBackupStatus("");setBackupSecret("");}
+    finally{
+      setBackupBusy(false);setBackupStatus("");
+      if(!rememberBackupSecret)setBackupSecret("");
+    }
+  };
+  const clearRememberedBackupSecret=()=>{
+    forgetBackupSecret(localStorage,currentUser.id);
+    setHasSavedBackupSecret(false);
+    setRememberBackupSecret(false);
+    setBackupSecret("");
+    showToast("ลบรหัสสำรองข้อมูลที่จำไว้ในเบราว์เซอร์นี้แล้ว","success");
   };
   const handleInspect=async()=>{
     if(!restoreFile)return;
@@ -3207,10 +3224,26 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
           <h2 className="text-xl md:text-2xl font-bold text-gray-800">จัดการผู้ใช้งานระบบ</h2>
         </div>
         <div className="w-full sm:w-auto flex flex-wrap gap-2">
-           <label className="w-full sm:w-52 text-xs text-slate-600 font-semibold">
-             รหัสสำรองข้อมูล Drive
-             <input type="password" autoComplete="off" value={backupSecret} onChange={e=>setBackupSecret(e.target.value)} placeholder="จาก Apps Script" aria-label="รหัสสำรองข้อมูล Google Drive" className="mt-1 w-full border border-gray-300 rounded-lg bg-white px-3 py-2.5 text-sm" />
-           </label>
+           <div className="w-full sm:w-64 space-y-2">
+             <label className="block text-xs text-slate-600 font-semibold">
+               รหัสสำรองข้อมูล Drive
+               <input type="password" autoComplete="off" value={backupSecret} onChange={e=>setBackupSecret(e.target.value)} placeholder={hasSavedBackupSecret?"มีรหัสที่จำไว้แล้ว":"จาก Apps Script"} aria-label="รหัสสำรองข้อมูล Google Drive" className="mt-1 w-full border border-gray-300 rounded-lg bg-white px-3 py-2.5 text-sm" />
+             </label>
+             <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
+               <input type="checkbox" className="mt-0.5" checked={rememberBackupSecret} disabled={backupBusy}
+                 onChange={e=>{
+                   const checked=e.target.checked;
+                   setRememberBackupSecret(checked);
+                   if(!checked){
+                     forgetBackupSecret(localStorage,currentUser.id);
+                     setHasSavedBackupSecret(false);
+                   }
+                 }}/>
+               <span>จำรหัสบนเบราว์เซอร์นี้ (ใช้เฉพาะเครื่องส่วนตัว)</span>
+             </label>
+             {hasSavedBackupSecret&&<button type="button" disabled={backupBusy} onClick={clearRememberedBackupSecret} className="text-xs text-red-700 underline underline-offset-2">ลบรหัสที่จำไว้</button>}
+             <p className="text-[11px] leading-relaxed text-amber-700">รหัสที่จำไว้เก็บในเบราว์เซอร์เครื่องนี้แบบไม่เข้ารหัส ห้ามเลือกบนเครื่องใช้ร่วมกัน</p>
+           </div>
            <button disabled={backupBusy} onClick={handleBackup} className="w-full sm:w-auto flex items-center justify-center bg-gray-100 text-gray-700 border border-gray-300 px-4 py-2.5 rounded-lg font-bold shadow-sm hover:bg-gray-200 transition-colors">
              <Database size={18} className="mr-2" /> สำรองข้อมูล (Backup)
            </button>
