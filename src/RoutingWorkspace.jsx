@@ -26,7 +26,8 @@ function Picker({users,selected,onChange,label}) {
 const groupTypes=[
   {value:"admin",label:"กลุ่มบริหารงาน"},
   {value:"subject",label:"กลุ่มสาระการเรียนรู้"},
-  {value:"person",label:"ครูรายบุคคล"}
+  {value:"both",label:"ทั้งกลุ่มบริหารงานและกลุ่มสาระ"},
+  {value:"person",label:"เจาะจงครูรายบุคคล"}
 ];
 export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,setUserIds,allowAll=false,all=false,setAll}) {
   const [mode,setMode]=useState("");
@@ -34,7 +35,7 @@ export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,s
   const users=dbUsers.filter(u=>["teacher","clerk"].includes(u.role)&&u.status!=="inactive");
   const adminDepts=systemSettings.adminDepts||[];
   const subjectAreas=(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้");
-  const options=mode==="admin"?adminDepts:mode==="subject"?subjectAreas:[];
+  const options=mode==="admin"?adminDepts:mode==="subject"?subjectAreas:mode==="both"?[...adminDepts,...subjectAreas]:[];
   const normalized=search.trim().toLocaleLowerCase("th-TH");
   const selectedNames=groups.concat(userIds.map(id=>users.find(u=>u.id===id)?.name||id));
   const changeMode=value=>{
@@ -55,14 +56,14 @@ export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,s
       {allowAll&&<option value="all">แจ้งทุกคน</option>}
       {groupTypes.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
-    {(mode==="admin"||mode==="subject")&&<div className="space-y-2">
-      <label className="block text-sm font-semibold text-slate-700">ขั้นที่ 2 ติ๊กเลือก{mode==="admin"?"กลุ่มบริหารงาน":"กลุ่มสาระ"} (เลือกได้หลายรายการ)</label>
+    {(mode==="admin"||mode==="subject"||mode==="both")&&<div className="space-y-2">
+      <label className="block text-sm font-semibold text-slate-700">ขั้นที่ 2 ติ๊กเลือก{mode==="admin"?"กลุ่มบริหารงาน":mode==="subject"?"กลุ่มสาระ":"กลุ่มบริหารงานและกลุ่มสาระ"} (เลือกได้หลายรายการ)</label>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อกลุ่ม..." className="w-full border rounded-xl p-3 text-sm"/>
       <div className="max-h-52 overflow-y-auto rounded-xl border bg-white divide-y">
-        {options.filter(name=>name.toLocaleLowerCase("th-TH").includes(normalized)).map(name=>
-          <label key={name} className="flex gap-2 items-center px-3 py-2 text-sm cursor-pointer hover:bg-blue-50">
+        {options.filter(name=>name.toLocaleLowerCase("th-TH").includes(normalized)).map((name,index)=><label key={name+"-"+index} className="flex gap-2 items-center px-3 py-2 text-sm cursor-pointer hover:bg-blue-50">
             <input type="checkbox" checked={groups.includes(name)} onChange={()=>toggleGroup(name)}/>
-            <span>{name}</span>
+            <span className="flex-1">{name}</span>
+            {mode==="both"&&<span className="text-[10px] bg-slate-100 text-slate-500 rounded px-2 py-1">{adminDepts.includes(name)?"กลุ่มงาน":"กลุ่มสาระ"}</span>}
           </label>)}
         {!options.length&&<p className="p-3 text-sm text-slate-400">ไม่มีรายชื่อกลุ่มในระบบ</p>}
       </div>
@@ -82,24 +83,25 @@ export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,s
 function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,onChange}) {
   const [mode,setMode]=useState("");
   const [chosenGroup,setChosenGroup]=useState("");
+  const [chosenSubject,setChosenSubject]=useState("");
   const [search,setSearch]=useState("");
   const admin=kind==="admin";
   const options=mode==="admin"?(systemSettings.adminDepts||[]):mode==="subject"?(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้"):[];
   const narrowed=admin
-    ? mode==="all"?users:mode==="admin"&&chosenGroup?users.filter(u=>u.adminDept===chosenGroup):mode==="subject"&&chosenGroup?users.filter(u=>u.subjectArea===chosenGroup):[]
-    : mode==="own"?users.filter(u=>u.subjectArea===group):[];
+    ? mode==="all"||mode==="person"?users:mode==="admin"&&chosenGroup?users.filter(u=>u.adminDept===chosenGroup):mode==="subject"&&chosenGroup?users.filter(u=>u.subjectArea===chosenGroup):mode==="both"&&(chosenGroup||chosenSubject)?users.filter(u=>(chosenGroup&&u.adminDept===chosenGroup)||(chosenSubject&&u.subjectArea===chosenSubject)):[]
+    : (mode==="own"||mode==="person")?users.filter(u=>u.subjectArea===group):[];
   const filtered=narrowed.filter(u=>[u.name,u.adminDept,u.subjectArea].some(v=>String(v||"").toLocaleLowerCase("th-TH").includes(search.toLocaleLowerCase("th-TH"))));
   const toggle=id=>onChange(selected.includes(id)?selected.filter(x=>x!==id):[...selected,id]);
   return <div className="space-y-3">
     <label className="block text-sm font-semibold text-slate-700" htmlFor="head-route-mode">
       ขั้นที่ 1 เลือกวิธีค้นหาครูที่จะเกษียณต่อ
     </label>
-    <select id="head-route-mode" value={mode} onChange={e=>{setMode(e.target.value);setChosenGroup("");setSearch("");}}
+    <select id="head-route-mode" value={mode} onChange={e=>{setMode(e.target.value);setChosenGroup("");setChosenSubject("");setSearch("");}}
       className="w-full p-3 border bg-white rounded-xl text-sm">
       <option value="">-- กดเลือกก่อน จึงแสดงรายชื่อครูให้ติ๊ก --</option>
       {admin
-        ? <><option value="admin">เลือกจากกลุ่มบริหารงาน</option><option value="subject">เลือกจากกลุ่มสาระ</option><option value="all">ค้นหาครูทั้งหมด (ข้ามกลุ่มงานได้)</option></>
-        : <option value="own">ครูในกลุ่มสาระ {group}</option>}
+        ? <><option value="admin">กลุ่มบริหารงาน</option><option value="subject">กลุ่มสาระการเรียนรู้</option><option value="both">ทั้งกลุ่มบริหารงานและกลุ่มสาระ</option><option value="person">เจาะจงครูรายบุคคล</option></>
+        : <><option value="own">ครูในกลุ่มสาระ {group}</option><option value="person">เจาะจงครูในกลุ่มสาระของตน</option></>}
     </select>
     {admin&&(mode==="admin"||mode==="subject")&&<label className="block space-y-1">
       <span className="block text-sm font-semibold text-slate-700">ขั้นที่ 2 เลือก{mode==="admin"?"กลุ่มบริหารงาน":"กลุ่มสาระ"}ที่จะค้นหารายชื่อ</span>
@@ -109,7 +111,11 @@ function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,o
         {options.map(name=><option key={name} value={name}>{name}</option>)}
       </select>
     </label>}
-    {((admin&&(mode==="all"||Boolean(chosenGroup)))||(!admin&&mode==="own"))&&<div className="space-y-2">
+    {admin&&mode==="both"&&<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <label className="block space-y-1"><span className="text-xs font-semibold text-slate-700">เลือกกลุ่มบริหารงาน</span><select value={chosenGroup} onChange={e=>setChosenGroup(e.target.value)} className="w-full border rounded-xl bg-white p-3 text-sm"><option value="">-- ไม่เลือก --</option>{(systemSettings.adminDepts||[]).map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+      <label className="block space-y-1"><span className="text-xs font-semibold text-slate-700">เลือกกลุ่มสาระ</span><select value={chosenSubject} onChange={e=>setChosenSubject(e.target.value)} className="w-full border rounded-xl bg-white p-3 text-sm"><option value="">-- ไม่เลือก --</option>{(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้").map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+    </div>}
+    {((admin&&(mode==="person"||mode==="all"||Boolean(chosenGroup)||Boolean(chosenSubject)))||(!admin&&(mode==="own"||mode==="person")))&&<div className="space-y-2">
       <label className="block text-sm font-semibold text-slate-700">ติ๊กเลือกชื่อครู (เลือกได้หลายคน)</label>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อครู..." className="w-full p-3 border rounded-xl text-sm"/>
       <div className="max-h-52 overflow-y-auto rounded-xl border bg-white divide-y">
