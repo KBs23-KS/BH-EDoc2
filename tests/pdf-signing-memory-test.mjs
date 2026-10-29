@@ -1,0 +1,26 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+
+const editor=readFileSync(new URL("../src/PdfSignatureEditor.jsx",import.meta.url),"utf8");
+const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
+const pkg=JSON.parse(readFileSync(new URL("../package.json",import.meta.url),"utf8"));
+assert.ok(editor.includes('fetch("/api/signing-pdf"'),"Automatic PDF is fetched from protected same-origin API");
+assert.ok(editor.includes('credentials:"same-origin"'),"Session cookie accompanies signed PDF request");
+assert.ok(!editor.includes('action:"getFile"'),"Browser must not call protected Backup API");
+assert.ok(!editor.includes("backupSecret:"),"Never expose Backup password to the browser");
+assert.ok(editor.includes("setPageCount(pdf.numPages)"),"PDF is loaded without pre-rendering every page");
+assert.ok(editor.includes("pdf.getPage(pageIndex+1)"),"Only selected PDF page is requested");
+assert.ok(!editor.includes("pages.map("),"Do not mount all PDF pages");
+assert.ok(editor.includes("Math.sqrt(1400000/"),"Canvas pixel area bounded to avoid iPad memory pressure");
+const move=editor.slice(editor.indexOf("  const move=e=>{"),editor.indexOf("  const finish=e=>{"));
+assert.ok(move.includes("ctx.lineTo"),"Stylus strokes are rendered directly on canvas");
+assert.ok(!move.includes("setMarks")&&!move.includes("updateStroke("),"No React state updates on every stylus movement");
+assert.ok(editor.includes("addMark(pageIndex,{type:\"stroke\""),"Completed stroke saved to React state");
+assert.ok(editor.includes("1024/img.naturalWidth"),"Signature bitmap dimensions bounded");
+assert.ok(editor.includes("file.size>6*1024*1024"),"Stamp input file size bounded");
+assert.ok(editor.includes('readLocalSignaturePdf(file)'),"Manual PDF fallback remains");
+assert.ok(editor.includes('onSubmit(next)'),"Original approval pipeline remains");
+assert.ok(app.includes('await fetch("/api/signing-session"'),"Director session is requested at login");
+assert.ok(app.includes('method:"DELETE",credentials:"same-origin"'),"Signing session cleared at logout");
+assert.ok(pkg.dependencies["firebase-admin"],"Firebase Admin server dependency included");
+console.log("Secure one-click + low-memory PDF signing regression passed");

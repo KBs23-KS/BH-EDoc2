@@ -40,5 +40,9 @@ jobs:
         run: node tests/today-badge-style-test.mjs
       - name: Director orders and circulars approval label
         run: node tests/director-approve-label-test.mjs
+      - name: Secure PDF signing API regression
+        run: node tests/secure-signing-endpoint-test.mjs
+      - name: Low-memory PDF editor regression
+        run: node tests/pdf-signing-memory-test.mjs
       - name: Vite production build
         run: npm run build

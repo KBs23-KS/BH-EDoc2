@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const shared=readFileSync(new URL("../api/_signatureServer.js",import.meta.url),"utf8");
+const session=readFileSync(new URL("../api/signing-session.js",import.meta.url),"utf8");
+const pdf=readFileSync(new URL("../api/signing-pdf.js",import.meta.url),"utf8");
+assert.ok(shared.includes("HttpOnly; Secure; SameSite=Strict"),"Server-only cookie must use secure flags");
+assert.ok(shared.includes('getApps')&&shared.includes('firebase-admin'),"Server verifies account against Admin Firestore");
+assert.ok(shared.includes('document.status!=="รอผู้อำนวยการ"'),"Read only documents pending Director approval");
+assert.ok(shared.includes('document.files||[]'),"Requested Drive ID must belong to this document");
+assert.ok(pdf.includes('readSession(req)'),"Read must check session cookie");
+assert.ok(pdf.includes('allowedToSign(user,doc,driveId)'),"Read must check up-to-date user/document roles");
+assert.ok(pdf.includes('action:"getFile"')&&pdf.includes("process.env.BHS_BACKUP_SECRET"),"Backup key must remain on server");
+assert.ok(!session.includes("res.status(200).json({success:true,token:"),"No client-readable session key");
+assert.ok(!pdf.includes("Access-Control-Allow-Origin"),"No cross-origin reads");
+assert.ok(pdf.includes("MAX_SOURCE_PDF"),"Bound output size");
+console.log("Protected automatic-signing backend checks passed");

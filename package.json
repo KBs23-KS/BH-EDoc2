@@ -16,7 +16,8 @@
     "pdfjs-dist": "^5.4.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "tailwindcss": "^4.1.0"
+    "tailwindcss": "^4.1.0",
+    "firebase-admin": "^13.4.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.0",
