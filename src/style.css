@@ -228,3 +228,16 @@
 .bhs-luxury-main button:focus-visible,.bhs-luxury-main a:focus-visible{outline:2px solid #4386df;outline-offset:2px}
 @media(max-width:1050px){.bhs-home-panels{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:640px){.bhs-home-panel-head{padding:14px}.bhs-home-panel-body{padding:2px 13px 9px}.bhs-home-item-meta{font-size:9px}.bhs-home-item-main strong{font-size:12px}}
+
+.bhs-modern-panel{background:#fff;border:1px solid #e4eaf3;border-radius:17px;box-shadow:0 5px 22px rgba(20,60,105,.045)}
+.bhs-ack-progress{background:linear-gradient(120deg,#f9fbff,#f0f7ff);border:1px solid #dceafa;border-radius:14px;padding:15px;display:flex;flex-direction:column;gap:10px}
+.bhs-luxury-main button:not(:disabled){transition:background-color .18s,border-color .18s,box-shadow .18s}
+.bhs-luxury-main input:focus,.bhs-luxury-main select:focus,.bhs-luxury-main textarea:focus{border-color:#79a9e9;outline:2px solid rgba(68,135,224,.13)}
+@media(max-width:680px){
+  .bhs-luxury-main .bhs-doc-table{display:block;width:100%;min-width:0!important}
+  .bhs-luxury-main .bhs-doc-table thead{display:none}
+  .bhs-luxury-main .bhs-doc-table tbody{display:grid;gap:10px;background:#f5f8fd;padding:10px}
+  .bhs-luxury-main .bhs-doc-table tbody tr{display:block;border:1px solid #e1e9f4;border-radius:14px;background:#fff!important;overflow:hidden}
+  .bhs-luxury-main .bhs-doc-table tbody td{display:block;width:100%!important;min-width:0!important;border:0;padding:12px!important}
+  .bhs-luxury-main .bhs-doc-table tbody td+td{border-top:1px solid #edf2f8}
+}
