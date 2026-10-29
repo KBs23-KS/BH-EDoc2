@@ -2,34 +2,130 @@ import React,{useMemo,useState} from "react";
 import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc} from "./routing";
 import {canReadDoc,recipientsOf} from "./workflow";
 
+// A two-stage selector avoids dumping every group and teacher at once.
+// Selection stays intact when switching categories, allowing mixed group + direct routes.
 function Picker({users,selected,onChange,label}) {
   const [query,setQuery]=useState("");
-  const visible=users.filter(u=>u.name.toLowerCase().includes(query.toLowerCase())||u.adminDept?.toLowerCase().includes(query.toLowerCase())).slice(0,60);
-  return <div className="space-y-2"><label className="block text-sm font-semibold text-slate-700">{label}</label>
+  const normalized=query.trim().toLocaleLowerCase("th-TH");
+  const visible=users.filter(u=>[u.name,u.adminDept,u.subjectArea].some(value=>String(value||"").toLocaleLowerCase("th-TH").includes(normalized))).slice(0,100);
+  const toggle=id=>onChange(selected.includes(id)?selected.filter(x=>x!==id):[...selected,id]);
+  return <div className="space-y-2">
+    <label className="block text-sm font-semibold text-slate-700">{label}</label>
     <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="ค้นหาชื่อครู..." className="w-full border rounded-xl p-3 text-sm"/>
-    <div className="max-h-36 overflow-y-auto rounded-xl border divide-y">
-      {visible.map(u=><label key={u.id} className="flex gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-blue-50">
-        <input type="checkbox" checked={selected.includes(u.id)} onChange={e=>onChange(e.target.checked?[...selected,u.id]:selected.filter(id=>id!==u.id))}/>
-        <span>{u.name}</span><small className="ml-auto text-slate-400">{u.adminDept||u.subjectArea||""}</small>
+    <div className="max-h-52 overflow-y-auto rounded-xl border bg-white divide-y">
+      {visible.map(u=><label key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-blue-50">
+        <input type="checkbox" checked={selected.includes(u.id)} onChange={()=>toggle(u.id)}/>
+        <span className="flex-1">{u.name}</span>
+        <small className="text-slate-400 text-right max-w-[45%]">{u.adminDept||u.subjectArea||""}</small>
       </label>)}
       {!visible.length&&<p className="p-3 text-sm text-slate-400">ไม่พบรายชื่อ</p>}
     </div>
-    <p className="text-xs text-slate-500">เลือกแล้ว {selected.length} คน</p>
+    <p className="text-xs text-slate-500">เลือกครูแล้ว {selected.length} คน</p>
   </div>;
 }
+const groupTypes=[
+  {value:"admin",label:"กลุ่มบริหารงาน"},
+  {value:"subject",label:"กลุ่มสาระการเรียนรู้"},
+  {value:"person",label:"ครูรายบุคคล"}
+];
 export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,setUserIds,allowAll=false,all=false,setAll}) {
+  const [mode,setMode]=useState("");
   const [search,setSearch]=useState("");
-  const options=[...(systemSettings.adminDepts||[]),...(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้")];
   const users=dbUsers.filter(u=>["teacher","clerk"].includes(u.role)&&u.status!=="inactive");
+  const adminDepts=systemSettings.adminDepts||[];
+  const subjectAreas=(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้");
+  const options=mode==="admin"?adminDepts:mode==="subject"?subjectAreas:[];
+  const normalized=search.trim().toLocaleLowerCase("th-TH");
+  const selectedNames=groups.concat(userIds.map(id=>users.find(u=>u.id===id)?.name||id));
+  const changeMode=value=>{
+    setMode(value);setSearch("");
+    if(allowAll){
+      if(value==="all"){setAll(true);setGroups([]);setUserIds([]);}
+      else if(all)setAll(false);
+    }
+  };
+  const toggleGroup=name=>setGroups(groups.includes(name)?groups.filter(x=>x!==name):[...groups,name]);
   return <div className="space-y-3">
-    {allowAll&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={all} onChange={e=>setAll(e.target.checked)}/> แจ้งทุกคน</label>}
-    {!all&&<><label className="block text-sm font-semibold text-slate-700">เลือกกลุ่มงาน/กลุ่มสาระ (หลายกลุ่มได้)</label>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหากลุ่มงานหรือกลุ่มสาระ" className="w-full border rounded-xl p-3 text-sm"/>
-      <div className="max-h-36 overflow-y-auto rounded-xl border divide-y">{options.filter(x=>x.toLowerCase().includes(search.toLowerCase())).map(g=>
-        <label key={g} className="flex gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-blue-50"><input type="checkbox" checked={groups.includes(g)} onChange={e=>setGroups(e.target.checked?[...groups,g]:groups.filter(x=>x!==g))}/>{g}</label>
-      )}</div>
-      <Picker users={users} selected={userIds} onChange={setUserIds} label="มอบหมายถึงครูโดยตรง (เลือกหลายคนได้)"/>
-    </>}
+    <label className="block text-sm font-semibold text-slate-700" htmlFor="routing-category">
+      ขั้นที่ 1 เลือกประเภทผู้รับ
+    </label>
+    <select id="routing-category" value={mode} onChange={e=>changeMode(e.target.value)}
+      className="w-full border rounded-xl bg-white p-3 text-sm">
+      <option value="">-- กดเลือกประเภทผู้รับก่อน --</option>
+      {allowAll&&<option value="all">แจ้งทุกคน</option>}
+      {groupTypes.map(option=><option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+    {(mode==="admin"||mode==="subject")&&<div className="space-y-2">
+      <label className="block text-sm font-semibold text-slate-700">ขั้นที่ 2 ติ๊กเลือก{mode==="admin"?"กลุ่มบริหารงาน":"กลุ่มสาระ"} (เลือกได้หลายรายการ)</label>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อกลุ่ม..." className="w-full border rounded-xl p-3 text-sm"/>
+      <div className="max-h-52 overflow-y-auto rounded-xl border bg-white divide-y">
+        {options.filter(name=>name.toLocaleLowerCase("th-TH").includes(normalized)).map(name=>
+          <label key={name} className="flex gap-2 items-center px-3 py-2 text-sm cursor-pointer hover:bg-blue-50">
+            <input type="checkbox" checked={groups.includes(name)} onChange={()=>toggleGroup(name)}/>
+            <span>{name}</span>
+          </label>)}
+        {!options.length&&<p className="p-3 text-sm text-slate-400">ไม่มีรายชื่อกลุ่มในระบบ</p>}
+      </div>
+    </div>}
+    {mode==="person"&&<div className="space-y-2">
+      <p className="text-sm font-semibold text-slate-700">ขั้นที่ 2 ติ๊กเลือกชื่อครูที่ต้องการมอบหมาย</p>
+      <Picker users={users} selected={userIds} onChange={setUserIds} label="ค้นหาและเลือกครูได้หลายคน"/>
+    </div>}
+    {mode==="all"&&<p className="text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-xl p-3">ระบบจะส่งถึงครูและบุคลากรทุกคนที่มีสิทธิ์รับหนังสือ</p>}
+    {!all&&selectedNames.length>0&&<div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800 space-y-1">
+      <b>ผู้รับที่เลือกไว้ {groups.length} กลุ่ม / {userIds.length} คน</b>
+      <p className="leading-relaxed">{selectedNames.join(", ")}</p>
+      <p className="text-blue-600">เปลี่ยนประเภทด้านบนเพื่อเลือกเพิ่มเติมได้ รายการที่ติ๊กแล้วจะยังอยู่</p>
+    </div>}
+  </div>;
+}
+function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,onChange}) {
+  const [mode,setMode]=useState("");
+  const [chosenGroup,setChosenGroup]=useState("");
+  const [search,setSearch]=useState("");
+  const admin=kind==="admin";
+  const options=mode==="admin"?(systemSettings.adminDepts||[]):mode==="subject"?(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้"):[];
+  const narrowed=admin
+    ? mode==="all"?users:mode==="admin"&&chosenGroup?users.filter(u=>u.adminDept===chosenGroup):mode==="subject"&&chosenGroup?users.filter(u=>u.subjectArea===chosenGroup):[]
+    : mode==="own"?users.filter(u=>u.subjectArea===group):[];
+  const filtered=narrowed.filter(u=>[u.name,u.adminDept,u.subjectArea].some(v=>String(v||"").toLocaleLowerCase("th-TH").includes(search.toLocaleLowerCase("th-TH"))));
+  const toggle=id=>onChange(selected.includes(id)?selected.filter(x=>x!==id):[...selected,id]);
+  return <div className="space-y-3">
+    <label className="block text-sm font-semibold text-slate-700" htmlFor="head-route-mode">
+      ขั้นที่ 1 เลือกวิธีค้นหาครูที่จะเกษียณต่อ
+    </label>
+    <select id="head-route-mode" value={mode} onChange={e=>{setMode(e.target.value);setChosenGroup("");setSearch("");}}
+      className="w-full p-3 border bg-white rounded-xl text-sm">
+      <option value="">-- กดเลือกก่อน จึงแสดงรายชื่อครูให้ติ๊ก --</option>
+      {admin
+        ? <><option value="admin">เลือกจากกลุ่มบริหารงาน</option><option value="subject">เลือกจากกลุ่มสาระ</option><option value="all">ค้นหาครูทั้งหมด (ข้ามกลุ่มงานได้)</option></>
+        : <option value="own">ครูในกลุ่มสาระ {group}</option>}
+    </select>
+    {admin&&(mode==="admin"||mode==="subject")&&<label className="block space-y-1">
+      <span className="block text-sm font-semibold text-slate-700">ขั้นที่ 2 เลือก{mode==="admin"?"กลุ่มบริหารงาน":"กลุ่มสาระ"}ที่จะค้นหารายชื่อ</span>
+      <select value={chosenGroup} onChange={e=>{setChosenGroup(e.target.value);setSearch("");}}
+        className="w-full border rounded-xl bg-white p-3 text-sm">
+        <option value="">-- เลือกกลุ่ม --</option>
+        {options.map(name=><option key={name} value={name}>{name}</option>)}
+      </select>
+    </label>}
+    {((admin&&(mode==="all"||Boolean(chosenGroup)))||(!admin&&mode==="own"))&&<div className="space-y-2">
+      <label className="block text-sm font-semibold text-slate-700">ติ๊กเลือกชื่อครู (เลือกได้หลายคน)</label>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อครู..." className="w-full p-3 border rounded-xl text-sm"/>
+      <div className="max-h-52 overflow-y-auto rounded-xl border bg-white divide-y">
+        {filtered.map(u=><label key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-blue-50">
+          <input type="checkbox" checked={selected.includes(u.id)} onChange={()=>toggle(u.id)}/>
+          <span>{u.name}</span>
+        </label>)}
+        {!filtered.length&&<p className="p-3 text-sm text-slate-400">ไม่พบรายชื่อครูในกลุ่มที่เลือก</p>}
+      </div>
+    </div>}
+    {!!selected.length&&<div className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-1">
+      <b>เลือกครูแล้ว {selected.length} คน</b>
+      <p>{selected.map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")}</p>
+      <p>เปลี่ยนกลุ่มเพื่อเลือกเพิ่มได้ รายชื่อเดิมไม่หาย</p>
+    </div>}
+    {!selected.length&&<p className="text-xs text-slate-500">ถ้าไม่มีครูต้องมอบหมาย สามารถกดรับทราบในฐานะหัวหน้าได้เลย</p>}
   </div>;
 }
 export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,onRoute,onHeadAction,onOpen}) {
@@ -83,7 +179,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
           </select>
         </label>}
         {completed&&<p className="text-xs text-amber-700 bg-amber-50 rounded-lg p-3">หัวหน้าเกษียณไปแล้ว คุณสามารถเปลี่ยนรายชื่อผู้รับมอบหมาย โดยจะเก็บประวัติเดิมไว้</p>}
-        {canDirector?<RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={setGroups} userIds={ids} setUserIds={setIds} allowAll all={all} setAll={setAll}/>:<Picker users={candidates} selected={ids} onChange={setIds} label={kind==="admin"?"มอบหมายถึงครู (ข้ามกลุ่มงานได้)":"มอบหมายถึงครูในกลุ่มสาระของตน"}/>}
+        {canDirector?<RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={setGroups} userIds={ids} setUserIds={setIds} allowAll all={all} setAll={setAll}/>:<HeadRecipientPicker key={group} users={candidates} kind={kind} group={group} dbUsers={dbUsers} systemSettings={systemSettings} selected={ids} onChange={setIds}/>}
         <label className="block space-y-1"><span className="font-semibold text-sm text-slate-700">ข้อเกษียณ / ข้อสั่งการ</span><textarea value={message} onChange={e=>setMessage(e.target.value)} rows={3} className="w-full p-3 border rounded-xl text-sm" placeholder="บันทึกข้อสั่งการตามหนังสือ..."/></label>
         {!canDirector&&!completed&&!ids.length&&<p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">ไม่เลือกครู = หัวหน้ากดรับทราบและจบงานส่วนของตน</p>}
         {confirm&&<div className="border border-amber-200 bg-amber-50 p-3 rounded-xl text-sm"><b>ตรวจสอบก่อนยืนยัน</b><p>ถึงกลุ่ม: {canDirector?(all?"ทุกคน":groups.join(", ")||"—"):group}</p><p>ถึงครู: {ids.map(id=>dbUsers.find(u=>u.id===id)?.name).join(", ")||"ไม่มอบหมายรายบุคคล"}</p><p>ข้อสั่งการ: {message||"—"}</p></div>}
