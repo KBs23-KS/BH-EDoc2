@@ -1807,17 +1807,7 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
         ))}
       </div>
 
-      <section className="bhs-luxury-activity">
-        <div className="bhs-luxury-section-header">
-          <div>
-            <p className="bhs-luxury-eyebrow">RECENT ACTIVITY</p>
-            <h2>ความเคลื่อนไหวล่าสุด</h2>
-            <p>รายการเอกสารล่าสุดที่คุณมีสิทธิ์เข้าถึง</p>
-          </div>
-          <button type="button" onClick={()=>changeMenu("global_search")} className="bhs-luxury-text-action">ดูรายการทั้งหมด <span aria-hidden="true">↗</span></button>
-        </div>
-        <DashboardHomePanels documents={documents} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={changeMenu}/>
-      </section>
+      <DashboardHomePanels documents={documents} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={changeMenu}/>
     </div>
   );
 }
