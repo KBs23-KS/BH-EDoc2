@@ -38,5 +38,7 @@ jobs:
         run: node tests/hide-optional-sidebar-links-test.mjs
       - name: Red today badge visual regression
         run: node tests/today-badge-style-test.mjs
+      - name: Director orders and circulars approval label
+        run: node tests/director-approve-label-test.mjs
       - name: Vite production build
         run: npm run build

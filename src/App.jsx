@@ -2213,7 +2213,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                   )}
                   <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                     <button onClick={() => submitAction(docObj, "APPROVE")} disabled={processingId === docObj.id} className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold shadow-md flex justify-center items-center">
-                      {processingId === docObj.id ? <><Loader2 className="animate-spin mr-2" size={18} /> {uploadStatus}</> : <><CheckCircle size={18} className="mr-2 shrink-0" /> อนุมัติ / สั่งการ</>}
+                      {processingId === docObj.id ? <><Loader2 className="animate-spin mr-2" size={18} /> {uploadStatus}</> : <><CheckCircle size={18} className="mr-2 shrink-0" /> {["คำสั่งโรงเรียน","หนังสือเวียนแจ้งรับทราบ"].includes(docObj.type)?"ลงนาม / อนุมัติ":"อนุมัติ / สั่งการ"}</>}
                     </button>
                     <button onClick={() => submitAction(docObj, "RETURN")} disabled={processingId === docObj.id} className="w-full sm:flex-1 bg-red-50 border border-red-200 text-red-700 py-3 rounded-lg font-bold mt-2 sm:mt-0">
                       ส่งกลับแก้ไข

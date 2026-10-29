@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
+const tasks=app.slice(app.indexOf("function TasksView("),app.indexOf("function ",app.indexOf("function TasksView(")+1));
+assert.ok(tasks.includes('["คำสั่งโรงเรียน","หนังสือเวียนแจ้งรับทราบ"].includes(docObj.type)?"ลงนาม / อนุมัติ":"อนุมัติ / สั่งการ"'),"Orders and circulars must show new director action label, incoming keeps old");
+assert.equal(tasks.split("ลงนาม / อนุมัติ").length-1,1,"Director action label should occur once");
+assert.ok(tasks.includes('if (actionType === "APPROVE" && isDirectorStage && docObj.type === "คำสั่งโรงเรียน" && !signedPdf)'),"Order signing remains mandatory before approval");
+assert.ok(tasks.includes('if (actionType === "APPROVE" && isDirectorStage && docObj.type === "หนังสือเข้า")'),"Incoming document routing unchanged");
+assert.ok(tasks.includes('docObj.type === "หนังสือเวียนแจ้งรับทราบ" && ('),"Circular signature attachments remain optional");
+assert.ok(app.includes('status: docObj.type === "คำสั่งโรงเรียน" || docObj.type === "หนังสือเวียนแจ้งรับทราบ" ? DOC_STATUS.PUBLISHED : DOC_STATUS.COMPLETED'),"Publication state logic must not change");
+assert.ok(app.includes('const DOC_STATUS = {'),"Historical status names unchanged");
+console.log("Director's order/circular approve label: only requested UI text changed");
