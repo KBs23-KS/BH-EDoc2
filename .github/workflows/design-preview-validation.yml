@@ -18,5 +18,7 @@ jobs:
         run: node tests/test-numbering.cjs
       - name: Document workflow rules
         run: node tests/workflow-test.mjs
+      - name: Protected Google Apps Script backup API
+        run: node tests/gas-backup-auth-test.cjs
       - name: Vite production build
         run: npm run build
