@@ -66,6 +66,7 @@ import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace"
 import {shouldShowRoleMenu} from "./menuVisibility.js";
 import OrgHeads from "./OrgHeads";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
+import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -1752,11 +1753,20 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
   const ordersToday = visibleDocs.filter(doc=>doc.type==="คำสั่งโรงเรียน" && doc.date===getTodayIso()).length;
   const myTasks=documents.filter(d=>(currentUser.role==="deputy"&&d.status===DOC_STATUS.WAITING_DEPUTY)||(currentUser.role==="director"&&d.status===DOC_STATUS.WAITING_DIRECTOR)||(currentUser.role==="admin"&&[DOC_STATUS.WAITING_DEPUTY,DOC_STATUS.WAITING_DIRECTOR].includes(d.status))).length;
   const canViewTasks=["admin","director","deputy"].includes(currentUser.role);
+  const teacher=currentUser.role==="teacher";
   const reader=["teacher","clerk"].includes(currentUser.role),hasHead=headGroups(currentUser,systemSettings).length>0;
   const headCount=documents.reduce((n,d)=>n+pendingHeadGroups(d,currentUser,systemSettings).length,0);
   const ownAssignments=documents.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
   const pending=(kind)=>visibleDocs.filter(d=>d.type===kind&&isFinalDoc(d)&&recipientsOf(d,dbUsers).some(r=>r.id===currentUser.id)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length;
-  const cards=reader?[
+  // Teacher overview represents all accessible documents, not only unread items.
+  // Head-routing remains in the sidebar and alerts, regardless of this card layout.
+  const teacherTotals=countDocumentTypes(visibleDocs);
+  const cards=teacher?[
+    {id:"incoming",label:"หนังสือเข้า",value:teacherTotals.incoming,icon:<Inbox size={21}/>,hint:"ทะเบียนหนังสือเข้า"},
+    {id:"circulars",label:"หนังสือเวียน",value:teacherTotals.circulars,icon:<Bell size={21}/>,hint:"ทะเบียนหนังสือเวียน"},
+    {id:"orders",label:"คำสั่งโรงเรียน",value:teacherTotals.orders,icon:<FileText size={21}/>,hint:"ทะเบียนคำสั่งโรงเรียน"},
+    {id:"assignments",label:"งานที่ได้รับมอบหมาย",value:ownAssignments,icon:<CheckCircle size={21}/>,hint:"จาก ผอ. หรือหัวหน้ากลุ่ม"}
+  ]:reader?[
     {id:"incoming",label:"หนังสือเข้ารอรับทราบ",value:pending("หนังสือเข้า"),icon:<Inbox size={21}/>,hint:"เปิดหนังสือใหม่"},
     {id:"circulars",label:"หนังสือเวียนรอรับทราบ",value:pending("หนังสือเวียนแจ้งรับทราบ"),icon:<Bell size={21}/>,hint:"อ่านและรับทราบ"},
     hasHead?{id:"routing",label:"รอเกษียณต่อในฐานะหัวหน้า",value:headCount,icon:<FileSignature size={21}/>,hint:"งานหัวหน้ากลุ่ม"}:{id:"orders",label:"คำสั่งรอรับทราบ",value:pending("คำสั่งโรงเรียน"),icon:<FileText size={21}/>,hint:"ทะเบียนคำสั่ง"},
