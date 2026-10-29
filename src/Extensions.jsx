@@ -53,7 +53,14 @@ export function AckReport({documents,currentUser,dbUsers,onReminder,onAddRecipie
   const mayRemind=['admin','director','deputy'].includes(currentUser.role);
   return <div className="bg-white rounded-xl shadow p-5 space-y-4"><h2 className={heading}>รายงานผู้รับทราบเอกสาร</h2>
     <select className={cn} value={doc?.id||''} onChange={e=>setId(e.target.value)}>{accessible.map(d=><option key={d.id} value={d.id}>{d.docNumber||'-'} — {d.subject}</option>)}</select>
-    {doc&&<><div className="grid grid-cols-3 gap-2 text-center text-sm"><div className="bg-slate-100 p-2 rounded">ทั้งหมด<br/><b>{people.length}</b></div><div className="bg-green-50 p-2 rounded">รับทราบ<br/><b>{people.filter(p=>done.has(p.id)).length}</b></div><div className="bg-amber-50 p-2 rounded">ค้าง<br/><b>{people.filter(p=>!done.has(p.id)).length}</b></div></div>
+    {doc&&<><div className="bhs-ack-progress" role="group" aria-label="ความคืบหน้าการรับทราบ">
+      <div className="flex justify-between items-center gap-2 text-sm font-semibold"><span>ความคืบหน้าการรับทราบ</span>
+        <span className="text-blue-700">{people.filter(p=>done.has(p.id)).length} / {people.length} คน ({people.length?Math.round(people.filter(p=>done.has(p.id)).length/people.length*100):0}%)</span>
+      </div>
+      <div className="h-3 rounded-full bg-slate-100 overflow-hidden" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={people.length?Math.round(people.filter(p=>done.has(p.id)).length/people.length*100):0}>
+        <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-teal-500 transition-all" style={{width:(people.length?Math.round(people.filter(p=>done.has(p.id)).length/people.length*100):0)+"%"}}/>
+      </div>
+    </div><div className="grid grid-cols-3 gap-2 text-center text-sm"><div className="bg-slate-100 p-2 rounded">ทั้งหมด<br/><b>{people.length}</b></div><div className="bg-green-50 p-2 rounded">รับทราบ<br/><b>{people.filter(p=>done.has(p.id)).length}</b></div><div className="bg-amber-50 p-2 rounded">ค้าง<br/><b>{people.filter(p=>!done.has(p.id)).length}</b></div></div>
       <select className={cn} value={show} onChange={e=>setShow(e.target.value)}><option value="pending">ยังไม่รับทราบ</option><option value="done">รับทราบแล้ว</option><option value="all">ทั้งหมด</option></select>
       {visible.map(p=><div key={p.id} className="border rounded p-2 text-sm flex justify-between items-center gap-2"><div><b>{p.name}</b><p className="text-xs text-gray-500">{done.has(p.id)?`รับทราบแล้ว ${doc.acknowledgedAt?.[p.id]?new Date(doc.acknowledgedAt[p.id]).toLocaleString('th-TH'):''}`:'ยังไม่รับทราบ'}</p></div>{mayRemind&&!done.has(p.id)&&<button disabled={sending} onClick={async()=>{setSending(true);try{await onReminder(doc,p)}finally{setSending(false)}}} className="text-xs bg-blue-700 text-white px-3 py-2 rounded disabled:opacity-50">แจ้งเตือนซ้ำ</button>}</div>)}
       {mayRemind&&Array.isArray(doc.recipientsSnapshot)&&<div className="border-t pt-3 space-y-2">
