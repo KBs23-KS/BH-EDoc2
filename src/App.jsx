@@ -439,34 +439,39 @@ export default function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     setLoading(true);
-    
     const user = dbUsers.find(u => u.username === username.trim());
-    setTimeout(() => {
-      if (user) {
-        if (user.status === "inactive") {
-           showToast("บัญชีนี้ถูกระงับการใช้งาน", "error");
-           setLoading(false);
-           return;
-        }
-
+    // Legacy login remains usable if the optional secure signing service is
+    // not configured yet. Only director/admin get a short-lived signing cookie.
+    setTimeout(async () => {
+      try {
+        if (!user) return showToast("ไม่พบชื่อผู้ใช้งานนี้", "error");
+        if (user.status === "inactive") return showToast("บัญชีนี้ถูกระงับการใช้งาน", "error");
         const userPassword = user.password || "123456";
-        if (password === userPassword) {
-          setActiveProfile(user);
-          writeAuditLog(user, "เข้าสู่ระบบ", "AUTH", user.id, "เข้าสู่ระบบสำเร็จ");
-          if (userPassword !== "123456") {
-             showToast(`เข้าสู่ระบบสำเร็จ: ${user.name}`, "success");
-          }
-        } else {
-          showToast("รหัสผ่านไม่ถูกต้อง", "error");
+        if (password !== userPassword) return showToast("รหัสผ่านไม่ถูกต้อง", "error");
+        if (["director","admin"].includes(user.role)) {
+          const controller=new AbortController();
+          const timeout=setTimeout(()=>controller.abort(),6000);
+          try {
+            // Server independently checks the password and current role.
+            await fetch("/api/signing-session",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              credentials:"same-origin",
+              body:JSON.stringify({username:username.trim(),password}),
+              signal:controller.signal,
+            });
+          } catch(error) {
+            console.warn("Automatic signing session unavailable; manual PDF selection remains available.");
+          } finally {clearTimeout(timeout);}
         }
-      } else {
-        showToast("ไม่พบชื่อผู้ใช้งานนี้", "error");
-      }
-      setLoading(false);
+        setActiveProfile(user);
+        writeAuditLog(user, "เข้าสู่ระบบ", "AUTH", user.id, "เข้าสู่ระบบสำเร็จ");
+        if (userPassword !== "123456") showToast(`เข้าสู่ระบบสำเร็จ: ${user.name}`, "success");
+      } finally {setLoading(false);}
     }, 500);
   };
 
   const handleLogout = () => {
+    void fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}).catch(()=>{});
     if (activeProfile) {
       writeAuditLog(activeProfile, "ออกจากระบบ", "AUTH", activeProfile.id, "ออกจากระบบสำเร็จ");
     }

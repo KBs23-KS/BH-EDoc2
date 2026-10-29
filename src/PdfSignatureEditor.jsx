@@ -6,33 +6,30 @@ import {readLocalSignaturePdf,signaturePdfNamesMatch} from "./signatureLocalPdf.
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
-const GAS_URL = "https://script.google.com/macros/s/AKfycbybUep1zqPvNXMaed11u7bibs7SaOWNsfgrpm1d3Wz8jh8eql9ljOU6MyygE2nrPmsIPg/exec";
-const fromB64 = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-const toDataUrl = file => new Promise((resolve, reject) => {
-  const r = new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file);
-});
-
-/** Requires the getFile action in gas/Code.gs to be deployed on the existing Apps Script URL. */
-async function fetchOriginalPdf(file) {
-  if (!file?.driveId) throw new Error("ไฟล์นี้ไม่มี Drive ID จึงยังเปิดเพื่อเซ็นออนไลน์ไม่ได้");
-  const response = await fetch(GAS_URL, {
-    method: "POST", body: JSON.stringify({action:"getFile",fileId:file.driveId})
+const fromB64 = b64 => Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+const MAX_EDITOR_BYTES=18*1024*1024;
+/** The server checks the director's signed session and requested document/Drive ID. */
+async function fetchOriginalPdf(document,file,signal){
+  if(!file?.driveId)throw new Error("ไฟล์ต้นฉบับไม่มี Drive ID");
+  const res=await fetch("/api/signing-pdf",{
+    method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({docId:document.id,driveId:file.driveId}),signal
   });
-  const json = await response.json();
-  if (!json.success || !json.base64) throw new Error(json.error || "บริการ Google Apps Script ยังไม่รองรับการอ่าน PDF");
-  return fromB64(json.base64);
+  if(!res.ok){
+    let message="บริการเปิด PDF อัตโนมัติยังไม่พร้อม";
+    try{message=(await res.json()).error||message;}catch{}
+    throw new Error(message);
+  }
+  const bytes=new Uint8Array(await res.arrayBuffer());
+  if(!bytes.length||bytes.length>MAX_EDITOR_BYTES)throw new Error("PDF มีขนาดใหญ่เกินไป");
+  return bytes;
 }
-
-// The signed bytes can be loaded from Drive (when authorized) or from a file
-// explicitly downloaded and selected by the director. No Backup password is exposed.
 async function readPdfPages(bytes){
-  const pdf=await pdfjs.getDocument({data:bytes.slice()}).promise;
-  const pages=[];
-  for(let i=1;i<=pdf.numPages;i++)pages.push(await pdf.getPage(i));
-  return pages;
+  // Do not eagerly create every page; tablets render only the visible page.
+  return pdfjs.getDocument({data:bytes.slice()}).promise;
 }
 
-function PdfPage({ page, pageIndex, mode, marks, addMark, updateStroke, stamp }) {
+function PdfPage({ page, pageIndex, mode, marks, addMark, stamp }) {
   const base = useRef(null);
   const overlay = useRef(null);
   const currentStroke = useRef(null);
@@ -40,12 +37,14 @@ function PdfPage({ page, pageIndex, mode, marks, addMark, updateStroke, stamp })
   useEffect(() => {
     if (!page || !base.current) return;
     let canceled = false;
-    const viewport = page.getViewport({scale:1.25});
+    const natural=page.getViewport({scale:1});
+    const factor=Math.min(1.15,1200/natural.width,1450/natural.height,Math.sqrt(1400000/(natural.width*natural.height)));
+    const viewport=page.getViewport({scale:factor});
     const canvas = base.current;
-    canvas.width = Math.round(viewport.width); canvas.height=Math.round(viewport.height);
-    const task = page.render({canvasContext:canvas.getContext("2d"),viewport});
+    canvas.width = Math.max(1,Math.round(viewport.width)); canvas.height=Math.max(1,Math.round(viewport.height));
+    const task = page.render({canvasContext:canvas.getContext("2d",{alpha:false}),viewport});
     task.promise.then(()=>{if(!canceled)setDims({width:canvas.width,height:canvas.height});}).catch(()=>{});
-    return ()=>{canceled=true;task.cancel();};
+    return ()=>{canceled=true;task.cancel();canvas.width=0;canvas.height=0;if(overlay.current){overlay.current.width=0;overlay.current.height=0;}};
   },[page]);
   useEffect(() => {
     const canvas=overlay.current;
@@ -69,29 +68,42 @@ function PdfPage({ page, pageIndex, mode, marks, addMark, updateStroke, stamp })
     const r=e.currentTarget.getBoundingClientRect();
     return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))];
   };
-  const down = e=>{
-    if(mode==="view")return;
+  const down=e=>{
+    if(mode==="view"||!dims.width)return;
     e.preventDefault();
     const [x,y]=position(e);
     if(mode==="stamp"){
-      if(!stamp)return;
-      addMark(pageIndex,{type:"stamp",image:stamp,x:Math.max(0,Math.min(.7,x-.15)),y:Math.max(0,Math.min(.9,y-.05)),w:.3,h:.1});
-    }else{
-      const id=`stroke-${Date.now()}-${Math.random()}`;
-      currentStroke.current=id;
-      addMark(pageIndex,{type:"stroke",id,points:[[x,y]]});
-      e.currentTarget.setPointerCapture(e.pointerId);
+      if(stamp)addMark(pageIndex,{type:"stamp",image:stamp,x:Math.max(0,Math.min(.7,x-.15)),y:Math.max(0,Math.min(.9,y-.05)),w:.3,h:.1});
+      return;
     }
+    currentStroke.current={id:"stroke-"+Date.now(),points:[[x,y]],pointerId:e.pointerId};
+    try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}
   };
   const move=e=>{
-    if(!currentStroke.current||mode!=="pen")return;
-    e.preventDefault();updateStroke(pageIndex,currentStroke.current,position(e));
+    const current=currentStroke.current;
+    if(!current||current.pointerId!==e.pointerId||mode!=="pen")return;
+    e.preventDefault();
+    const point=position(e),previous=current.points.at(-1);
+    const canvas=overlay.current,ctx=canvas?.getContext("2d");
+    if(ctx&&previous){
+      ctx.strokeStyle="#113b89";ctx.lineWidth=2.6;ctx.lineCap="round";ctx.lineJoin="round";
+      ctx.beginPath();ctx.moveTo(previous[0]*canvas.width,previous[1]*canvas.height);
+      ctx.lineTo(point[0]*canvas.width,point[1]*canvas.height);ctx.stroke();
+    }
+    current.points.push(point);
+  };
+  const finish=e=>{
+    const current=currentStroke.current;
+    if(!current||current.pointerId!==e.pointerId)return;
+    currentStroke.current=null;
+    // React updates once per completed stroke, not on every Pencil move.
+    addMark(pageIndex,{type:"stroke",id:current.id,points:current.points});
   };
   return <div className="relative bg-white mx-auto shadow-lg border overflow-hidden" style={{width:dims.width||"auto",maxWidth:"100%"}}>
     <canvas ref={base} className="block w-full h-auto"/>
     <canvas ref={overlay} className="absolute inset-0 w-full h-full"
       style={{touchAction: mode==="view" ? "pan-y" : "none",cursor:mode==="pen"?"crosshair":mode==="stamp"?"copy":"default",pointerEvents:mode==="view"?"none":"auto"}}
-      onPointerDown={down} onPointerMove={move} onPointerUp={()=>currentStroke.current=null} onPointerCancel={()=>currentStroke.current=null}/>
+      onPointerDown={down} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish}/>
     <div className="absolute top-1 left-1 bg-white/80 rounded px-1 text-xs text-gray-500 pointer-events-none">หน้า {pageIndex+1}</div>
   </div>;
 }
@@ -102,7 +114,10 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
   const [fileIndex,setFileIndex]=useState(0);
   const [allSigned,setAllSigned]=useState([]);
   const [sourceBytes,setSourceBytes]=useState(null);
-  const [pages,setPages]=useState([]);
+  const [pageCount,setPageCount]=useState(0);
+  const [pageIndex,setPageIndex]=useState(0);
+  const [activePage,setActivePage]=useState(null);
+  const pdfRef=useRef(null);
   const [marks,setMarks]=useState({});
   const [mode,setMode]=useState("view");
   const [stamp,setStamp]=useState(null);
@@ -111,68 +126,87 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
   const [saving,setSaving]=useState(false);
   const [loadedFromDevice,setLoadedFromDevice]=useState("");
   const loadRequest=useRef(0);
+  const releasePdf=()=>{const old=pdfRef.current;pdfRef.current=null;if(old)void old.destroy().catch(()=>{});};
+  const acceptPdf=async(bytes,request,label)=>{
+    if(bytes.length>MAX_EDITOR_BYTES)throw new Error("PDF เกิน 18 MB ไม่เหมาะกับการลงนามผ่านแท็บเล็ต");
+    const pdf=await readPdfPages(bytes);
+    if(request!==loadRequest.current){void pdf.destroy();return;}
+    releasePdf();pdfRef.current=pdf;
+    setSourceBytes(bytes);setPageCount(pdf.numPages);setPageIndex(0);setMarks({});
+    setMode("view");setLoadedFromDevice(label);setLoading(false);
+  };
   useEffect(()=>{
     let disposed=false;
-    const request=++loadRequest.current;
-    setLoading(true);setError("");setPages([]);setMarks({});setSourceBytes(null);setMode("view");setLoadedFromDevice("");
+    const controller=new AbortController(),request=++loadRequest.current;
+    releasePdf();setSourceBytes(null);setPageCount(0);setActivePage(null);
+    setLoading(true);setError("");setMarks({});setLoadedFromDevice("");
     (async()=>{
-      if(sourceFiles.length===0)throw new Error("คำสั่งนี้ไม่มี PDF ที่ระบบสามารถเปิดให้ลงนามได้");
-      const bytes=await fetchOriginalPdf(sourceFiles[fileIndex]);
-      const items=await readPdfPages(bytes);
-      if(!disposed&&request===loadRequest.current){setSourceBytes(bytes);setPages(items);setLoading(false);}
+      if(!sourceFiles.length)throw new Error("เอกสารนี้ไม่มีไฟล์ PDF ที่ระบบสามารถลงนามได้");
+      const bytes=await fetchOriginalPdf(document,sourceFiles[fileIndex],controller.signal);
+      if(!disposed)await acceptPdf(bytes,request,"เปิด PDF อัตโนมัติสำเร็จ");
     })().catch(e=>{
       if(!disposed&&request===loadRequest.current){
-        const message=String(e?.message||e);
-        setError(/รหัสสำรองข้อมูล Drive/i.test(message)
-          ?"Google Apps Script จำกัดการอ่าน PDF ไว้สำหรับ Backup จึงไม่สามารถเปิดไฟล์เพื่อเซ็นโดยตรงได้ กรุณาเปิด PDF ต้นฉบับใน Drive ดาวน์โหลด แล้วเลือกไฟล์ที่ดาวน์โหลดมาเพื่อเซ็น"
-          :"เปิด PDF จาก Drive อัตโนมัติไม่สำเร็จ: "+message+" — สามารถดาวน์โหลดต้นฉบับแล้วเลือกไฟล์จากเครื่องได้");
+        setError("ไม่สามารถเปิด PDF อัตโนมัติ: "+String(e?.message||e)+" — สามารถดาวน์โหลดและเลือกไฟล์แทนได้");
         setLoading(false);
       }
     });
-    return()=>{disposed=true;loadRequest.current++;};
+    return()=>{disposed=true;controller.abort();loadRequest.current++;releasePdf();};
   },[document.id,fileIndex]);
+  useEffect(()=>{
+    const pdf=pdfRef.current;
+    if(!pdf||!pageCount)return;
+    let disposed=false;
+    setActivePage(null);
+    pdf.getPage(pageIndex+1).then(page=>{if(!disposed)setActivePage(page);})
+      .catch(e=>{if(!disposed)setError("อ่านหน้า PDF ไม่สำเร็จ: "+e.message);});
+    return()=>{disposed=true;};
+  },[pageIndex,pageCount,fileIndex]);
   const loadFromDevice=async event=>{
-    const file=event.target.files?.[0];
-    event.target.value="";
+    const file=event.target.files?.[0];event.target.value="";
     if(!file)return;
     const expected=sourceFiles[fileIndex];
     if(expected?.name&&!signaturePdfNamesMatch(file.name,expected.name)){
-      const accepted=window.confirm("ชื่อไฟล์ที่เลือกไม่ตรงกับเอกสารต้นฉบับ: "+expected.name+
-        "\\nเลือก: "+file.name+"\\nกรุณาตรวจว่าเป็น PDF ของคำสั่งเดียวกัน ยืนยันใช้ไฟล์นี้เพื่อเซ็น?");
+      const accepted=window.confirm("ชื่อไฟล์ไม่ตรงต้นฉบับ: "+expected.name+
+        "\nเลือก: "+file.name+"\nยืนยันว่าเป็นไฟล์ของเอกสารเดียวกัน?");
       if(!accepted)return;
     }
     const request=++loadRequest.current;
-    setLoading(true);setError("");setPages([]);setSourceBytes(null);setMarks({});setMode("view");setLoadedFromDevice("");
+    setLoading(true);setError("");setSourceBytes(null);setPageCount(0);setActivePage(null);releasePdf();
     try{
+      if(file.size>MAX_EDITOR_BYTES)throw new Error("PDF ใหญ่เกิน 18 MB สำหรับการลงนามบนแท็บเล็ต");
       const bytes=await readLocalSignaturePdf(file);
-      const pages=await readPdfPages(bytes);
-      if(request===loadRequest.current){
-        setSourceBytes(bytes);setPages(pages);setLoadedFromDevice(file.name);setLoading(false);
-      }
-    }catch(e){
-      if(request===loadRequest.current){setError("เปิด PDF ที่เลือกไม่สำเร็จ: "+String(e?.message||e));setLoading(false);}
-    }
+      await acceptPdf(bytes,request,file.name);
+    }catch(e){if(request===loadRequest.current){setError("เปิด PDF ที่เลือกไม่สำเร็จ: "+String(e?.message||e));setLoading(false);}}
   };
   const addMark=(i,m)=>setMarks(old=>({...old,[i]:[...(old[i]||[]),m]}));
-  const updateStroke=(i,id,pos)=>setMarks(old=>({...old,[i]:(old[i]||[]).map(mark=>mark.id===id?{...mark,points:[...mark.points,pos]}:mark)}));
   const undo=()=>setMarks(old=>{const key=Object.keys(old).filter(i=>(old[i]||[]).length).at(-1);if(key===undefined)return old;return {...old,[key]:old[key].slice(0,-1)};});
   const onStampFile=async e=>{
-    const file=e.target.files?.[0];if(!file)return;
+    const file=e.target.files?.[0];e.target.value="";
+    if(!file)return;
+    if(!file.type.startsWith("image/")||file.size>6*1024*1024){
+      setError("กรุณาเลือกรูปลายเซ็นไม่เกิน 6 MB");return;
+    }
+    let objectUrl;
     try{
-      const src=await toDataUrl(file);
-      // PDF-lib expects PNG for imported image; normalize jpeg/other through canvas.
-      const img=new Image();img.src=src;await img.decode();
-      const canvas=window.document.createElement("canvas");canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;
-      canvas.getContext("2d").drawImage(img,0,0);
-      setStamp(canvas.toDataURL("image/png"));setMode("stamp");
-    }catch(e){setError("ไม่สามารถอ่านรูปลายเซ็น: "+e.message);}
+      objectUrl=URL.createObjectURL(file);
+      const img=new Image();img.src=objectUrl;await img.decode();
+      const factor=Math.min(1,1024/img.naturalWidth,1024/img.naturalHeight);
+      const canvas=window.document.createElement("canvas");
+      canvas.width=Math.max(1,Math.round(img.naturalWidth*factor));
+      canvas.height=Math.max(1,Math.round(img.naturalHeight*factor));
+      canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+      setStamp(canvas.toDataURL("image/png"));setMode("stamp");setError("");
+      canvas.width=0;canvas.height=0;
+    }catch(err){setError("ไม่สามารถอ่านรูปลายเซ็น: "+String(err.message||err));}
+    finally{if(objectUrl)URL.revokeObjectURL(objectUrl);}
   };
   const saveCurrent=async()=>{
-    if (!sourceBytes) return;
+    if (!sourceBytes||!pdfRef.current) return;
     if(!Object.values(marks).flat().length){setError("กรุณาเซ็นหรือแทรกลายเซ็นก่อนบันทึก");return;}
     setSaving(true);setError("");
     try{
       const pdf=await PDFDocument.load(sourceBytes);
+      const embeddedStamps=new Map();
       for(const [k,items] of Object.entries(marks)){
         const pg=pdf.getPage(Number(k));const {width,height}=pg.getSize();
         for(const m of items){
@@ -181,7 +215,8 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
             for(let j=1;j<pts.length;j++)pg.drawLine({start:{x:pts[j-1][0]*width,y:(1-pts[j-1][1])*height},end:{x:pts[j][0]*width,y:(1-pts[j][1])*height},thickness:1.6,color:rgb(.07,.23,.54)});
             if(pts.length===1) pg.drawCircle({x:pts[0][0]*width,y:(1-pts[0][1])*height,size:.9,color:rgb(.07,.23,.54)});
           }else if(m.type==="stamp"){
-            const img=await pdf.embedPng(fromB64(m.image.split(",")[1]));
+            let img=embeddedStamps.get(m.image);
+            if(!img){img=await pdf.embedPng(fromB64(m.image.split(",")[1]));embeddedStamps.set(m.image,img);}
             pg.drawImage(img,{x:m.x*width,y:(1-m.y-m.h)*height,width:m.w*width,height:m.h*height});
           }
         }
@@ -208,7 +243,7 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
     </div>
     <div className="overflow-y-auto flex-1 p-4 space-y-4 bg-slate-600">
       <p className="text-center text-xs text-slate-100">เลือก «เลื่อนหน้า» เพื่ออ่าน / «เขียนลายเซ็น» เพื่อใช้ Apple Pencil หรือเมาส์ / «วางลายเซ็น» เพื่อคลิกตำแหน่ง</p>
-      {loading&&<p className="text-center py-8">กำลังเปิด PDF...</p>}
+      {loading&&<p className="text-center py-8">กำลังเปิด PDF อัตโนมัติ...</p>}
       {error&&<div className="bg-red-100 text-red-800 max-w-xl mx-auto rounded p-3">{error}<button onClick={()=>setError("")} className="ml-2 underline">ปิดข้อความ</button></div>}
       {!sourceBytes&&!loading&&sourceFiles[fileIndex]&&<div className="bg-slate-100 text-slate-800 max-w-xl mx-auto rounded-xl p-5 space-y-4">
         <h3 className="font-bold text-lg">เปิดไฟล์ต้นฉบับเพื่อเซ็น</h3>
@@ -223,7 +258,12 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
         <p className="text-xs text-amber-800">ต้องเลือกไฟล์ต้นฉบับของหนังสือฉบับนี้เท่านั้น ข้อมูลในไฟล์ที่เลือกจะถูกใช้สร้างฉบับลงนามและอัปโหลดเมื่อกด “บันทึกและอนุมัติ”</p>
       </div>}
       {loadedFromDevice&&<div className="max-w-xl mx-auto bg-green-100 text-green-900 rounded p-3 text-sm">เปิด PDF จากเครื่องแล้ว: {loadedFromDevice} — พร้อมเขียนหรือวางลายเซ็น</div>}
-      {pages.map((page,i)=><PdfPage key={`${fileIndex}-${i}`} page={page} pageIndex={i} mode={mode} stamp={stamp} marks={marks[i]||[]} addMark={addMark} updateStroke={updateStroke}/>)}
+      {sourceBytes&&<div className="flex items-center justify-center gap-3 text-sm">
+        <button className="px-3 py-2 rounded bg-slate-700 disabled:opacity-40" disabled={pageIndex===0} onClick={()=>setPageIndex(i=>i-1)}>หน้าก่อนหน้า</button>
+        <span>หน้า {pageIndex+1} / {pageCount}</span>
+        <button className="px-3 py-2 rounded bg-slate-700 disabled:opacity-40" disabled={pageIndex>=pageCount-1} onClick={()=>setPageIndex(i=>i+1)}>หน้าถัดไป</button>
+      </div>}
+      {activePage&&<PdfPage key={fileIndex+"-"+pageIndex} page={activePage} pageIndex={pageIndex} mode={mode} stamp={stamp} marks={marks[pageIndex]||[]} addMark={addMark}/>} 
     </div>
   </div>;
 }
