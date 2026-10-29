@@ -63,6 +63,7 @@ import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortU
 import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routingHistory,canViewRouted,isFinalDoc,audienceSnapshot,routeMessage} from "./routing";
 import {makeRoutingActions} from "./routingActions";
 import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace";
+import {shouldShowRoleMenu} from "./menuVisibility.js";
 import OrgHeads from "./OrgHeads";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {playNotification} from "./notificationSound";
@@ -345,56 +346,6 @@ const Toast = ({ message, type = "info", onClose }) => {
   );
 };
 
-function ForcePasswordChange({ user, onPasswordChanged, showToast, onLogout, systemSettings }) {
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (newPassword.length < 6) return showToast("รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร", "error");
-    if (newPassword === "123456") return showToast("กรุณาใช้รหัสผ่านอื่นที่ไม่ใช่รหัสผ่านเริ่มต้น", "error");
-    if (newPassword !== confirmPassword) return showToast("รหัสผ่านไม่ตรงกัน", "error");
-
-    setLoading(true);
-    try {
-      await updateDoc(getDocumentRef(USERS_PATH, user.id), { password: newPassword });
-      writeAuditLog(user, "เปลี่ยนรหัสผ่าน", "AUTH", user.id, "บังคับเปลี่ยนรหัสผ่านเริ่มต้น");
-      showToast("เปลี่ยนรหัสผ่านสำเร็จ!", "success");
-      onPasswordChanged(newPassword);
-    } catch (err) {
-      showToast("เกิดข้อผิดพลาด: " + err.message, "error");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden animate-fade-in">
-        <div className="bg-red-50 p-6 border-b border-red-100 text-center">
-          <KeyRound size={48} className="mx-auto text-red-500 mb-4" />
-          <h2 className="text-xl font-bold text-red-800">บังคับเปลี่ยนรหัสผ่าน</h2>
-          <p className="text-sm text-red-600 mt-2">เพื่อความปลอดภัย กรุณาเปลี่ยนรหัสผ่านก่อนเข้าใช้งานระบบ</p>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">รหัสผ่านใหม่</label>
-            <input type="password" required className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="อย่างน้อย 6 ตัวอักษร" />
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">ยืนยันรหัสผ่านใหม่</label>
-            <input type="password" required className="w-full border p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="กรอกรหัสผ่านอีกครั้ง" />
-          </div>
-          <button type="submit" disabled={loading} className="w-full bg-[#003366] text-white py-3 rounded-lg font-bold shadow-md hover:bg-blue-900 transition flex justify-center items-center">
-            {loading ? <Loader2 className="animate-spin mr-2" size={18} /> : "บันทึกรหัสผ่าน"}
-          </button>
-          <button type="button" onClick={onLogout} className="w-full bg-gray-100 text-gray-700 py-3 rounded-lg font-bold hover:bg-gray-200 transition">ออกจากระบบ</button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [activeProfile, setActiveProfile] = useState(null);
@@ -648,21 +599,6 @@ export default function App() {
     );
   }
 
-  if (activeProfile.password === "123456") {
-    return (
-      <>
-        {toastMsg && <Toast message={toastMsg.msg} type={toastMsg.type} onClose={() => setToastMsg(null)} />}
-        <ForcePasswordChange 
-          user={activeProfile} 
-          systemSettings={systemSettings}
-          showToast={showToast} 
-          onLogout={handleLogout}
-          onPasswordChanged={(newPass) => setActiveProfile({...activeProfile, password: newPass})} 
-        />
-      </>
-    )
-  }
-
   return (
     <>
       {toastMsg && <Toast message={toastMsg.msg} type={toastMsg.type} onClose={() => setToastMsg(null)} />}
@@ -854,7 +790,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { id: "trash", label: "ถังขยะ", icon: <Trash2 size={20} />, roles: ["admin"] },
   ];
 
-  const allowedMenus = menus.filter((m) => m.roles.includes(currentUser.role) && (m.id!=="routing"||["admin","director"].includes(currentUser.role)||managedGroups.length>0));
+  const allowedMenus = menus.filter((m) => m.roles.includes(currentUser.role) &&
+    shouldShowRoleMenu(m.id,currentUser.role,managedGroups.length>0));
 
   const navSections = [
     { title:"ภาพรวม",ids:["dashboard"] },
