@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument, rgb } from "pdf-lib";
+import {readLocalSignaturePdf,signaturePdfNamesMatch} from "./signatureLocalPdf.js";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -20,6 +21,15 @@ async function fetchOriginalPdf(file) {
   const json = await response.json();
   if (!json.success || !json.base64) throw new Error(json.error || "บริการ Google Apps Script ยังไม่รองรับการอ่าน PDF");
   return fromB64(json.base64);
+}
+
+// The signed bytes can be loaded from Drive (when authorized) or from a file
+// explicitly downloaded and selected by the director. No Backup password is exposed.
+async function readPdfPages(bytes){
+  const pdf=await pdfjs.getDocument({data:bytes.slice()}).promise;
+  const pages=[];
+  for(let i=1;i<=pdf.numPages;i++)pages.push(await pdf.getPage(i));
+  return pages;
 }
 
 function PdfPage({ page, pageIndex, mode, marks, addMark, updateStroke, stamp }) {
@@ -99,19 +109,50 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
+  const [loadedFromDevice,setLoadedFromDevice]=useState("");
+  const loadRequest=useRef(0);
   useEffect(()=>{
     let disposed=false;
-    setLoading(true);setError("");setPages([]);setMarks({});setSourceBytes(null);setMode("view");
+    const request=++loadRequest.current;
+    setLoading(true);setError("");setPages([]);setMarks({});setSourceBytes(null);setMode("view");setLoadedFromDevice("");
     (async()=>{
       if(sourceFiles.length===0)throw new Error("คำสั่งนี้ไม่มี PDF ที่ระบบสามารถเปิดให้ลงนามได้");
       const bytes=await fetchOriginalPdf(sourceFiles[fileIndex]);
-      const pdf=await pdfjs.getDocument({data:bytes.slice()}).promise;
-      const items=[];
-      for(let i=1;i<=pdf.numPages;i++)items.push(await pdf.getPage(i));
-      if(!disposed){setSourceBytes(bytes);setPages(items);setLoading(false);}
-    })().catch(e=>{if(!disposed){setError(e.message);setLoading(false);}});
-    return()=>{disposed=true;};
+      const items=await readPdfPages(bytes);
+      if(!disposed&&request===loadRequest.current){setSourceBytes(bytes);setPages(items);setLoading(false);}
+    })().catch(e=>{
+      if(!disposed&&request===loadRequest.current){
+        const message=String(e?.message||e);
+        setError(/รหัสสำรองข้อมูล Drive/i.test(message)
+          ?"Google Apps Script จำกัดการอ่าน PDF ไว้สำหรับ Backup จึงไม่สามารถเปิดไฟล์เพื่อเซ็นโดยตรงได้ กรุณาเปิด PDF ต้นฉบับใน Drive ดาวน์โหลด แล้วเลือกไฟล์ที่ดาวน์โหลดมาเพื่อเซ็น"
+          :"เปิด PDF จาก Drive อัตโนมัติไม่สำเร็จ: "+message+" — สามารถดาวน์โหลดต้นฉบับแล้วเลือกไฟล์จากเครื่องได้");
+        setLoading(false);
+      }
+    });
+    return()=>{disposed=true;loadRequest.current++;};
   },[document.id,fileIndex]);
+  const loadFromDevice=async event=>{
+    const file=event.target.files?.[0];
+    event.target.value="";
+    if(!file)return;
+    const expected=sourceFiles[fileIndex];
+    if(expected?.name&&!signaturePdfNamesMatch(file.name,expected.name)){
+      const accepted=window.confirm("ชื่อไฟล์ที่เลือกไม่ตรงกับเอกสารต้นฉบับ: "+expected.name+
+        "\\nเลือก: "+file.name+"\\nกรุณาตรวจว่าเป็น PDF ของคำสั่งเดียวกัน ยืนยันใช้ไฟล์นี้เพื่อเซ็น?");
+      if(!accepted)return;
+    }
+    const request=++loadRequest.current;
+    setLoading(true);setError("");setPages([]);setSourceBytes(null);setMarks({});setMode("view");setLoadedFromDevice("");
+    try{
+      const bytes=await readLocalSignaturePdf(file);
+      const pages=await readPdfPages(bytes);
+      if(request===loadRequest.current){
+        setSourceBytes(bytes);setPages(pages);setLoadedFromDevice(file.name);setLoading(false);
+      }
+    }catch(e){
+      if(request===loadRequest.current){setError("เปิด PDF ที่เลือกไม่สำเร็จ: "+String(e?.message||e));setLoading(false);}
+    }
+  };
   const addMark=(i,m)=>setMarks(old=>({...old,[i]:[...(old[i]||[]),m]}));
   const updateStroke=(i,id,pos)=>setMarks(old=>({...old,[i]:(old[i]||[]).map(mark=>mark.id===id?{...mark,points:[...mark.points,pos]}:mark)}));
   const undo=()=>setMarks(old=>{const key=Object.keys(old).filter(i=>(old[i]||[]).length).at(-1);if(key===undefined)return old;return {...old,[key]:old[key].slice(0,-1)};});
@@ -162,13 +203,26 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
       <label className="px-3 py-2 bg-slate-700 rounded text-sm cursor-pointer">แทรกรูปลายเซ็น<input type="file" accept="image/*" hidden onChange={onStampFile}/></label>
       {stamp&&<button onClick={()=>setMode("stamp")} className={`px-3 py-2 rounded text-sm ${mode==="stamp"?"bg-blue-600":"bg-slate-700"}`}>วางลายเซ็น</button>}
       <button onClick={undo} className="px-3 py-2 bg-slate-700 rounded text-sm">ย้อนกลับ</button>
-      <button disabled={saving||busy||loading||!!error} onClick={saveCurrent} className="px-4 py-2 bg-green-700 disabled:opacity-50 rounded font-bold text-sm">{saving||busy?"กำลังบันทึก...":fileIndex<sourceFiles.length-1?"เซ็นไฟล์นี้แล้วไปถัดไป":"บันทึกและอนุมัติ"}</button>
+      <button disabled={saving||busy||loading||!!error||!sourceBytes} onClick={saveCurrent} className="px-4 py-2 bg-green-700 disabled:opacity-50 rounded font-bold text-sm">{saving||busy?"กำลังบันทึก...":fileIndex<sourceFiles.length-1?"เซ็นไฟล์นี้แล้วไปถัดไป":"บันทึกและอนุมัติ"}</button>
       <button onClick={onCancel} disabled={saving||busy} className="px-3 py-2 bg-red-700 rounded text-sm">ปิด</button>
     </div>
     <div className="overflow-y-auto flex-1 p-4 space-y-4 bg-slate-600">
       <p className="text-center text-xs text-slate-100">เลือก «เลื่อนหน้า» เพื่ออ่าน / «เขียนลายเซ็น» เพื่อใช้ Apple Pencil หรือเมาส์ / «วางลายเซ็น» เพื่อคลิกตำแหน่ง</p>
       {loading&&<p className="text-center py-8">กำลังเปิด PDF...</p>}
       {error&&<div className="bg-red-100 text-red-800 max-w-xl mx-auto rounded p-3">{error}<button onClick={()=>setError("")} className="ml-2 underline">ปิดข้อความ</button></div>}
+      {!sourceBytes&&!loading&&sourceFiles[fileIndex]&&<div className="bg-slate-100 text-slate-800 max-w-xl mx-auto rounded-xl p-5 space-y-4">
+        <h3 className="font-bold text-lg">เปิดไฟล์ต้นฉบับเพื่อเซ็น</h3>
+        <p className="text-sm">ระบบ Google Drive จำกัดการอ่านผ่านเว็บไซต์ แต่ยังเซ็น PDF ได้โดยใช้ต้นฉบับที่ดาวน์โหลดจาก Drive โดยไม่ต้องใช้รหัส Backup ของแอดมิน</p>
+        <p className="text-sm">ไฟล์ที่ต้องใช้: <b className="break-all">{sourceFiles[fileIndex].name}</b></p>
+        <div className="flex flex-wrap gap-3 items-center">
+          <a className="bg-blue-700 text-white rounded-lg px-4 py-2 text-sm font-bold" href={`https://drive.google.com/file/d/${encodeURIComponent(sourceFiles[fileIndex].driveId)}/view`} target="_blank" rel="noopener noreferrer">1. เปิด PDF ใน Drive เพื่อดาวน์โหลด</a>
+          <label className="bg-emerald-700 text-white rounded-lg px-4 py-2 text-sm font-bold cursor-pointer">2. เลือก PDF ที่ดาวน์โหลดมา
+            <input type="file" accept=".pdf,application/pdf" onChange={loadFromDevice} hidden />
+          </label>
+        </div>
+        <p className="text-xs text-amber-800">ต้องเลือกไฟล์ต้นฉบับของหนังสือฉบับนี้เท่านั้น ข้อมูลในไฟล์ที่เลือกจะถูกใช้สร้างฉบับลงนามและอัปโหลดเมื่อกด “บันทึกและอนุมัติ”</p>
+      </div>}
+      {loadedFromDevice&&<div className="max-w-xl mx-auto bg-green-100 text-green-900 rounded p-3 text-sm">เปิด PDF จากเครื่องแล้ว: {loadedFromDevice} — พร้อมเขียนหรือวางลายเซ็น</div>}
       {pages.map((page,i)=><PdfPage key={`${fileIndex}-${i}`} page={page} pageIndex={i} mode={mode} stamp={stamp} marks={marks[i]||[]} addMark={addMark} updateStroke={updateStroke}/>)}
     </div>
   </div>;

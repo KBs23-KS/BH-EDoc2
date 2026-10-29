@@ -28,5 +28,7 @@ jobs:
         run: node tests/routing-upgrade-test.mjs
       - name: Director/deputy menu and optional password regression
         run: node tests/role-menu-password-test.mjs
+      - name: Signed PDF source fallback regression
+        run: node tests/pdf-signature-local-test.mjs
       - name: Vite production build
         run: npm run build
