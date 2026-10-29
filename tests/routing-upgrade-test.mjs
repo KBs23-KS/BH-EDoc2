@@ -42,4 +42,8 @@ doc.headActions.push({id:"head-b",kind:"head",group:"บริหารงาน
 assert.equal(pendingAssignmentEvents(doc,users[4]).length,0,"superseded assignment is not pending");
 assert.equal(pendingAssignmentEvents(doc,users[3]).length,1,"new recipient is notified after reassignment");
 assert.equal(routingAlerts([doc],users[3],successorSettings).some(x=>x.title==="มีการเปลี่ยนผู้รับมอบหมาย"),true);
-console.log("BHS routing and head-transfer rules: passed");
+const multigroupDoc={...doc,assignedTo:"หลายกลุ่ม",routingEntries:[{id:"route-multi",kind:"director",groups:["บริหารงานบุคคล","คณิตศาสตร์"],userIds:[],at:600}],headActions:[],assignmentAcknowledged:[],recipientsSnapshot:audienceSnapshot({groups:["บริหารงานบุคคล","คณิตศาสตร์"]},users)};
+assert.equal(pendingHeadGroups(multigroupDoc,users[0],settings).length,1,"group heads must find multi-group routed documents");
+assert.equal(pendingHeadGroups(multigroupDoc,users[2],settings).length,1,"subject head must find multi-group routed documents");
+assert.equal(canViewRouted(newHead,multigroupDoc,users,successorSettings),true,"newly appointed group head sees multi-group documents");
+console.log("BHS routing, multigroup dashboard and head-transfer rules: passed");

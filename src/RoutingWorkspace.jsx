@@ -134,10 +134,10 @@ function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,o
     {!selected.length&&<p className="text-xs text-slate-500">ถ้าไม่มีครูต้องมอบหมาย สามารถกดรับทราบในฐานะหัวหน้าได้เลย</p>}
   </div>;
 }
-export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,onRoute,onHeadAction,onOpen}) {
+export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,onRoute,onHeadAction,onOpen,focusDocId=null}) {
   const managed=headGroups(currentUser,systemSettings);
   const canDirector=["director","admin"].includes(currentUser.role);
-  const [selectedDoc,setSelectedDoc]=useState("");
+  const [selectedDoc,setSelectedDoc]=useState(focusDocId||"");
   const [activeGroup,setActiveGroup]=useState("");
   const [groups,setGroups]=useState([]);
   const [ids,setIds]=useState([]);
