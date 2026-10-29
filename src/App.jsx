@@ -3080,6 +3080,8 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [formData, setFormData] = useState({ id: "", name: "", username: "", password: "", role: "teacher", adminDept: systemSettings.adminDepts[0] || "", subjectArea: systemSettings.subjectAreas[0] || "", status: "active" });
 
   const [backupBusy, setBackupBusy] = useState(false);
+  // Temporary admin-entered secret; never store it in GitHub, Firestore or localStorage.
+  const [backupSecret,setBackupSecret] = useState("");
   const [backupStatus, setBackupStatus] = useState("");
   const [restoreFile, setRestoreFile] = useState(null);
   const [restoreConfirm, setRestoreConfirm] = useState("");
@@ -3088,16 +3090,17 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [restorePreview,setRestorePreview]=useState(null);
   const [preBackupReady,setPreBackupReady]=useState(false);
   const handleBackup = async () => {
+    if(!backupSecret.trim())return showToast("กรุณาระบุรหัสสำรองข้อมูล Google Drive ที่ตั้งไว้ใน Apps Script ก่อน","error");
     setBackupBusy(true);
     try {
-      const result = await createFullBackup({db, getCollectionRef, appId, onStatus:setBackupStatus, gasUrl:GAS_WEB_APP_URL});
+      const result = await createFullBackup({db, getCollectionRef, appId, onStatus:setBackupStatus, gasUrl:GAS_WEB_APP_URL, backupSecret:backupSecret.trim()});
       const url=URL.createObjectURL(result);
       const a=document.createElement("a"); a.href=url; a.download=`BHS-FULL-BACKUP-${getTodayIso()}.zip`; a.click();
       setTimeout(()=>URL.revokeObjectURL(url),60000);
       await writeAuditLog(currentUser,"สำรองข้อมูลครบชุด","SYSTEM","backup","JSON และไฟล์แนบ");
       showToast("สำรองข้อมูลสำเร็จ","success");
     } catch(e){showToast("สำรองข้อมูลไม่ครบ: "+e.message,"error");}
-    finally{setBackupBusy(false);setBackupStatus("");}
+    finally{setBackupBusy(false);setBackupStatus("");setBackupSecret("");}
   };
   const handleInspect=async()=>{
     if(!restoreFile)return;
@@ -3193,6 +3196,10 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
           <h2 className="text-xl md:text-2xl font-bold text-gray-800">จัดการผู้ใช้งานระบบ</h2>
         </div>
         <div className="w-full sm:w-auto flex flex-wrap gap-2">
+           <label className="w-full sm:w-52 text-xs text-slate-600 font-semibold">
+             รหัสสำรองข้อมูล Drive
+             <input type="password" autoComplete="off" value={backupSecret} onChange={e=>setBackupSecret(e.target.value)} placeholder="จาก Apps Script" aria-label="รหัสสำรองข้อมูล Google Drive" className="mt-1 w-full border border-gray-300 rounded-lg bg-white px-3 py-2.5 text-sm" />
+           </label>
            <button disabled={backupBusy} onClick={handleBackup} className="w-full sm:w-auto flex items-center justify-center bg-gray-100 text-gray-700 border border-gray-300 px-4 py-2.5 rounded-lg font-bold shadow-sm hover:bg-gray-200 transition-colors">
              <Database size={18} className="mr-2" /> สำรองข้อมูล (Backup)
            </button>

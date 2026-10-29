@@ -23,7 +23,7 @@ const findAttachments=(obj, found)=>{
   Object.values(obj).forEach(v=>findAttachments(v,found));
 };
 
-export async function createFullBackup({getCollectionRef,gasUrl,onStatus=()=>{}}){
+export async function createFullBackup({getCollectionRef,gasUrl,backupSecret="",onStatus=()=>{}}){
   const zip=new JSZip();const contents={version:2,createdAt:new Date().toISOString(),collections:{},files:{}};
   const files=new Map();
   for(const name of COLLECTIONS){
@@ -39,7 +39,8 @@ export async function createFullBackup({getCollectionRef,gasUrl,onStatus=()=>{}}
     // Older deployments of GAS may support upload only and reject action=getFile.
     let result, bytes;
     try {
-      result=await gasCall(gasUrl,{action:"getFile",fileId:id});
+      if(!backupSecret)throw new Error("ยังไม่ได้ระบุรหัสสำหรับอ่านไฟล์สำรอง");
+      result=await gasCall(gasUrl,{action:"getFile",fileId:id,backupSecret});
       if(typeof result.base64!=="string" || !result.base64)
         throw new Error("Google Apps Script ไม่ส่งข้อมูล base64 กลับมา (ตรวจว่า doPost รองรับ action=getFile)");
       bytes=toBytes(result.base64);
