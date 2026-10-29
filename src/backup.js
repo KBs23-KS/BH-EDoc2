@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { getDocs, writeBatch, doc } from "firebase/firestore";
+import {isMissingDriveReference,isIncompleteArchive,missingFilesOf} from "./backupPolicy.js";
 
 const COLLECTIONS = [
   "bhs_users","bhs_documents","bhs_settings","bhs_order_reservations",
@@ -16,21 +17,25 @@ const gasCall=async(gasUrl,payload)=>{
   const x=await r.json();if(!x.success)throw new Error(x.error||"Google Drive request failed");return x;
 };
 
-const findAttachments=(obj, found)=>{
+const findAttachments=(obj,found,source)=>{
   if(!obj||typeof obj!=="object")return;
-  if(Array.isArray(obj)){obj.forEach(v=>findAttachments(v,found));return;}
-  if(obj.driveId && obj.name)found.set(obj.driveId,{name:obj.name,mimeType:obj.mimeType||"application/pdf"});
-  Object.values(obj).forEach(v=>findAttachments(v,found));
+  if(Array.isArray(obj)){obj.forEach(v=>findAttachments(v,found,source));return;}
+  if(obj.driveId && obj.name){
+    const prev=found.get(obj.driveId);
+    if(prev){if(!prev.sources.includes(source))prev.sources.push(source);}
+    else found.set(obj.driveId,{name:obj.name,mimeType:obj.mimeType||"application/pdf",sources:[source]});
+  }
+  Object.values(obj).forEach(v=>findAttachments(v,found,source));
 };
 
 export async function createFullBackup({getCollectionRef,gasUrl,backupSecret="",onStatus=()=>{}}){
-  const zip=new JSZip();const contents={version:2,createdAt:new Date().toISOString(),collections:{},files:{}};
+  const zip=new JSZip();const contents={version:2,createdAt:new Date().toISOString(),collections:{},files:{},missingFiles:[]};
   const files=new Map();
   for(const name of COLLECTIONS){
     onStatus(`สำรองตาราง ${name}`);
     const snap=await getDocs(getCollectionRef(name));
     contents.collections[name]=snap.docs.map(d=>({id:d.id,data:d.data()}));
-    if(name==="bhs_documents"||name.includes("reservations")) contents.collections[name].forEach(r=>findAttachments(r.data,files));
+    if(name==="bhs_documents"||name.includes("reservations")) contents.collections[name].forEach(r=>findAttachments(r.data,files,name+":"+r.id));
   }
   let i=0;
   for(const [id,meta] of files){
@@ -46,15 +51,34 @@ export async function createFullBackup({getCollectionRef,gasUrl,backupSecret="",
       bytes=toBytes(result.base64);
       if(!bytes.length)throw new Error("ไฟล์ที่ดาวน์โหลดไม่มีข้อมูล");
     } catch(error) {
+      if(isMissingDriveReference(error)){
+        contents.missingFiles.push({driveId:id,name:meta.name,sources:meta.sources,reason:String(error.message||error)});
+        onStatus(`ไฟล์แนบหาย ${i}/${files.size}: ${meta.name} — บันทึกลงรายงาน`);
+        continue;
+      }
       throw new Error(`ดึงไฟล์แนบ ${i}/${files.size} "${meta.name}" ไม่สำเร็จ: ${error.message} — กรุณาตรวจ Google Apps Script (action=getFile)`);
     }
     const filePath=`files/${i}-${meta.name.replace(/[\\/]/g,"_")}`;
     zip.file(filePath,bytes);
     contents.files[id]={path:filePath,name:meta.name,mimeType:result.mimeType||meta.mimeType};
   }
+  contents.integrity={status:contents.missingFiles.length?"incomplete":"complete",
+    expectedFileCount:files.size,archivedFileCount:Object.keys(contents.files).length,
+    missingFileCount:contents.missingFiles.length};
+  if(contents.missingFiles.length){
+    zip.file("MISSING-DRIVE-FILES.json",JSON.stringify(contents.missingFiles,null,2));
+    zip.file("READ-ME-FIRST.txt",
+      "BHS E-Document - PARTIAL BACKUP\nFirestore tables are included. "+
+      contents.missingFiles.length+" referenced Drive files were missing or outside the allowed folder.\n"+
+      "See MISSING-DRIVE-FILES.json for exact IDs, names and document references.\n"+
+      "This is NOT a complete recovery archive. Automatic restoration is blocked.\n");
+  }
   zip.file("manifest.json",JSON.stringify(contents,null,2));
-  onStatus("กำลังสร้าง ZIP...");
-  return zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
+  onStatus("กำลังสร้าง ZIP"+(contents.missingFiles.length?" (ไฟล์แนบขาด "+contents.missingFiles.length+" ไฟล์)":"")+"...");
+  const blob=await zip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:5}});
+  return {blob,summary:{complete:!contents.missingFiles.length,
+    expectedFiles:files.size,archivedFiles:contents.integrity.archivedFileCount,
+    missingFiles:contents.missingFiles}};
 }
 
 // This is an overwrite-by-ID recovery. It is intentionally not a one-click operation.
@@ -65,6 +89,7 @@ export async function restoreFullBackup({db,getCollectionRef,zipFile,gasUrl,onSt
   if(!metaFile)throw new Error("ไม่มี manifest.json ในไฟล์สำรอง");
   const manifest=JSON.parse(await metaFile.async("string"));
   if(manifest.version!==2 || !manifest.collections || !manifest.files)throw new Error("รูปแบบไฟล์สำรองไม่รองรับ");
+  if(isIncompleteArchive(manifest))throw new Error("ไฟล์ ZIP นี้สำรอง Drive ไม่ครบ ห้ามกู้คืนอัตโนมัติ กรุณาตรวจ MISSING-DRIVE-FILES.json");
   // Upload attachments FIRST, then map their new Drive ID/URL into the Firestore records.
   if(!["merge","selected","replace"].includes(mode))throw new Error("รูปแบบการกู้คืนไม่ถูกต้อง");
   if(mode==="selected" && !selected.length)throw new Error("กรุณาระบุรายการที่จะกู้คืน");
@@ -149,5 +174,6 @@ export async function inspectFullBackup({zipFile,getCollectionRef,onStatus=()=>{
       onlyInCurrent:[...currentIds].filter(x=>!savedIds.has(x)).length});
   }
   for(const f of Object.values(manifest.files))if(!zip.file(f.path))throw new Error(`ไฟล์แนบใน ZIP ไม่ครบ: ${f.path}`);
-  return {createdAt:manifest.createdAt,details,fileCount:Object.keys(manifest.files).length};
+  return {createdAt:manifest.createdAt,details,fileCount:Object.keys(manifest.files).length,
+    missingFiles:missingFilesOf(manifest),incomplete:isIncompleteArchive(manifest)};
 }
