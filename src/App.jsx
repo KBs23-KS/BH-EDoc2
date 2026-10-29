@@ -3239,6 +3239,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
                 <tr key={u.id} className={`hover:bg-slate-50 transition-colors ${u.status === 'inactive' ? 'opacity-60' : ''}`}>
                   <td className="px-4 md:px-6 py-4">
                     <div className="font-bold text-gray-900 text-sm md:text-base break-words">{u.name}</div>
+                    <RoleIndicators user={u} settings={systemSettings} compact/>
                     <div className="text-[11px] md:text-xs text-gray-500 mt-0.5 break-words">Username: {u.username}</div>
                     {u.password && u.password !== "123456" && (
                       <div className="text-[9px] md:text-[10px] font-medium text-[#D4AF37] mt-1 bg-yellow-50 px-2 py-0.5 rounded inline-block border border-yellow-100">
