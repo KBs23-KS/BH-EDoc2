@@ -18,6 +18,12 @@ jobs:
         run: node tests/test-numbering.cjs
       - name: Document workflow rules
         run: node tests/workflow-test.mjs
+      - name: Protected Google Apps Script backup API
+        run: node tests/gas-backup-auth-test.cjs
+      - name: Missing Drive attachment policy
+        run: node tests/backup-policy-test.mjs
+      - name: Remember backup secret preference
+        run: node tests/backup-secret-prefs-test.mjs
       - name: Routing and assignment rules
         run: node tests/routing-upgrade-test.mjs
       - name: Vite production build
