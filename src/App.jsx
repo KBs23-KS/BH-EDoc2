@@ -2468,7 +2468,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                     )}
                     {docObj.subject}
                     <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5 whitespace-nowrap">แนบ {(docObj.files?.length||0)+(docObj.signedFiles?.length||0)+(docObj.extraAttachments?.length||0)} ไฟล์</span>
-                    {docObj.date === getTodayIso() && <span className="text-[9px] md:text-[10px] bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-sm px-2 py-0.5 rounded-full whitespace-nowrap">ใหม่ วันนี้</span>}
+                    {docObj.date === getTodayIso() && <span className="bhs-new-today-badge text-[10px] md:text-[11px] font-extrabold px-2.5 py-0.5 rounded-full whitespace-nowrap">ใหม่ วันนี้</span>}
                   </div>
                   <div className="text-[11px] md:text-xs text-gray-500 mb-0.5 flex flex-wrap gap-x-3 gap-y-1">
                        {docObj.type === "หนังสือเข้า" && <span><span className="font-medium text-gray-700">เลขรับ:</span> {docObj.docNumber || "-"}</span>}

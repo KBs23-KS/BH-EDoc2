@@ -307,3 +307,31 @@
  .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(6)::before{content:"หมายเหตุและไฟล์แนบ"}
  .bhs-luxury-main .bhs-reservation-table tbody td:nth-child(7)::before{content:"จัดการ"}
 }
+
+/* Only the "ใหม่ วันนี้" label: compact, conspicuous red pulse without hiding text. */
+.bhs-new-today-badge {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1.45;
+  background:#dc2626;
+  color:#fff;
+  border:1px solid #fecaca;
+  box-shadow:0 0 0 1px rgba(220,38,38,.07),0 2px 7px rgba(185,28,28,.25);
+  animation:bhs-new-today-pulse 1.8s ease-in-out infinite;
+}
+@keyframes bhs-new-today-pulse {
+  0%,100% {
+    opacity:1;
+    background:#dc2626;
+    box-shadow:0 0 0 1px rgba(220,38,38,.07),0 2px 7px rgba(185,28,28,.25);
+  }
+  50% {
+    opacity:.75;
+    background:#f43f5e;
+    box-shadow:0 0 0 3px rgba(239,68,68,.25),0 0 12px rgba(220,38,38,.55);
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  .bhs-new-today-badge {animation:none;}
+}
