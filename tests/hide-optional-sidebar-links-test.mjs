@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+
+const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
+const navStart=app.indexOf("  const navSections = [");
+const navEnd=app.indexOf("\n  ];",navStart);
+assert.ok(navStart>=0&&navEnd>navStart,"Navigation sections exist");
+const nav=app.slice(navStart,navEnd);
+assert.ok(!nav.includes('"global_search"'),"Search menu must be hidden in all sidebars");
+assert.ok(!nav.includes('"pending_report"'),"Pending report menu must be hidden in all sidebars");
+assert.ok(nav.includes('"export_register"'),"Unrelated export menu must remain");
+assert.ok(nav.includes('"incoming"')&&nav.includes('"orders"')&&nav.includes('"dashboard"'),"Other menus remain");
+assert.ok(app.includes('{ id: "global_search", label: "ค้นหาเอกสารทั้งหมด"'),"Search menu metadata stays available for internal navigation");
+assert.ok(app.includes('{ id: "pending_report", label: "ติดตามงานค้าง"'),"Pending report metadata remains available");
+assert.ok(app.includes('{activeMenu === "global_search" && <SearchCenter'),"Search page not removed");
+assert.ok(app.includes('{activeMenu === "pending_report" && <PendingReport'),"Pending report page not removed");
+assert.ok(app.includes('onClick={()=>changeMenu("global_search")}'),"Dashboard search shortcut still works");
+assert.ok(app.includes("const renderSidebarContent = () => ("),"Sidebar scroll fix preserved");
+assert.equal(app.split("{renderSidebarContent()}").length-1,2,"Both desktop and mobile sidebars still use same stable menu");
+console.log("Optional sidebar links hidden without removing Search/Pending functions: passed");

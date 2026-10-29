@@ -800,7 +800,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { title:"งานสารบรรณ",ids:["incoming","order_reservations","orders","outgoing_reservations","circulars"] },
     { title:"รายงาน",ids:["ack_report"] },
     { title:"บริหารระบบ",ids:["users","settings","audit","trash"] },
-    { title:"เครื่องมือเพิ่มเติม",ids:["global_search","pending_report","export_register"] }
+    { title:"เครื่องมือเพิ่มเติม",ids:["export_register"] }
   ];
 
   // Render directly instead of declaring a nested React component: otherwise
