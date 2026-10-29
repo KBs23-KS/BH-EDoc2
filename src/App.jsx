@@ -59,6 +59,8 @@ import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
 import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortUrgency, canReadDoc } from "./workflow";
+import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
+import OrgHeads from "./OrgHeads";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -119,6 +121,8 @@ const DEFAULT_SETTINGS = {
     "กลุ่มบริหารงานทั่วไป",
     "กลุ่มบริหารงานกิจการนักเรียน",
   ],
+  adminHeads: {},
+  subjectHeads: {},
   subjectAreas: [
     "ภาษาไทย",
     "คณิตศาสตร์",
@@ -853,6 +857,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
         <div className="bhs-luxury-account-info">
           <div className="bhs-luxury-account-name" title={currentUser.name}>{currentUser.name}</div>
           <div className="bhs-luxury-account-role">{ROLES[currentUser.role.toUpperCase()]?.name}</div>
+          <RoleIndicators user={currentUser} settings={systemSettings} compact/>
         </div>
         <button type="button" onClick={() => setChangePasswordModal(true)} className="bhs-luxury-account-control" title="เปลี่ยนรหัสผ่าน" aria-label="เปลี่ยนรหัสผ่าน"><KeyRound size={17}/></button>
         <button type="button" onClick={onLogout} className="bhs-luxury-account-control" title="ออกจากระบบ" aria-label="ออกจากระบบ"><LogOut size={17}/></button>
@@ -981,7 +986,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           {activeMenu === "circulars" && <CircularsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "mydocs" && <MyDocsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "users" && <UserManagementView dbUsers={dbUsers} documents={documents} systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} />}
-          {activeMenu === "settings" && <SystemSettingsView systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} />}
+          {activeMenu === "settings" && <SystemSettingsView systemSettings={systemSettings} showToast={showToast} currentUser={currentUser} dbUsers={dbUsers} />}
           {activeMenu === "audit" && <AuditLogView currentUser={currentUser} showToast={showToast} />}
           {activeMenu === "trash" && <TrashView documents={documents} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast} />}
 
@@ -1771,6 +1776,7 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
           <p className="bhs-luxury-eyebrow">EXECUTIVE OVERVIEW <span></span> ระบบสารบรรณอิเล็กทรอนิกส์</p>
           <h1>ภาพรวมงานสารบรรณ</h1>
           <p className="bhs-luxury-welcome">ยินดีต้อนรับ, <strong>{currentUser.name}</strong> <span className="bhs-luxury-welcome-divider">·</span> {getThaiDateLong()}</p>
+          <RoleIndicators user={currentUser} settings={systemSettings}/>
           {(currentUser.adminDept !== "-" || currentUser.subjectArea !== "-") && (
             <div className="bhs-luxury-departments">
               {currentUser.adminDept && currentUser.adminDept !== "-" && <span className="bhs-department-tag">{currentUser.adminDept}</span>}
@@ -1810,7 +1816,7 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
           </div>
           <button type="button" onClick={()=>changeMenu("global_search")} className="bhs-luxury-text-action">ดูรายการทั้งหมด <span aria-hidden="true">↗</span></button>
         </div>
-        <AdvancedSearchTable documents={latestDocs} title="10 รายการล่าสุด" currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast}/>
+        <DashboardHomePanels documents={documents} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={changeMenu}/>
       </section>
     </div>
   );
@@ -2969,7 +2975,7 @@ function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettin
   );
 }
 
-function SystemSettingsView({ systemSettings, showToast, currentUser }) {
+function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers }) {
   const [form, setForm] = useState(systemSettings);
   const [newDept, setNewDept] = useState("");
   const [newSubj, setNewSubj] = useState("");
@@ -3068,6 +3074,7 @@ function SystemSettingsView({ systemSettings, showToast, currentUser }) {
           </div>
         </div>
       </div>
+      <OrgHeads form={form} setForm={setForm} dbUsers={dbUsers}/>
     </div>
   );
 }
