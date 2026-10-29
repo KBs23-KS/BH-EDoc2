@@ -35,9 +35,20 @@ export async function createFullBackup({getCollectionRef,gasUrl,onStatus=()=>{}}
   let i=0;
   for(const [id,meta] of files){
     i++;onStatus(`สำรองไฟล์ PDF/เอกสาร ${i}/${files.size}`);
-    const result=await gasCall(gasUrl,{action:"getFile",fileId:id});
+    // Do not silently create a "complete" archive when a Drive file cannot be read.
+    // Older deployments of GAS may support upload only and reject action=getFile.
+    let result, bytes;
+    try {
+      result=await gasCall(gasUrl,{action:"getFile",fileId:id});
+      if(typeof result.base64!=="string" || !result.base64)
+        throw new Error("Google Apps Script ไม่ส่งข้อมูล base64 กลับมา (ตรวจว่า doPost รองรับ action=getFile)");
+      bytes=toBytes(result.base64);
+      if(!bytes.length)throw new Error("ไฟล์ที่ดาวน์โหลดไม่มีข้อมูล");
+    } catch(error) {
+      throw new Error(`ดึงไฟล์แนบ ${i}/${files.size} "${meta.name}" ไม่สำเร็จ: ${error.message} — กรุณาตรวจ Google Apps Script (action=getFile)`);
+    }
     const filePath=`files/${i}-${meta.name.replace(/[\\/]/g,"_")}`;
-    zip.file(filePath,toBytes(result.base64));
+    zip.file(filePath,bytes);
     contents.files[id]={path:filePath,name:meta.name,mimeType:result.mimeType||meta.mimeType};
   }
   zip.file("manifest.json",JSON.stringify(contents,null,2));
