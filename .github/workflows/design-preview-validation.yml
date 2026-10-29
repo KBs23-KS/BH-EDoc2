@@ -34,5 +34,7 @@ jobs:
         run: node tests/teacher-dashboard-totals-test.mjs
       - name: Sidebar scroll position on navigation
         run: node tests/sidebar-navigation-scroll-test.mjs
+      - name: Hide optional sidebar links without deleting functionality
+        run: node tests/hide-optional-sidebar-links-test.mjs
       - name: Vite production build
         run: npm run build
