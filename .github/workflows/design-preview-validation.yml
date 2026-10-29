@@ -24,5 +24,7 @@ jobs:
         run: node tests/backup-policy-test.mjs
       - name: Remember backup secret preference
         run: node tests/backup-secret-prefs-test.mjs
+      - name: Routing and assignment rules
+        run: node tests/routing-upgrade-test.mjs
       - name: Vite production build
         run: npm run build

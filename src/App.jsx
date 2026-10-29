@@ -60,8 +60,12 @@ import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
 import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortUrgency, canReadDoc } from "./workflow";
-import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
+import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routingHistory,canViewRouted,isFinalDoc,audienceSnapshot,routeMessage} from "./routing";
+import {makeRoutingActions} from "./routingActions";
+import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace";
 import OrgHeads from "./OrgHeads";
+import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
+import {playNotification} from "./notificationSound";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -680,11 +684,23 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const [outgoingReservations, setOutgoingReservations] = useState([]);
   const [reminders,setReminders] = useState([]);
   const [activeMenu, setActiveMenu] = useState("dashboard");
+  const [focusDocId,setFocusDocId]=useState(null);
+  const [notifFilter,setNotifFilter]=useState("all");
+  const [notifQuery,setNotifQuery]=useState("");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [changePasswordModal, setChangePasswordModal] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundVolume,setSoundVolume]=useState(()=>{try{const v=localStorage.getItem("bhs-edoc-volume");return v===null?50:Math.max(0,Math.min(100,Number(v)||0))}catch{return 50}});
+  const soundEnabled=soundVolume>0;
+  useEffect(()=>{try{localStorage.setItem("bhs-edoc-volume",String(soundVolume))}catch{}},[soundVolume]);
+  useEffect(()=>{
+    const onOffline=()=>showToast("การเชื่อมต่อขาดหาย กรุณาตรวจสอบก่อนบันทึก","error");
+    const onOnline=()=>showToast("กลับมาเชื่อมต่ออินเทอร์เน็ตแล้ว","success");
+    window.addEventListener("offline",onOffline);window.addEventListener("online",onOnline);
+    return ()=>{window.removeEventListener("offline",onOffline);window.removeEventListener("online",onOnline)};
+  },[]);
+  useEffect(()=>{if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});},[]);
   const [lastNotifTime, setLastNotifTime] = useState(Date.now());
 
   useEffect(() => {
@@ -719,6 +735,32 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }, [firebaseUser]);
 
   const activeDocs = documents.filter(d => !d.isDeleted);
+  const managedGroups=headGroups(currentUser,systemSettings);
+  const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
+    db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
+    user:currentUser,users:dbUsers,settings:systemSettings,showToast
+  });
+  const openDocument=id=>{
+    const d=activeDocs.find(x=>x.id===id);
+    if(!d)return showToast("ไม่พบเอกสาร","error");
+    if(!(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)||(currentUser.role==="deputy"&&d.status===DOC_STATUS.WAITING_DEPUTY)))
+      return showToast("ไม่มีสิทธิ์ดูเอกสาร","error");
+    setFocusDocId(id);setActiveMenu("document_detail");setIsNotifOpen(false);
+  };
+  useEffect(()=>{
+    const id=new URLSearchParams(window.location.search).get("doc");
+    if(id&&activeDocs.some(d=>d.id===id))openDocument(id);
+  },[documents.length,currentUser.id]);
+  useEffect(()=>{
+    if(!("setAppBadge" in navigator))return;
+    const n=activeDocs.filter(d=>isFinalDoc(d)&&canViewRouted(currentUser,d,dbUsers,systemSettings)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length
+      +activeDocs.reduce((sum,d)=>sum+pendingAssignmentEvents(d,currentUser).length+pendingHeadGroups(d,currentUser,systemSettings).length,0);
+    Promise.resolve(navigator.setAppBadge(n)).catch(()=>{});
+  },[documents,currentUser.id,dbUsers,systemSettings]);
+  const openedDoc=activeDocs.find(d=>d.id===focusDocId);
+  const documentAlerts=routingAlerts(activeDocs,currentUser,systemSettings);
+  const assignmentCount=activeDocs.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
+  const headCount=activeDocs.reduce((n,d)=>n+pendingHeadGroups(d,currentUser,systemSettings).length,0);
 
   const isUserInTarget = (user, docObj) => {
     if (!docObj.assignedTo || docObj.assignedTo === "ทุกคน") return true;
@@ -737,50 +779,55 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     return false;
   });
   pendingTasks.forEach(doc => {
-    notifications.push({ id: `task-${doc.id}`, title: "งานรอพิจารณา/ลงนาม", desc: doc.subject, type: "warning", time: eventTime(doc,doc.status===DOC_STATUS.WAITING_DIRECTOR?"director":"deputy"), targetMenu: "tasks" });
+    notifications.push({ docId:doc.id,id: `task-${doc.id}`, title: "งานรอพิจารณา/ลงนาม", desc: doc.subject, type: "warning", time: eventTime(doc,doc.status===DOC_STATUS.WAITING_DIRECTOR?"director":"deputy"), targetMenu: "tasks" });
   });
 
   const returnedDocs = activeDocs.filter(doc => doc.createdBy === currentUser.id && doc.status === DOC_STATUS.RETURNED);
   returnedDocs.forEach(doc => {
-    notifications.push({ id: `ret-${doc.id}`, title: "เอกสารส่งกลับแก้ไข", desc: doc.subject, type: "error", time: eventTime(doc,"returned"), targetMenu: "mydocs" });
+    notifications.push({ docId:doc.id,id: `ret-${doc.id}`, title: "เอกสารส่งกลับแก้ไข", desc: doc.subject, type: "error", time: eventTime(doc,"returned"), targetMenu: "mydocs" });
   });
 
   const isAcknowledgeRole = ["clerk", "teacher"].includes(currentUser.role);
   if (isAcknowledgeRole) {
     const unreadIncoming = activeDocs.filter(doc => doc.type === "หนังสือเข้า" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc));
     unreadIncoming.forEach(doc => {
-      notifications.push({ id: `inc-${doc.id}`, title: "หนังสือเข้าใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "incoming" });
+      notifications.push({ docId:doc.id,id: `inc-${doc.id}`, title: "หนังสือเข้าใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "incoming" });
     });
 
     const unreadOrders = activeDocs.filter(doc => doc.type === "คำสั่งโรงเรียน" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc));
     unreadOrders.forEach(doc => {
-      notifications.push({ id: `ord-${doc.id}`, title: "คำสั่งโรงเรียนใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "orders" });
+      notifications.push({ docId:doc.id,id: `ord-${doc.id}`, title: "คำสั่งโรงเรียนใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "orders" });
     });
 
     const unreadCirculars = activeDocs.filter(doc => doc.type === "หนังสือเวียนแจ้งรับทราบ" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc));
     unreadCirculars.forEach(doc => {
-      notifications.push({ id: `circ-${doc.id}`, title: "หนังสือเวียนแจ้งรับทราบใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "circulars" });
+      notifications.push({ docId:doc.id,id: `circ-${doc.id}`, title: "หนังสือเวียนแจ้งรับทราบใหม่", desc: doc.subject, type: "info", time: eventTime(doc,"published"), targetMenu: "circulars" });
     });
   }
 
   reminders.filter(r=>r.targetUserId===currentUser.id &&
     !activeDocs.find(d=>d.id===r.docId)?.acknowledgedBy?.includes(currentUser.id)).forEach(r=>notifications.push({
-    id:r.id,title:"แจ้งเตือนให้รับทราบเอกสาร",desc:r.subject||r.docNumber,
+    docId:r.docId,id:r.id,title:"แจ้งเตือนให้รับทราบเอกสาร",desc:r.subject||r.docNumber,
     type:"warning",time:r.createdAt||0,targetMenu:r.targetMenu||"orders"
   }));
+  notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
+  const notificationHistory=[
+    ...routingHistory(activeDocs,currentUser,systemSettings),
+    ...activeDocs.filter(d=>isFinalDoc(d)&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)))
+      .map(d=>({id:"history-published:"+d.id,docId:d.id,title:"หนังสือเผยแพร่แล้ว",desc:d.subject,time:d.publishedAt||d.createdAt||0,type:"info"}))
+  ].sort((a,b)=>b.time-a.time);
 
+  const shownNotifications=(notifFilter==="history"?notificationHistory:notifications.filter(n=>notifFilter==="all"||(notifFilter==="tasks"?n.id.startsWith("assignment:")||n.id.startsWith("head:")||n.id.startsWith("task-"):n.id.startsWith("inc-")||n.id.startsWith("ord-")||n.id.startsWith("circ-")||n.id.startsWith("rem-")))).filter(n=>(n.title+" "+n.desc).toLocaleLowerCase("th-TH").includes(notifQuery.toLocaleLowerCase("th-TH")));
   const latestNotifTime = notifications.length > 0 ? notifications[0].time : 0;
   useEffect(() => {
     if (latestNotifTime > lastNotifTime) {
       if (soundEnabled) {
-        const audio = new Audio("https://actions.google.com/sounds/v1/ui/message_notification.ogg");
-        audio.volume = 0.5;
-        audio.play().catch(e => console.log("Audio autoplay prevented by browser", e));
+        playNotification(soundVolume).catch(()=>{});
       }
       setLastNotifTime(latestNotifTime);
     }
-  }, [latestNotifTime, lastNotifTime, soundEnabled]);
+  }, [latestNotifTime, lastNotifTime, soundEnabled, soundVolume]);
 
   const incomingUnreadCount = isAcknowledgeRole ? activeDocs.filter(doc => doc.type === "หนังสือเข้า" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc)).length : 0;
   const ordersUnreadCount = isAcknowledgeRole ? activeDocs.filter(doc => doc.type === "คำสั่งโรงเรียน" && (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) && !doc.acknowledgedBy?.includes(currentUser.id) && targetMatch(doc)).length : 0;
@@ -792,6 +839,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { id: "pending_report", label: "ติดตามงานค้าง", icon: <History size={20}/>, roles: ["admin","director","deputy","clerk","teacher"] },
     { id: "ack_report", label: "รายงานการรับทราบ", icon: <CheckCircle size={20}/>, roles: ["admin","director","deputy"] },
     { id: "export_register", label: "ส่งออกทะเบียน Excel/PDF", icon: <Download size={20}/>, roles: ["admin","director","deputy","clerk","teacher"] },
+    { id:"routing",label:"หนังสือรอเกษียณต่อ",icon:<FileSignature size={20}/>,roles:["admin","director","deputy","clerk","teacher"],badge:headCount },
+    { id:"assignments",label:"งานที่ได้รับมอบหมาย",icon:<CheckCircle size={20}/>,roles:["admin","director","deputy","clerk","teacher"],badge:assignmentCount },
     { id: "tasks", label: "งานที่ต้องดำเนินการ", icon: <FileSignature size={20} />, roles: ["admin", "director", "deputy"], badge: pendingTasks.length },
     { id: "incoming", label: "ทะเบียนหนังสือเข้า", icon: <Inbox size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"], badge: incomingUnreadCount },
     { id: "order_reservations", label: "เลขคำสั่งโรงเรียน", icon: <Hash size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"] },
@@ -805,12 +854,15 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { id: "trash", label: "ถังขยะ", icon: <Trash2 size={20} />, roles: ["admin"] },
   ];
 
-  const allowedMenus = menus.filter((m) => m.roles.includes(currentUser.role));
+  const allowedMenus = menus.filter((m) => m.roles.includes(currentUser.role) && (m.id!=="routing"||["admin","director"].includes(currentUser.role)||managedGroups.length>0));
 
   const navSections = [
-    { title: "ภาพรวมระบบ", ids: ["dashboard","global_search","pending_report","ack_report","export_register"] },
-    { title: "งานสารบรรณ", ids: ["tasks","incoming","order_reservations","orders","outgoing_reservations","circulars","mydocs"] },
-    { title: "จัดการระบบ", ids: ["users","settings","audit","trash"] }
+    { title:"ภาพรวม",ids:["dashboard"] },
+    { title:"งานของฉัน",ids:["tasks","routing","assignments","mydocs"] },
+    { title:"งานสารบรรณ",ids:["incoming","order_reservations","orders","outgoing_reservations","circulars"] },
+    { title:"รายงาน",ids:["ack_report"] },
+    { title:"บริหารระบบ",ids:["users","settings","audit","trash"] },
+    { title:"เครื่องมือเพิ่มเติม",ids:["global_search","pending_report","export_register"] }
   ];
 
   const SidebarContent = () => (
@@ -843,7 +895,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                     aria-current={activeMenu === m.id ? "page" : undefined}
                     className={`bhs-luxury-nav-link ${activeMenu === m.id ? "is-active" : ""}`}
                   >
-                    <span className="bhs-luxury-nav-icon">{m.icon}</span>
+                    <span className={"bhs-luxury-nav-icon bhs-nav-icon-"+m.id}>{m.icon}</span>
                     <span className="bhs-luxury-nav-text">{m.label}</span>
                     {m.badge > 0 && <span className="bhs-luxury-nav-count">{m.badge > 99 ? "99+" : m.badge}</span>}
                   </button>
@@ -907,24 +959,24 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                   <div className="bg-slate-50 border-b border-gray-200 px-4 py-3 flex justify-between items-center">
                     <h3 className="font-bold text-gray-800 text-sm flex items-center"><Bell size={16} className="mr-1.5 text-blue-600"/> การแจ้งเตือน</h3>
                     <div className="flex items-center gap-2">
-                       <button onClick={(e) => { e.stopPropagation(); setSoundEnabled(!soundEnabled); }} className="text-gray-500 hover:text-blue-600 outline-none" title={soundEnabled ? "ปิดเสียงแจ้งเตือน" : "เปิดเสียงแจ้งเตือน"}>
-                         {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} className="text-red-400" />}
-                       </button>
+                       <label className="flex items-center gap-1 text-xs text-slate-600"><Volume2 size={15}/><input aria-label="ความดังเสียงแจ้งเตือน" type="range" min="0" max="100" step="5" value={soundVolume} onChange={e=>setSoundVolume(Number(e.target.value))} className="w-20 accent-blue-600"/><span>{soundVolume}%</span><button type="button" onClick={()=>playNotification(soundVolume)} className="text-blue-700 underline" title="ทดลองเสียง">ทดสอบ</button></label>
                        {notifications.length > 0 && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold">{notifications.length} รายการ</span>}
                     </div>
                   </div>
+                  <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"],["history","ย้อนหลัง"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
+                  <div className="px-3 py-2 border-b"><input aria-label="ค้นหาการแจ้งเตือน" placeholder="ค้นหาชื่อเรื่องหรือข้อความแจ้งเตือน..." value={notifQuery} onChange={e=>setNotifQuery(e.target.value)} className="w-full border px-3 py-2 text-xs rounded-lg"/></div>
                   <div className="max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
-                    {notifications.length === 0 ? (
+                    {shownNotifications.length === 0 ? (
                       <div className="py-10 text-center text-gray-400 flex flex-col items-center">
                         <CheckCircle size={36} className="text-gray-200 mb-3"/>
-                        <p className="text-sm font-medium">ไม่มีการแจ้งเตือนใหม่</p>
+                        <p className="text-sm font-medium">ไม่มีรายการในหมวดนี้</p>
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-100">
-                        {notifications.map(notif => (
+                        {shownNotifications.map(notif => (
                           <div key={notif.id} className="p-3.5 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => {
                             setIsNotifOpen(false);
-                            setActiveMenu(notif.targetMenu);
+                            if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
                           }}>
                             <div className="flex gap-3 items-start">
                                <div className={`mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm ${notif.type === 'warning' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' : notif.type === 'error' ? 'bg-red-100 text-red-600 border-red-200' : 'bg-blue-100 text-blue-600 border-blue-200'}`}>
@@ -950,7 +1002,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
         </header>
 
         <main className="bhs-luxury-main flex-1 overflow-y-auto custom-scrollbar p-4 md:p-7 xl:p-9 relative w-full">
-          {activeMenu === "dashboard" && <><DashboardView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast}/><div className="bhs-luxury-stats mt-6"><StatsDashboard documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} changeMenu={setActiveMenu}/></div></>}
+          {activeMenu === "dashboard" && <><DashboardView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} onOpenDocument={openDocument} showToast={showToast}/><div className="bhs-luxury-stats mt-6"><StatsDashboard documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} changeMenu={setActiveMenu}/></div></>}
           {activeMenu === "global_search" && <SearchCenter documents={activeDocs} orderReservations={orderReservations} outgoingReservations={outgoingReservations} currentUser={currentUser} dbUsers={dbUsers} changeMenu={setActiveMenu}/>} 
           {activeMenu === "pending_report" && <PendingReport documents={activeDocs} currentUser={currentUser}/>} 
           {activeMenu === "ack_report" && <AckReport documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} onAddRecipient={async (item,userId,reason)=>{
@@ -979,6 +1031,9 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
             }catch(e){showToast(e.message,"error");}
           }}/>}
           {activeMenu === "export_register" && <ExportRegisters documents={activeDocs} orderReservations={orderReservations} outgoingReservations={outgoingReservations} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast}/>}
+          {activeMenu==="document_detail" && <DocumentDetail doc={openedDoc} allDocs={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onAcknowledge={ackDocument} onAcknowledgeAssignment={ackAssignment} onOpenRouting={()=>{setFocusDocId(openedDoc?.id||null);setActiveMenu("routing");}} onBack={id=>id?openDocument(id):setActiveMenu("dashboard")}/>}
+          {activeMenu==="routing" && <RoutingWorkspace focusDocId={focusDocId} documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onRoute={routeDocument} onHeadAction={headAction} onOpen={openDocument}/>}
+          {activeMenu==="assignments" && <section className="bhs-modern-panel p-5 space-y-3"><h2 className="text-xl font-bold">งานที่ได้รับมอบหมาย</h2>{activeDocs.filter(d=>pendingAssignmentEvents(d,currentUser).length).map(d=><button key={d.id} onClick={()=>openDocument(d.id)} className="w-full text-left border p-4 rounded-xl hover:bg-blue-50 text-sm"><b>{d.subject}</b><div className="text-xs text-blue-700 mt-1">รอรับทราบงาน {pendingAssignmentEvents(d,currentUser).length} รายการ · เปิดหนังสือและข้อเกษียณ</div></button>)}{assignmentCount===0&&<p className="text-slate-500 text-sm">ไม่มีงานมอบหมายที่ยังไม่รับทราบ</p>}</section>}
           {activeMenu === "tasks" && <TasksView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "incoming" && <IncomingView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "orders" && <OrdersView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
@@ -991,9 +1046,9 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           {activeMenu === "audit" && <AuditLogView currentUser={currentUser} showToast={showToast} />}
           {activeMenu === "trash" && <TrashView documents={documents} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast} />}
 
-          {activeMenu === "form_incoming" && <FormDocument docType="หนังสือเข้า" changeMenu={setActiveMenu} backMenu="incoming" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
-          {activeMenu === "form_orders" && <FormDocument docType="คำสั่งโรงเรียน" changeMenu={setActiveMenu} backMenu="orders" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} orderReservations={orderReservations} />}
-          {activeMenu === "form_circular" && <FormDocument docType="หนังสือเวียนแจ้งรับทราบ" changeMenu={setActiveMenu} backMenu="circulars" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
+          {activeMenu === "form_incoming" && <FormDocument docType="หนังสือเข้า" documents={activeDocs} changeMenu={setActiveMenu} backMenu="incoming" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
+          {activeMenu === "form_orders" && <FormDocument docType="คำสั่งโรงเรียน" documents={activeDocs} changeMenu={setActiveMenu} backMenu="orders" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} orderReservations={orderReservations} />}
+          {activeMenu === "form_circular" && <FormDocument docType="หนังสือเวียนแจ้งรับทราบ" documents={activeDocs} changeMenu={setActiveMenu} backMenu="circulars" currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
         </main>
       </div>
 
@@ -1231,7 +1286,7 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
         </div>
         
         <div className="overflow-x-auto custom-scrollbar w-full pb-1">
-          <table className="min-w-[1000px] w-full text-left text-sm text-gray-600">
+          <table className="bhs-reservation-table min-w-[1000px] w-full text-left text-sm text-gray-600">
             <thead className="bg-blue-50 text-[#003366] text-xs uppercase font-bold border-b border-gray-200">
               <tr>
                 <th className="px-5 py-3.5 w-24">เลขที่</th>
@@ -1599,7 +1654,7 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
         </div>
         
         <div className="overflow-x-auto custom-scrollbar w-full pb-1">
-          <table className="min-w-[1000px] w-full text-left text-sm text-gray-600">
+          <table className="bhs-reservation-table min-w-[1000px] w-full text-left text-sm text-gray-600">
             <thead className="bg-blue-50 text-[#003366] text-xs uppercase font-bold border-b border-gray-200">
               <tr>
                 <th className="px-5 py-3.5 w-24">เลขที่</th>
@@ -1752,23 +1807,28 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
   );
 }
 
-function DashboardView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast }) {
+function DashboardView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast, onOpenDocument }) {
   // All counts remain derived from the same permitted documents as the original dashboard.
-  const visibleDocs = documents.filter(doc=>canReadDoc(currentUser,doc,dbUsers));
-  const latestDocs = visibleDocs.slice(0,10);
+  const visibleDocs = documents.filter(doc=>canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings));
   const inToday = visibleDocs.filter(doc=>doc.type==="หนังสือเข้า" && doc.date===getTodayIso()).length;
   const circulars = visibleDocs.filter(doc=>doc.type==="หนังสือเวียนแจ้งรับทราบ" && doc.date===getTodayIso()).length;
   const ordersToday = visibleDocs.filter(doc=>doc.type==="คำสั่งโรงเรียน" && doc.date===getTodayIso()).length;
-  const myTasks = documents.filter(doc=>
-    (currentUser.role==="deputy" && doc.status===DOC_STATUS.WAITING_DEPUTY) ||
-    (currentUser.role==="director" && doc.status===DOC_STATUS.WAITING_DIRECTOR)
-  ).length;
-  const canViewTasks = ["admin","director","deputy"].includes(currentUser.role);
-  const cards=[
+  const myTasks=documents.filter(d=>(currentUser.role==="deputy"&&d.status===DOC_STATUS.WAITING_DEPUTY)||(currentUser.role==="director"&&d.status===DOC_STATUS.WAITING_DIRECTOR)||(currentUser.role==="admin"&&[DOC_STATUS.WAITING_DEPUTY,DOC_STATUS.WAITING_DIRECTOR].includes(d.status))).length;
+  const canViewTasks=["admin","director","deputy"].includes(currentUser.role);
+  const reader=["teacher","clerk"].includes(currentUser.role),hasHead=headGroups(currentUser,systemSettings).length>0;
+  const headCount=documents.reduce((n,d)=>n+pendingHeadGroups(d,currentUser,systemSettings).length,0);
+  const ownAssignments=documents.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
+  const pending=(kind)=>visibleDocs.filter(d=>d.type===kind&&isFinalDoc(d)&&recipientsOf(d,dbUsers).some(r=>r.id===currentUser.id)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length;
+  const cards=reader?[
+    {id:"incoming",label:"หนังสือเข้ารอรับทราบ",value:pending("หนังสือเข้า"),icon:<Inbox size={21}/>,hint:"เปิดหนังสือใหม่"},
+    {id:"circulars",label:"หนังสือเวียนรอรับทราบ",value:pending("หนังสือเวียนแจ้งรับทราบ"),icon:<Bell size={21}/>,hint:"อ่านและรับทราบ"},
+    hasHead?{id:"routing",label:"รอเกษียณต่อในฐานะหัวหน้า",value:headCount,icon:<FileSignature size={21}/>,hint:"งานหัวหน้ากลุ่ม"}:{id:"orders",label:"คำสั่งรอรับทราบ",value:pending("คำสั่งโรงเรียน"),icon:<FileText size={21}/>,hint:"ทะเบียนคำสั่ง"},
+    {id:"assignments",label:"งานที่ได้รับมอบหมาย",value:ownAssignments,icon:<CheckCircle size={21}/>,hint:"จาก ผอ. หรือหัวหน้ากลุ่ม"}
+  ]:[
     {id:"incoming",label:"หนังสือเข้าวันนี้",value:inToday,icon:<Inbox size={21}/>,hint:"ทะเบียนหนังสือเข้า"},
     {id:"circulars",label:"หนังสือเวียนวันนี้",value:circulars,icon:<Bell size={21}/>,hint:"หนังสือเวียนแจ้งรับทราบ"},
     {id:"orders",label:"คำสั่งโรงเรียนวันนี้",value:ordersToday,icon:<FileText size={21}/>,hint:"ทะเบียนคำสั่งโรงเรียน"},
-    {id:"tasks",label:"งานรอพิจารณา",value:myTasks,icon:<FileSignature size={21}/>,hint:canViewTasks?"เปิดงานที่ต้องดำเนินการ":"เฉพาะผู้มีสิทธิ์",disabled:!canViewTasks}
+    {id:"tasks",label:"งานรอพิจารณา",value:myTasks,icon:<FileSignature size={21}/>,hint:"เปิดงานที่ต้องดำเนินการ"}
   ];
   return (
     <div className="bhs-luxury-dashboard">
@@ -1808,7 +1868,7 @@ function DashboardView({ documents, currentUser, dbUsers, systemSettings, change
         ))}
       </div>
 
-      <DashboardHomePanels documents={documents} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={changeMenu}/>
+      <DashboardHomePanels documents={documents} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={changeMenu} onOpenDocument={onOpenDocument}/>
     </div>
   );
 }
@@ -1817,7 +1877,7 @@ function IncomingView({ documents, currentUser, dbUsers, systemSettings, changeM
   const incomingDocs = documents.filter((doc) => {
     if (doc.type !== "หนังสือเข้า") return false;
     if (["admin", "director", "deputy", "clerk"].includes(currentUser.role)) return true;
-    return doc.assignedTo === "ทุกคน" || doc.assignedTo === currentUser.adminDept || doc.assignedTo === currentUser.subjectArea;
+    return canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings);
   });
 
   return (
@@ -1838,7 +1898,7 @@ function IncomingView({ documents, currentUser, dbUsers, systemSettings, changeM
 function OrdersView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast }) {
   const orders = documents.filter((doc) => doc.type === "คำสั่งโรงเรียน" &&
     (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) &&
-    canReadDoc(currentUser,doc,dbUsers));
+    (canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings)));
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -1857,7 +1917,7 @@ function OrdersView({ documents, currentUser, dbUsers, systemSettings, changeMen
 function CircularsView({ documents, currentUser, dbUsers, systemSettings, changeMenu, showToast }) {
   const circulars = documents.filter((doc) => doc.type === "หนังสือเวียนแจ้งรับทราบ" &&
     (doc.status === DOC_STATUS.COMPLETED || doc.status === DOC_STATUS.PUBLISHED) &&
-    canReadDoc(currentUser,doc,dbUsers));
+    (canReadDoc(currentUser,doc,dbUsers)||canViewRouted(currentUser,doc,dbUsers,systemSettings)));
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -1975,8 +2035,15 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
     const isDirectorStage = currentUser.role === "director" || (currentUser.role === "admin" && docObj.status === DOC_STATUS.WAITING_DIRECTOR);
     const isDeputyStage = currentUser.role === "deputy" || (currentUser.role === "admin" && docObj.status === DOC_STATUS.WAITING_DEPUTY);
     
-    if (actionType === "APPROVE" && isDirectorStage && docObj.type === "หนังสือเข้า" && !docInput.assign) {
-      return showToast("กรุณาระบุกลุ่มงานที่มอบหมาย หรือเลือก แจ้งทุกคน", "error");
+    if (actionType === "APPROVE" && isDirectorStage && docObj.type === "หนังสือเข้า") {
+      const groupIds=docInput.routeGroups||[],individualIds=docInput.routeUserIds||[];
+      if(!docInput.routeAll&&!groupIds.length&&!individualIds.length)
+        return showToast("กรุณาเลือกกลุ่มงาน กลุ่มสาระ หรือครูผู้รับอย่างน้อยหนึ่งรายการ","error");
+      if(!signedPdf) {
+        const names=individualIds.map(id=>dbUsers.find(u=>u.id===id)?.name).filter(Boolean);
+        const message="ตรวจสอบก่อนเกษียณหนังสือ:\nเรื่อง "+docObj.subject+"\nกลุ่ม: "+(docInput.routeAll?"ทุกคน":groupIds.join(", ")||"—")+"\nถึงครู: "+(names.join(", ")||"—")+"\nข้อสั่งการ: "+(docInput.command||"อนุมัติ / ดำเนินการ")+"\n\nยืนยันการเกษียณ?";
+        if(!window.confirm(message))return;
+      }
     }
 
     if (actionType === "APPROVE" && isDirectorStage && docObj.type === "คำสั่งโรงเรียน" && !signedPdf) {
@@ -2047,14 +2114,19 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
         const cmdTxt = docInput.command || "อนุมัติ / ดำเนินการ";
         setUploadStatus("กำลังบันทึกข้อมูลลงฐานระบบ...");
         const publishAt=Date.now();
-        const recipientList=recipientSnapshot({...docObj,assignedTo:docInput.assign || (docObj.type === "คำสั่งโรงเรียน" ? "ทุกคน" : docObj.assignedTo)},dbUsers,publishAt);
+        const groups=docInput.routeGroups||[];
+        const userIds=docInput.routeUserIds||[];
+        const all=docObj.type==="หนังสือเข้า"?!!docInput.routeAll:true;
+        const recipientList=audienceSnapshot({groups,users:userIds,all},dbUsers,[],currentUser.id,publishAt);
+        const routingEntry={...routeMessage("director",currentUser,docObj),at:publishAt,groups,userIds,all,message:cmdTxt};
         updates = {
           recipientsSnapshot:recipientList,
+          routingEntries:[...(docObj.routingEntries||[]),routingEntry],
           lastEventAt: publishAt,
           status: docObj.type === "คำสั่งโรงเรียน" || docObj.type === "หนังสือเวียนแจ้งรับทราบ" ? DOC_STATUS.PUBLISHED : DOC_STATUS.COMPLETED,
           publishedAt: Date.now(),
           directorCommand: cmdTxt,
-          assignedTo: docInput.assign || (docObj.type === "คำสั่งโรงเรียน" ? "ทุกคน" : ""),
+          assignedTo: all?"ทุกคน":groups.length===1?groups[0]:groups.length?"หลายกลุ่ม":userIds.length?"ระบุบุคคล":"",
           signedFiles: uploadedSignedFiles,
           history: arrayUnion(createHistoryEntry("อนุมัติและเผยแพร่", cmdTxt))
         };
@@ -2167,14 +2239,12 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                 <div className="space-y-4 pt-4 border-t border-gray-100">
                   <textarea className="w-full border rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500" rows="2" placeholder="ข้อสั่งการ หรือ เหตุผลกรณีส่งกลับแก้ไข..." value={inputs[docObj.id]?.command || ""} onChange={(e) => handleInput(docObj.id, "command", e.target.value)}></textarea>
                   {docObj.type === "หนังสือเข้า" && (
-                    <div>
-                      <label className="text-xs md:text-sm font-bold text-gray-700 block mb-1">กลุ่มงานที่ต้องดำเนินการต่อ <span className="text-red-500">*</span></label>
-                      <select className="w-full border rounded-lg p-3 text-sm bg-white outline-none focus:ring-2 focus:ring-blue-500" value={inputs[docObj.id]?.assign || ""} onChange={(e) => handleInput(docObj.id, "assign", e.target.value)}>
-                        <option value="">-- กรุณาเลือกผู้รับผิดชอบ --</option>
-                        <option value="ทุกคน" className="font-bold text-blue-600">แจ้งทุกคน (All)</option>
-                        <optgroup label="กลุ่มบริหารงาน">{systemSettings.adminDepts.map((d) => <option key={d}>{d}</option>)}</optgroup>
-                        <optgroup label="กลุ่มสาระ">{systemSettings.subjectAreas.map((d) => <option key={d}>{d}</option>)}</optgroup>
-                      </select>
+                    <div className="bg-slate-50 border rounded-xl p-3 space-y-2">
+                      <p className="font-bold text-sm text-slate-700">เลือกกลุ่มงาน กลุ่มสาระ หรือครูโดยตรง</p>
+                      <RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings}
+                        groups={inputs[docObj.id]?.routeGroups||[]} setGroups={v=>handleInput(docObj.id,"routeGroups",v)}
+                        userIds={inputs[docObj.id]?.routeUserIds||[]} setUserIds={v=>handleInput(docObj.id,"routeUserIds",v)}
+                        all={!!inputs[docObj.id]?.routeAll} setAll={v=>handleInput(docObj.id,"routeAll",v)} allowAll/>
                     </div>
                   )}
                   {docObj.type === "หนังสือเวียนแจ้งรับทราบ" && (
@@ -2379,7 +2449,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
               <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
               <input type="text" placeholder="ค้นหาเรื่อง, เลขที่คำสั่ง, ผู้ส่ง..." className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-                        <button onClick={() => setShowFilterBar(!showFilterBar)} className={`w-full md:w-auto px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center transition-colors border ${showFilterBar ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            <button onClick={() => setShowFilterBar(!showFilterBar)} className={`w-full md:w-auto px-4 py-2 rounded-lg text-sm font-bold flex items-center justify-center transition-colors border ${showFilterBar ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
               <Filter size={16} className="mr-2"/> ตัวกรอง
             </button>
           </div>
@@ -2387,15 +2457,15 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
           {showFilterBar && (
              <div className="p-3 md:p-4 bg-gray-50 border-t grid grid-cols-1 md:grid-cols-3 gap-3 animate-fade-in">
                <label className="block text-xs font-bold text-gray-600">ปี พ.ศ.
-<select className="border rounded px-2 py-2 text-xs" value={filterYear} onChange={e=>setFilterYear(e.target.value)}>
-              <option value="">ทุกปี</option>
-              {[...new Set(documents.map(d=>buddhistYear(d.date)).filter(y=>y>=2500))].sort((a,b)=>b-a).map(y=><option key={y} value={y}>{y}</option>)}
-            </select>
+                 <select className="w-full border rounded px-2 py-2 text-xs mt-1" value={filterYear} onChange={e=>setFilterYear(e.target.value)}>
+                   <option value="">ทุกปี</option>
+                   {[...new Set(documents.map(d=>buddhistYear(d.date)).filter(y=>y>=2500))].sort((a,b)=>b-a).map(y=><option key={y} value={y}>{y}</option>)}
+                 </select>
                </label>
                <label className="block text-xs font-bold text-gray-600">รายการต่อหน้า
-<select className="border rounded px-2 py-2 text-xs" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>
-              <option value={20}>20 / หน้า</option><option value={40}>40 / หน้า</option><option value={60}>60 / หน้า</option>
-            </select>
+                 <select className="w-full border rounded px-2 py-2 text-xs mt-1" value={pageSize} onChange={e=>setPageSize(Number(e.target.value))}>
+                   <option value={20}>20 / หน้า</option><option value={40}>40 / หน้า</option><option value={60}>60 / หน้า</option>
+                 </select>
                </label>
                <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">ประเภทเอกสาร</label>
@@ -2423,7 +2493,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
       )}
       
       <div className="overflow-x-auto w-full">
-        <table className="min-w-full text-left text-sm text-gray-600">
+        <table className="bhs-doc-table min-w-full text-left text-sm text-gray-600">
           <thead className="bg-gray-50 text-gray-700 text-xs uppercase font-bold border-b border-gray-200">
             <tr>
               <th className="px-4 md:px-5 py-3 md:py-4 min-w-[200px] md:min-w-[300px]">รายละเอียดเอกสาร</th>
@@ -2448,6 +2518,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                        </span>
                     )}
                     {docObj.subject}
+                    <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5 whitespace-nowrap">แนบ {(docObj.files?.length||0)+(docObj.signedFiles?.length||0)+(docObj.extraAttachments?.length||0)} ไฟล์</span>
                     {docObj.date === getTodayIso() && <span className="text-[9px] md:text-[10px] bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-sm px-2 py-0.5 rounded-full whitespace-nowrap">ใหม่ วันนี้</span>}
                   </div>
                   <div className="text-[11px] md:text-xs text-gray-500 mb-0.5 flex flex-wrap gap-x-3 gap-y-1">
@@ -2764,19 +2835,17 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   );
 }
 
-function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettings, showToast, orderReservations = [] }) {
+function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUser, systemSettings, showToast, orderReservations = [] }) {
   let defaultDept = "";
   if (currentUser.adminDept && currentUser.adminDept !== "-") defaultDept = currentUser.adminDept;
   else if (currentUser.subjectArea && currentUser.subjectArea !== "-" && currentUser.subjectArea !== "ไม่มีกลุ่มสาระการเรียนรู้") defaultDept = currentUser.subjectArea;
 
-  const [form, setForm] = useState({ 
-     subject: "", 
-     docNumber: "", 
-     date: getTodayIso(), 
-     urgency: "ปกติ", 
-     from: currentUser.name, 
-     department: defaultDept 
+  const draftKey="bhs-edoc-draft-"+currentUser.id+"-"+docType;
+  const [form, setForm] = useState(()=>{
+    const blank={subject:"",docNumber:"",date:getTodayIso(),urgency:"ปกติ",from:currentUser.name,department:defaultDept};
+    try{const saved=localStorage.getItem(draftKey);return saved?{...blank,...JSON.parse(saved)}:blank}catch{return blank;}
   });
+  useEffect(()=>{try{localStorage.setItem(draftKey,JSON.stringify(form))}catch{}},[draftKey,form]);
   
   const [rawFiles, setRawFiles] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -2790,9 +2859,14 @@ function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettin
   const chosenReservation = availableReservations.find(r => r.id === selectedReservation);
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting)return;
+    if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
     if (docType === "คำสั่งโรงเรียน" && !chosenReservation) return showToast("กรุณาเลือกเลขคำสั่งที่จองไว้ก่อน", "error");
     if (docType === "คำสั่งโรงเรียน" && !rawFiles.some(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"))) return showToast("กรุณาแนบ PDF สำหรับเสนอ ผอ.ลงนาม", "error");
+    const number=docType==="คำสั่งโรงเรียน"?chosenReservation?.orderNumber:form.docNumber;
+    const possibleDup=documents.filter(d=>d.type===docType && !d.isDeleted && ((number&&d.docNumber===number)||(d.subject||"").trim().toLowerCase()===form.subject.trim().toLowerCase()));
+    if(possibleDup.length&&!window.confirm("พบเอกสารที่มีเลขที่หรือชื่อเรื่องเหมือนกัน "+possibleDup.length+" รายการ\nคุณต้องการบันทึกต่อหรือไม่?"))return;
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
       return showToast("กรุณาตั้งค่า GAS_WEB_APP_URL ให้ถูกต้องในโค้ดก่อนใช้งาน", "error");
     }
@@ -2851,6 +2925,7 @@ function FormDocument({ docType, changeMenu, backMenu, currentUser, systemSettin
         batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"สร้างเอกสาร","DOCUMENT",newDocId,`${docType}: ${form.subject}`));
         await batch.commit();
       }
+      try{localStorage.removeItem(draftKey)}catch{}
       if (docType === "คำสั่งโรงเรียน") {
         setCreatedSummary({ number: newDoc.docNumber || "ไม่มีเลข", subject: newDoc.subject, status: "รอรองผู้อำนวยการ", id:newDocId });
       } else changeMenu(backMenu);
@@ -3252,6 +3327,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
            </button>
         </div>
       </div>
+
       {backupReport&&<div className={"rounded-xl border p-4 text-sm space-y-2 "+(backupReport.complete?"border-green-200 bg-green-50 text-green-900":"border-amber-300 bg-amber-50 text-amber-900")}>
         <b>{backupReport.complete?"สร้างไฟล์ ZIP สำรองครบตามรายการอ้างอิง":"สร้างไฟล์ ZIP สำรองบางส่วน (ยังไม่ใช่ข้อมูลสำรองที่กู้คืนได้ครบ)"}</b>
         <p>ไฟล์แนบที่สำรองได้ {backupReport.archivedFiles}/{backupReport.expectedFiles} ไฟล์ — ตรวจ ZIP ที่ดาวน์โหลด</p>

@@ -1,6 +1,7 @@
 import React from "react";
 import {Inbox,FileText,CheckCircle,FileSignature,Bell,ArrowUpRight,Clock3,Activity,ClipboardList,AlertCircle} from "lucide-react";
 import {canReadDoc,eventTime,recipientsOf} from "./workflow";
+import {canViewRouted,pendingHeadGroups,pendingAssignmentEvents} from "./routing";
 
 const finished=["เผยแพร่แล้ว","อนุมัติ/สั่งการแล้ว"];
 export function headTitles(user,settings={}) {
@@ -45,13 +46,11 @@ function shortDate(time) {
   if(!Number.isFinite(Number(time))||!Number(time))return "—";
   return new Date(Number(time)).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric"});
 }
-export default function DashboardHomePanels({documents=[],currentUser,dbUsers=[],systemSettings={},changeMenu}) {
-  const visible=documents.filter(d=>!d.isDeleted&&canReadDoc(currentUser,d,dbUsers));
+export default function DashboardHomePanels({documents=[],currentUser,dbUsers=[],systemSettings={},changeMenu,onOpenDocument}) {
+  const visible=documents.filter(d=>!d.isDeleted&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)));
   const active=visible.slice().sort((a,b)=>eventTime(b)-eventTime(a));
-  const heads=headTitles(currentUser,systemSettings);
-  const headGroups=heads.map(h=>h.group);
-  const groupPending=visible.filter(d=>finished.includes(d.status)&&headGroups.includes(d.assignedTo)&&!(d.headActions||[]).some(e=>e.group===d.assignedTo));
-  const assigned=visible.filter(d=>finished.includes(d.status)&&[...(d.routingEntries||[]),...(d.headActions||[])].some(e=>(e.userIds||[]).includes(currentUser.id)) && !(d.assignmentAcknowledged||[]).some(k=>k.endsWith("::"+currentUser.id)));
+  const groupPending=visible.filter(d=>finished.includes(d.status)&&pendingHeadGroups(d,currentUser,systemSettings).length>0);
+  const assigned=visible.filter(d=>finished.includes(d.status)&&pendingAssignmentEvents(d,currentUser).length>0);
   const pendingAcknowledgement=visible.filter(d=>finished.includes(d.status)&&recipientsOf(d,dbUsers).some(x=>x.id===currentUser.id)&&!(d.acknowledgedBy||[]).includes(currentUser.id));
   const actionDocs=getTaskDocs(documents.filter(d=>!d.isDeleted),currentUser);
   const director=["director","deputy","admin"].includes(currentUser.role);
@@ -73,7 +72,7 @@ export default function DashboardHomePanels({documents=[],currentUser,dbUsers=[]
         <button type="button" onClick={()=>changeMenu(director?"tasks":"incoming")} className="bhs-home-panel-more">ดูทั้งหมด <ArrowUpRight size={15}/></button>
       </header>
       <div className="bhs-home-panel-body">
-        {actionItems.map((item,i)=><button type="button" key={item.doc.id+"-"+i} className="bhs-home-item" onClick={()=>changeMenu(item.menu)}>
+        {actionItems.map((item,i)=><button type="button" key={item.doc.id+"-"+i} className="bhs-home-item" onClick={()=>onOpenDocument?onOpenDocument(item.doc.id):changeMenu(item.menu)}>
           <span className={"bhs-home-item-icon "+(item.type==="priority"?"bhs-panel-amber":"bhs-panel-blue")}>
             {item.type==="priority"?<AlertCircle size={19}/>:<FileText size={18}/>}</span>
           <span className="bhs-home-item-main"><strong>{item.doc.subject}</strong>
@@ -89,7 +88,7 @@ export default function DashboardHomePanels({documents=[],currentUser,dbUsers=[]
         <button type="button" className="bhs-home-panel-more" onClick={()=>changeMenu("global_search")}>ดูทั้งหมด <ArrowUpRight size={15}/></button>
       </header>
       <div className="bhs-home-panel-body">
-        {recent.map(d=><button type="button" key={d.id} className="bhs-home-item" onClick={()=>changeMenu(menuFor(d))}>
+        {recent.map(d=><button type="button" key={d.id} className="bhs-home-item" onClick={()=>onOpenDocument?onOpenDocument(d.id):changeMenu(menuFor(d))}>
           <span className="bhs-home-item-icon bhs-panel-teal">{d.type==="หนังสือเข้า"?<Inbox size={18}/>:d.type==="คำสั่งโรงเรียน"?<FileText size={18}/>:<Bell size={18}/>}</span>
           <span className="bhs-home-item-main"><strong>{d.subject}</strong><small>{d.type} · {labelFor(d)}</small></span>
           <span className="bhs-home-item-meta">{shortDate(eventTime(d))}</span>
