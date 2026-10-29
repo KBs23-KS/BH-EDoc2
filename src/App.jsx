@@ -803,7 +803,9 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { title:"เครื่องมือเพิ่มเติม",ids:["global_search","pending_report","export_register"] }
   ];
 
-  const SidebarContent = () => (
+  // Render directly instead of declaring a nested React component: otherwise
+  // every MainLayout render remounts the nav and resets its scroll position.
+  const renderSidebarContent = () => (
     <>
       <div className="bhs-luxury-brand">
         <div className="bhs-luxury-emblem" aria-hidden="true">
@@ -863,13 +865,13 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={() => setIsMobileMenuOpen(false)}></div>
           <aside className="bhs-luxury-sidebar relative w-72 max-w-[85%] h-full z-50 flex flex-col">
             <button onClick={() => setIsMobileMenuOpen(false)} className="absolute top-4 right-4 text-blue-100 hover:text-white"><X size={24} /></button>
-            <SidebarContent />
+            {renderSidebarContent()}
           </aside>
         </div>
       )}
       
       <aside className="bhs-luxury-sidebar hidden md:flex flex-col w-[278px] shrink-0 z-20">
-        <SidebarContent />
+        {renderSidebarContent()}
       </aside>
       
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">

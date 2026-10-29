@@ -32,5 +32,7 @@ jobs:
         run: node tests/pdf-signature-local-test.mjs
       - name: Teacher dashboard document totals
         run: node tests/teacher-dashboard-totals-test.mjs
+      - name: Sidebar scroll position on navigation
+        run: node tests/sidebar-navigation-scroll-test.mjs
       - name: Vite production build
         run: npm run build
