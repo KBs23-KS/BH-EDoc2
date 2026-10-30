@@ -46,5 +46,7 @@ jobs:
         run: node tests/pdf-signing-memory-test.mjs
       - name: Director signature ink color regression
         run: node tests/director-signature-ink-test.mjs
+      - name: Dashboard explanatory note removal regression
+        run: node tests/stats-note-removal-test.mjs
       - name: Vite production build
         run: npm run build
