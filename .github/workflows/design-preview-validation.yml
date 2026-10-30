@@ -56,5 +56,7 @@ jobs:
         run: node tests/order-number-policy-test.mjs
       - name: Admin full number control regression
         run: node tests/admin-full-number-control-test.mjs
+      - name: Order register responsive layout and login security UI regression
+        run: node tests/login-order-layout-regression-test.mjs
       - name: Vite production build
         run: npm run build

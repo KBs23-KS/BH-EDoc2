@@ -16,6 +16,8 @@ import {
   Trash2,
   User as UserIcon,
   Lock,
+  Eye,
+  EyeOff,
   UserPlus,
   Check,
   CheckCircle,
@@ -355,6 +357,7 @@ export default function App() {
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [initError, setInitError] = useState(null);
@@ -478,6 +481,7 @@ export default function App() {
     setActiveProfile(null);
     setUsername("");
     setPassword("");
+    setShowLoginPassword(false);
   };
 
   const setupInitialData = async () => {
@@ -551,13 +555,24 @@ export default function App() {
                 <div className="relative">
                   <Lock className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
                   <input
-                    type="password"
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    type={showLoginPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    className="w-full pl-10 pr-12 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="รหัสผ่าน"
                     required
                   />
+                  <button
+                    type="button"
+                    aria-label={showLoginPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                    title={showLoginPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                    aria-pressed={showLoginPassword}
+                    onClick={() => setShowLoginPassword(value => !value)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-500 hover:text-[#003366] hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                  >
+                    {showLoginPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
+                  </button>
                 </div>
               </div>
               <button
@@ -578,27 +593,6 @@ export default function App() {
               </div>
             )}
 
-            {dbUsers.length > 0 && (
-              <div className="mt-8 pt-6 border-t border-gray-100">
-                <p className="text-xs text-gray-500 font-bold mb-3 uppercase tracking-wider text-center">บัญชีทดสอบ (คลิกเพื่อเข้าสู่ระบบ)</p>
-                <div className="flex flex-wrap justify-center gap-2 text-xs">
-                  {dbUsers.slice(0, 5).map((u) => (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onClick={() => {
-                        setUsername(u.username);
-                        setPassword(u.password || "123456");
-                      }}
-                      className="p-2 bg-gray-50 border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-200 text-left transition-colors"
-                    >
-                      <span className="font-bold block text-blue-800">{u.username}</span>
-                      <span className="text-[10px] text-gray-500">{ROLES[(u.role||"teacher").toUpperCase()]?.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1909,45 +1903,56 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
           {permanentProgress&&<span>{permanentProgress}</span>}
           <p className="w-full text-xs text-red-800">เฉพาะแอดมิน: ลบได้ทุกสถานะ รวมสร้างคำสั่งและ ผอ.ลงนามแล้ว ลบเลขและเอกสารที่เชื่อมจากฐานข้อมูล แต่ไฟล์ใน Google Drive ยังคงอยู่ ต้องยืนยันสองขั้นตอน</p>
         </div>}
-        <div className="overflow-x-auto custom-scrollbar w-full pb-1">
-          <table className="bhs-reservation-table min-w-[1000px] w-full text-left text-sm text-gray-600">
+        <div className="hidden lg:block w-full overflow-hidden">
+          <table className="bhs-reservation-table table-fixed w-full min-w-0 text-left text-[11px] xl:text-xs text-gray-600" style={{tableLayout:"fixed",width:"100%"}}>
+            <colgroup>
+              {canSelectPermanent&&<col style={{width:"4%"}}/>}
+              {canSelectTrial&&<col style={{width:"4%"}}/>}
+              <col style={{width:canSelectPermanent?"9%":"10%"}}/>
+              <col style={{width:canSelectTrial?"25%":canSelectPermanent?"27%":"30%"}}/>
+              <col style={{width:canSelectPermanent?"11%":"12%"}}/>
+              <col style={{width:canSelectPermanent?"12%":"13%"}}/>
+              <col style={{width:canSelectTrial?"11%":canSelectPermanent?"12%":"14%"}}/>
+              <col style={{width:"10%"}}/>
+              <col style={{width:canSelectTrial?"14%":canSelectPermanent?"15%":"11%"}}/>
+            </colgroup>
             <thead className="bg-blue-50 text-[#003366] text-xs uppercase font-bold border-b border-gray-200">
               <tr>
-                {canSelectPermanent&&<th className="px-3 py-3.5 w-14 text-center">ลบถาวร</th>}
-                {canSelectTrial&&<th className="px-3 py-3.5 w-14 text-center">เก็บทดลอง</th>}
-                <th className="px-5 py-3.5 w-24">เลขที่</th>
-                <th className="px-5 py-3.5">รายการ (เรื่อง)</th>
-                <th className="px-5 py-3.5 w-32">วันที่ออกคำสั่ง</th>
-                <th className="px-5 py-3.5 w-40">ผู้รับผิดชอบ</th>
-                <th className="px-5 py-3.5 w-48">กลุ่มงาน/กลุ่มสาระฯ</th>
-                <th className="px-5 py-3.5 w-40">หมายเหตุ</th>
-                <th className="px-5 py-3.5 w-24 text-center">จัดการ</th>
+                {canSelectPermanent&&<th className="px-1 py-2 text-center whitespace-normal break-words">ลบถาวร</th>}
+                {canSelectTrial&&<th className="px-1 py-2 text-center whitespace-normal break-words">เก็บทดลอง</th>}
+                <th className="px-1.5 py-2 xl:px-2 xl:py-2.5">เลขที่</th>
+                <th className="px-1.5 py-2 xl:px-2 xl:py-2.5">รายการ (เรื่อง)</th>
+                <th className="px-1.5 py-2 xl:px-2 xl:py-2.5">วันที่ออกคำสั่ง</th>
+                <th className="px-1.5 py-2 xl:px-2 xl:py-2.5">ผู้รับผิดชอบ</th>
+                <th className="px-1.5 py-2 xl:px-2 xl:py-2.5">กลุ่มงาน/กลุ่มสาระฯ</th>
+                <th className="px-1.5 py-2 xl:px-2 xl:py-2.5">หมายเหตุ</th>
+                <th className="px-1.5 py-2 xl:px-2 xl:py-2.5 text-center">จัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
               {displayedReservations.map((res) => (
                 <tr key={res.id} className="hover:bg-blue-50/50 transition-colors odd:bg-white even:bg-gray-50/30">
-                  {canSelectPermanent&&<td className="px-3 py-3.5 text-center">
+                  {canSelectPermanent&&<td className="px-1 py-2 text-center align-top">
                     <input type="checkbox" disabled={permanentBusy} checked={selectedPermanentIds.includes(res.id)}
                       onChange={e=>setSelectedPermanentIds(ids=>e.target.checked?[...new Set([...ids,res.id])]:ids.filter(id=>id!==res.id))}/>
                   </td>}
-                  {canSelectTrial&&<td className="px-3 py-3.5 text-center" title={archiveReason(res)||"เลือกเพื่อจัดเก็บ"}>
+                  {canSelectTrial&&<td className="px-1 py-2 text-center align-top" title={archiveReason(res)||"เลือกเพื่อจัดเก็บ"}>
                     <input type="checkbox" disabled={!!archiveReason(res)||bulkBusy}
                       checked={selectedTrialIds.includes(res.id)}
                       onChange={e=>setSelectedTrialIds(ids=>e.target.checked?[...new Set([...ids,res.id])]:ids.filter(id=>id!==res.id))}/>
                   </td>}
-                  <td className="px-5 py-3.5 font-bold text-gray-900 whitespace-nowrap">{res.orderNumber} {res.status === "canceled" && "(ยกเลิก)"} {res.trialArchived&&<span className="text-xs text-indigo-700">(จัดเก็บทดลอง)</span>} {res.linkedDocumentId && <span className="text-xs font-normal text-green-700">(สร้างคำสั่งแล้ว)</span>}</td>
-                  <td className="px-5 py-3.5 text-gray-800 break-words whitespace-normal min-w-[250px]">{res.subject}</td>
-                  <td className="px-5 py-3.5 whitespace-nowrap">{formatThaiDate(res.orderDate)}</td>
-                  <td className="px-5 py-3.5 whitespace-nowrap">{res.responsibleName}</td>
-                  <td className="px-5 py-3.5 text-[11px] md:text-xs">
-                    <span className="bg-gray-100 border border-gray-200 px-2.5 py-1 rounded-md text-gray-700 block truncate max-w-[180px]" title={res.responsibleDept}>
+                  <td className="px-1.5 py-2 xl:px-2 xl:py-2.5 font-bold text-gray-900 whitespace-normal break-words align-top">{res.orderNumber} {res.status === "canceled" && "(ยกเลิก)"} {res.trialArchived&&<span className="text-xs text-indigo-700">(จัดเก็บทดลอง)</span>} {res.linkedDocumentId && <span className="block text-[10px] font-normal text-green-700">(สร้างคำสั่งแล้ว)</span>}</td>
+                  <td className="px-1.5 py-2 xl:px-2 xl:py-2.5 text-gray-800 whitespace-normal align-top leading-relaxed" style={{overflowWrap:"anywhere"}}>{res.subject}</td>
+                  <td className="px-1.5 py-2 xl:px-2 xl:py-2.5 whitespace-normal break-words align-top">{formatThaiDate(res.orderDate)}</td>
+                  <td className="px-1.5 py-2 xl:px-2 xl:py-2.5 whitespace-normal break-words align-top" style={{overflowWrap:"anywhere"}}>{res.responsibleName}</td>
+                  <td className="px-1.5 py-2 xl:px-2 xl:py-2.5 text-[10px] xl:text-xs align-top">
+                    <span className="bg-gray-100 border border-gray-200 px-1.5 py-1 rounded-md text-gray-700 block whitespace-normal break-words leading-relaxed" style={{overflowWrap:"anywhere"}} title={res.responsibleDept}>
                       {res.responsibleDept}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-gray-500 break-words whitespace-normal min-w-[150px]">{res.remark && <div className="mb-1">{res.remark}</div>}</td>
-                  <td className="px-5 py-3.5 text-center whitespace-nowrap">
-                    <div className="flex gap-2 justify-center items-center">
+                  <td className="px-1.5 py-2 xl:px-2 xl:py-2.5 text-gray-500 whitespace-normal align-top leading-relaxed" style={{overflowWrap:"anywhere"}}>{res.remark && <div className="mb-1">{res.remark}</div>}</td>
+                  <td className="px-1.5 py-2 xl:px-2 xl:py-2.5 text-center whitespace-normal align-top">
+                    <div className="flex flex-wrap gap-1 justify-center items-center">
                       {currentUser.role==="admin"&&<button type="button" disabled={permanentBusy||bulkBusy}
                         onClick={()=>openEditModal(res)} className="text-blue-700 hover:bg-blue-100 rounded p-1" title="แก้ไขเลขคำสั่งได้ทุกสถานะ">
                         <Edit size={16}/>
@@ -1976,6 +1981,52 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
               )}
             </tbody>
           </table>
+        </div>
+        {/* Compact cards on phones/tablets avoid squeezing nine columns off screen. */}
+        <div className="lg:hidden divide-y divide-gray-200" aria-label="รายการเลขคำสั่งแบบมือถือ">
+          {displayedReservations.map(res=>(
+            <article key={res.id} className="px-3 py-4 space-y-2 text-sm">
+              <div className="flex gap-2 justify-between items-start">
+                <div className="min-w-0">
+                  <p className="font-bold text-[#003366]">{res.orderNumber}</p>
+                  {res.linkedDocumentId&&<p className="text-xs text-green-700">สร้างคำสั่งแล้ว</p>}
+                  {res.trialArchived&&<p className="text-xs text-indigo-700">จัดเก็บทดลอง</p>}
+                  {res.status==="canceled"&&<p className="text-xs text-red-600">ยกเลิกแล้ว</p>}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2 shrink-0">
+                  {canSelectPermanent&&<label className="inline-flex items-center gap-1 text-xs text-red-800">
+                    <input type="checkbox" checked={selectedPermanentIds.includes(res.id)}
+                      disabled={permanentBusy} onChange={e=>setSelectedPermanentIds(ids=>e.target.checked?[...new Set([...ids,res.id])]:ids.filter(id=>id!==res.id))}/> ลบ
+                  </label>}
+                  {canSelectTrial&&<label className="inline-flex items-center gap-1 text-xs text-indigo-700">
+                    <input type="checkbox" checked={selectedTrialIds.includes(res.id)} disabled={!!archiveReason(res)||bulkBusy}
+                      onChange={e=>setSelectedTrialIds(ids=>e.target.checked?[...new Set([...ids,res.id])]:ids.filter(id=>id!==res.id))}/> เก็บ
+                  </label>}
+                </div>
+              </div>
+              <div className="font-medium leading-relaxed text-gray-800 whitespace-normal" style={{overflowWrap:"anywhere"}}>{res.subject||"-"}</div>
+              <dl className="grid grid-cols-[6.4rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+                <dt className="text-gray-500">วันที่ออกคำสั่ง</dt><dd>{formatThaiDate(res.orderDate)}</dd>
+                <dt className="text-gray-500">ผู้รับผิดชอบ</dt><dd className="break-words">{res.responsibleName||"-"}</dd>
+                <dt className="text-gray-500">กลุ่มงาน/สาระฯ</dt><dd className="break-words" style={{overflowWrap:"anywhere"}}>{res.responsibleDept||"-"}</dd>
+                <dt className="text-gray-500">หมายเหตุ</dt><dd className="break-words" style={{overflowWrap:"anywhere"}}>{res.remark||"-"}</dd>
+              </dl>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {currentUser.role==="admin"&&<button type="button" className="rounded border border-blue-200 px-3 py-1.5 text-blue-700 font-bold"
+                  onClick={()=>openEditModal(res)} disabled={permanentBusy||bulkBusy}>แก้ไข</button>}
+                {currentUser.role==="admin"&&<button type="button" className="rounded border border-red-200 px-3 py-1.5 text-red-700 font-bold"
+                  onClick={()=>requestPermanentDelete(res)} disabled={permanentBusy||bulkBusy}>ลบถาวร</button>}
+                {showTrialArchived&&res.trialArchived&&currentUser.role==="admin"&&<button type="button"
+                  className="rounded border px-3 py-1.5 text-indigo-700" onClick={()=>restoreTrial(res)} disabled={permanentBusy||bulkBusy}>กู้คืน</button>}
+                {res.status==="canceled"&&!res.trialArchived&&currentUser.role==="admin"&&<button type="button"
+                  className="rounded border px-3 py-1.5 text-blue-700" onClick={()=>{setRecoverItem(res);setRecoverSubject("");setRecoverDept(res.responsibleDept||"");}}>นำเลขกลับมาใช้</button>}
+                {currentUser.role!=="admin"&&!res.trialArchived&&!res.linkedDocumentId&&res.status!=="canceled"&&currentUser.id===res.createdBy&&
+                  <><button type="button" className="rounded border px-3 py-1.5" onClick={()=>openEditModal(res)}>แก้ไข</button>
+                    <button type="button" className="rounded border px-3 py-1.5 text-red-600" onClick={()=>setDocToDelete(res.id)}>ยกเลิก</button></>}
+              </div>
+            </article>
+          ))}
+          {!displayedReservations.length&&<p className="text-center py-10 text-gray-500">ยังไม่มีการจองเลขคำสั่ง</p>}
         </div>
         <PageNavigator page={page} setPage={setPage} total={viewRows.length} pageSize={pageSize}/>
       </div>
