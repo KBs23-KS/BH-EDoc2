@@ -53,10 +53,11 @@ import {
   updateDoc,
   onSnapshot,
   deleteDoc,
-  arrayUnion, runTransaction, getDocs, getDoc, writeBatch, query, orderBy, limit, startAfter,
+  arrayUnion, runTransaction, getDocs, getDoc, getDocFromServer, getDocsFromServer, writeBatch, query, orderBy, limit, startAfter,
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
+import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp} from "./orderNumberPolicy";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
@@ -226,38 +227,36 @@ const buddhistYear = (isoDate) => Number(String(isoDate || "").slice(0, 4)) + 54
 const getNumberYear = (value) => Number(String(value || "").split("/")[1]);
 const uniqueId = (prefix = "ITEM") => `${prefix}-${crypto.randomUUID()}`;
 
-// Legacy rows are included in the starting baseline. Canceled numbers remain consumed.
-// All new writers must use this transaction; old clients must be retired before rollout.
+// The number cursor is admin-controlled. Only VISIBLE records block a number.
+// Read active records from the server and serialize all new writes through the yearly counter.
 async function reserveSequentialNumber({ kind, collectionName, numberField, dateField, dateValue, data, user }) {
-  const year = buddhistYear(dateValue);
-  if (!Number.isInteger(year) || year < 2500) throw new Error("วันที่ไม่ถูกต้อง");
-  const collectionRef = getCollectionRef(collectionName);
-  const counterRef = getDocumentRef(COUNTERS_PATH, `${kind}-${year}`);
-  let baseline = 0;
-  if (!(await getDoc(counterRef)).exists()) {
-    // One-time legacy baseline. After the counter exists, no full collection scan is needed.
-    const existing = await getDocs(collectionRef);
-    existing.forEach(item => {
-      const val = item.data()[numberField];
-      if (getNumberYear(val) === year) baseline = Math.max(baseline, Number(String(val).split("/")[0]) || 0);
-    });
-  }
-  return runTransaction(db, async transaction => {
-    const counterSnap = await transaction.get(counterRef);
-    let seq = Math.max(baseline, counterSnap.exists() ? Number(counterSnap.data().lastNumber) || 0 : 0) + 1;
-    let targetRef = getDocumentRef(collectionName, `${kind}-${year}-${seq}`);
-    // Read all documents before transaction writes. Avoid collision with an old migrated ID.
-    while ((await transaction.get(targetRef)).exists()) {
-      seq += 1;
-      targetRef = getDocumentRef(collectionName, `${kind}-${year}-${seq}`);
-    }
-    const number = `${seq}/${year}`;
-    transaction.set(counterRef, { lastNumber: seq, year, kind, updatedAt: Date.now() });
-    transaction.set(targetRef, { ...data, [numberField]: number, [dateField]: dateValue,
-      status: "reserved", createdBy: user.id, responsibleName: user.name,
-      createdAt: Date.now(), history: [{ action: "จองเลข", by: user.id, time: Date.now(), subject: data.subject }] });
-    transaction.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(user, "ออกเลขอัตโนมัติ", kind, targetRef.id, `เลข ${number} / ${data.subject}`));
-    return number;
+  const year=buddhistYear(dateValue);
+  if(!Number.isInteger(year)||year<2500||year>2999)throw new Error("วันที่ไม่ถูกต้อง");
+  const counterRef=getDocumentRef(COUNTERS_PATH,`${kind}-${year}`);
+  const [before,rows,docs]=await Promise.all([
+    getDocFromServer(counterRef),
+    getDocsFromServer(getCollectionRef(collectionName)),
+    getDocsFromServer(getCollectionRef(DOCS_PATH))
+  ]);
+  const occupied=occupiedRegisterNumbers(kind,rows.docs.map(x=>({id:x.id,...x.data()})),
+    docs.docs.map(x=>({id:x.id,...x.data()})));
+  const start=before.exists()?(Number(before.data().lastNumber)||0)+1:1;
+  const next=nextAvailableNumber(start,year,occupied);
+  const newRef=getDocumentRef(collectionName,uniqueId(kind));
+  return runTransaction(db,async tx=>{
+    const live=await tx.get(counterRef);
+    if(live.exists()!==before.exists() ||
+       registerCounterStamp(live.exists()?live.data():null)!==registerCounterStamp(before.exists()?before.data():null))
+      throw new Error("มีการจองเลขหรือแก้เลขระหว่างตรวจสอบ กรุณากดบันทึกอีกครั้ง");
+    // Commit the number, cursor and audit atomically. No historical rows are overwritten.
+    const now=Date.now(),revision=(Number(live.exists()?live.data().revision:0)||0)+1;
+    tx.set(counterRef,{lastNumber:next.sequence,kind,year,revision,updatedAt:now},{merge:true});
+    tx.set(newRef,{...data,[numberField]:next.text,[dateField]:dateValue,status:"reserved",
+      createdBy:user.id,responsibleName:user.name,createdAt:now,
+      history:[{action:"จองเลข",by:user.id,time:now,subject:data.subject}]});
+    tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),
+      auditPayload(user,"ออกเลขอัตโนมัติ",kind,newRef.id,`เลข ${next.text} / ${data.subject}`));
+    return next.text;
   });
 }
 
@@ -749,7 +748,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }
 
   reminders.filter(r=>r.targetUserId===currentUser.id &&
-    !activeDocs.find(d=>d.id===r.docId)?.acknowledgedBy?.includes(currentUser.id)).forEach(r=>notifications.push({
+    activeDocs.some(d=>d.id===r.docId&&!d.acknowledgedBy?.includes(currentUser.id))).forEach(r=>notifications.push({
     docId:r.docId,id:r.id,title:"แจ้งเตือนให้รับทราบเอกสาร",desc:r.subject||r.docNumber,
     type:"warning",time:r.createdAt||0,targetMenu:r.targetMenu||"orders"
   }));
@@ -1419,9 +1418,13 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
   const [selectedTrialIds,setSelectedTrialIds]=useState([]);
   const [bulkBusy,setBulkBusy]=useState(false);
   const [bulkProgress,setBulkProgress]=useState("");
+  const [permanentTarget,setPermanentTarget]=useState(null);
+  const [selectedPermanentIds,setSelectedPermanentIds]=useState([]);
+  const [permanentBusy,setPermanentBusy]=useState(false);
+  const [permanentProgress,setPermanentProgress]=useState("");
   const documentsById=new Map(documents.map(d=>[d.id,d]));
   const archiveReason=res=>canArchiveTrialOrder(res,res.linkedDocumentId?documentsById.get(res.linkedDocumentId):null);
-  useEffect(()=>setSelectedTrialIds([]),[filterYear,searchTerm,showCanceled,showTrialArchived,page,pageSize]);
+  useEffect(()=>{setSelectedTrialIds([]);setSelectedPermanentIds([]);},[filterYear,searchTerm,showCanceled,showTrialArchived,page,pageSize]);
 
   let defaultDept = "";
   if (currentUser.adminDept && currentUser.adminDept !== "-") defaultDept = currentUser.adminDept;
@@ -1458,6 +1461,7 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
   const displayedReservations=viewRows.slice((page-1)*pageSize,page*pageSize);
   const canSelectTrial=currentUser.role==="admin"&&!showCanceled&&!showTrialArchived;
   const selectableRows=displayedReservations.filter(r=>!archiveReason(r));
+  const canSelectPermanent=currentUser.role==="admin";
   useEffect(() => setPage(1), [searchTerm, filterYear, pageSize]);
 
   // Numbers are allocated during the Firestore transaction, not when the form opens.
@@ -1503,15 +1507,83 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
       };
 
       if (form.id) {
-        const original = reservations.find(r => r.id === form.id);
-        if (original?.status === "canceled") throw new Error("ต้องใช้เมนูคืนเลขที่ยกเลิกสำหรับรายการนี้");
-        if (original?.linkedDocumentId) throw new Error("เลขนี้เชื่อมกับเอกสารคำสั่งแล้ว กรุณาแก้ที่เอกสารคำสั่ง");
-        await updateDoc(getDocumentRef(ORDER_RESERVE_PATH, form.id), {
-          subject: payload.subject, responsibleDept: payload.responsibleDept,
-          remark: payload.remark, updatedAt: Date.now(), updatedBy: currentUser.id
-        });
-        writeAuditLog(currentUser, "แก้ไขรายการจองเลข", "ORDER", form.id, payload.subject);
-        showToast("แก้ไขข้อมูลสำเร็จ", "success");
+        const original=reservations.find(r=>r.id===form.id);
+        if(!original)throw new Error("ไม่พบเลขคำสั่งที่กำลังแก้ไข");
+        if(currentUser.role!=="admin"){
+          if(original.status==="canceled"||original.trialArchived)throw new Error("เลขนี้ไม่พร้อมแก้ไข");
+          if(original.linkedDocumentId)throw new Error("เลขนี้เชื่อมกับเอกสารแล้ว โปรดติดต่อแอดมิน");
+          await updateDoc(getDocumentRef(ORDER_RESERVE_PATH,form.id),{
+            subject:payload.subject,responsibleDept:payload.responsibleDept,
+            remark:payload.remark,updatedAt:Date.now(),updatedBy:currentUser.id
+          });
+          writeAuditLog(currentUser,"แก้ไขรายการจองเลข","ORDER",form.id,payload.subject);
+        }else{
+          const parsed=parseRegisterNumber(form.orderNumber);
+          if(!parsed)throw new Error("เลขคำสั่งต้องเป็นรูปแบบ เช่น 1/2569 (เลขบวกและปี พ.ศ.)");
+          const oldNum=parseRegisterNumber(original.orderNumber);
+          if(!oldNum)throw new Error("เลขคำสั่งเดิมมีรูปแบบไม่ถูกต้อง กรุณาตรวจสอบก่อน");
+          const changed=parsed.text!==original.orderNumber;
+          const existingDoc=original.linkedDocumentId?documentsById.get(original.linkedDocumentId):null;
+          if(original.linkedDocumentId&&(!existingDoc||existingDoc.id!==original.linkedDocumentId||existingDoc.reservationId!==original.id||existingDoc.type!=="คำสั่งโรงเรียน"))throw new Error("เอกสารคู่ที่เชื่อมไม่ถูกต้อง");
+          if(changed&&existingDoc?.signedFiles?.length){
+            if(!window.confirm("คำสั่งนี้มี PDF ที่ ผอ. ลงนามแล้ว\\nการแก้เลขจะเปลี่ยนเฉพาะข้อมูลทะเบียนและรายละเอียดเอกสาร PDF ที่ลงนามจะยังมีเลขเดิม\\nยืนยันแก้เลขหรือไม่?")){setIsSubmitting(false);return;}
+          }else if(changed&&existingDoc && ["อนุมัติ/สั่งการแล้ว","เผยแพร่แล้ว"].includes(existingDoc.status)){
+            if(!window.confirm("เอกสารนี้อนุมัติหรือเผยแพร่แล้ว การแก้เลขไม่แก้ข้อความใน PDF ที่ออกไปแล้ว ยืนยันหรือไม่?")){setIsSubmitting(false);return;}
+          }
+          const counterYears=[...new Set([oldNum.year,parsed.year])];
+          const [rows,docs,...counters]=await Promise.all([
+            getDocsFromServer(getCollectionRef(ORDER_RESERVE_PATH)),
+            getDocsFromServer(getCollectionRef(DOCS_PATH)),
+            ...counterYears.map(year=>getDocFromServer(getDocumentRef(COUNTERS_PATH,`ORDER-${year}`)))
+          ]);
+          const rowsData=rows.docs.map(x=>({id:x.id,...x.data()}));
+          const docsData=docs.docs.map(x=>({id:x.id,...x.data()}));
+          const used=occupiedRegisterNumbers("ORDER",rowsData,docsData,original.id);
+          if(changed&&used.has(parsed.text)&&original.status!=="canceled"&&!original.trialArchived)
+            throw new Error("เลขนี้มีอยู่ในรายการใช้งานแล้ว กรุณาเลือกเลขอื่น");
+          const ref=getDocumentRef(ORDER_RESERVE_PATH,form.id);
+          await runTransaction(db,async tx=>{
+            const fresh=await tx.get(ref);
+            if(!fresh.exists())throw new Error("รายการถูกลบไปแล้ว");
+            const live={id:fresh.id,...fresh.data()};
+            if(live.orderNumber!==original.orderNumber||live.linkedDocumentId!==original.linkedDocumentId||
+                live.status!==original.status||Boolean(live.trialArchived)!==Boolean(original.trialArchived))
+              throw new Error("รายการเปลี่ยนไปแล้ว กรุณาเปิดแก้ไขใหม่");
+            const dRef=live.linkedDocumentId?getDocumentRef(DOCS_PATH,live.linkedDocumentId):null;
+            const linkedSnap=dRef?await tx.get(dRef):null;
+            const linkedDoc=linkedSnap?.exists()?{id:linkedSnap.id,...linkedSnap.data()}:null;
+            if(live.linkedDocumentId&&(!linkedDoc||linkedDoc.reservationId!==live.id||linkedDoc.type!=="คำสั่งโรงเรียน"))throw new Error("เอกสารคู่ที่เชื่อมไม่ถูกต้อง");
+            const liveCounters=[];
+            for(let k=0;k<counterYears.length;k++){
+              const yr=counterYears[k],countRef=getDocumentRef(COUNTERS_PATH,`ORDER-${yr}`);
+              const liveCounter=await tx.get(countRef),before=counters[k];
+              if(liveCounter.exists()!==before.exists()||
+                 registerCounterStamp(liveCounter.exists()?liveCounter.data():null)!==
+                 registerCounterStamp(before.exists()?before.data():null))
+                throw new Error("มีผู้ใช้เลขหรือแก้เลขระหว่างบันทึก กรุณาลองใหม่");
+              liveCounters.push({yr,countRef,liveCounter});
+            }
+            const now=Date.now();
+            tx.update(ref,{orderNumber:parsed.text,subject:payload.subject,
+              responsibleDept:payload.responsibleDept,remark:payload.remark,
+              updatedAt:now,updatedBy:currentUser.id,
+              history:arrayUnion({action:"แอดมินแก้ไขเลขคำสั่ง",by:currentUser.id,time:now,
+                subject:payload.subject,from:original.orderNumber,to:parsed.text})});
+            if(dRef)tx.update(dRef,{docNumber:parsed.text,subject:payload.subject,
+              history:arrayUnion({action:"แอดมินแก้เลขทะเบียน",by:currentUser.id,timestamp:now,
+                detail:`${original.orderNumber} → ${parsed.text} (ไฟล์ PDF เดิมไม่เปลี่ยน)`})});
+            if(changed)for(const {yr,countRef,liveCounter} of liveCounters){
+              tx.set(countRef,{kind:"ORDER",year:yr,
+                lastNumber:liveCounter.exists()?Number(liveCounter.data().lastNumber)||0:0,
+                revision:(Number(liveCounter.exists()?liveCounter.data().revision:0)||0)+1,
+                updatedAt:now},{merge:true});
+            }
+            tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,
+              "แอดมินแก้ไขเลขคำสั่ง","ORDER",form.id,
+              `${original.orderNumber} → ${parsed.text} / ${payload.subject} (PDF เดิมไม่เปลี่ยน)`));
+          });
+        }
+        showToast("แก้ไขข้อมูลเลขคำสั่งสำเร็จ","success");
       } else {
         const number = await reserveSequentialNumber({
           kind: "ORDER", collectionName: ORDER_RESERVE_PATH, numberField: "orderNumber",
@@ -1544,11 +1616,108 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
     setDocToDelete(null);
   };
 
+  // Admin-only hard removal of a reservation plus the linked record (any status).
+  // Audit metadata remains for traceability; Drive uploads are external and are not deleted.
+  const deleteOrderPermanently=async id=>{
+    if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้น");
+    const resRef=getDocumentRef(ORDER_RESERVE_PATH,id);
+    const before=await getDocFromServer(resRef);
+    if(!before.exists())throw new Error("ไม่พบเลขคำสั่ง");
+    const entry={id,...before.data()},parsed=parseRegisterNumber(entry.orderNumber);
+    if(!parsed)throw new Error("รูปแบบเลขคำสั่งไม่ถูกต้อง กรุณาตรวจสอบ");
+    const counterRef=getDocumentRef(COUNTERS_PATH,`ORDER-${parsed.year}`);
+    const [countBefore,reminderSnap]=await Promise.all([
+      getDocFromServer(counterRef),getDocsFromServer(getCollectionRef(REMINDERS_PATH))
+    ]);
+    const reminders=entry.linkedDocumentId?reminderSnap.docs.filter(r=>r.data().docId===entry.linkedDocumentId):[];
+    if(reminders.length>400)throw new Error("รายการแจ้งเตือนมากเกินขอบเขต ลบไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ");
+    await runTransaction(db,async tx=>{
+      const fresh=await tx.get(resRef);
+      if(!fresh.exists())throw new Error("รายการถูกลบไปแล้ว");
+      const live={id:fresh.id,...fresh.data()};
+      if(live.orderNumber!==entry.orderNumber||live.linkedDocumentId!==entry.linkedDocumentId)
+        throw new Error("ข้อมูลเปลี่ยนระหว่างลบ กรุณาลองใหม่");
+      const linkedRef=live.linkedDocumentId?getDocumentRef(DOCS_PATH,live.linkedDocumentId):null;
+      const dSnap=linkedRef?await tx.get(linkedRef):null;
+      const linkedDoc=dSnap?.exists()?{id:dSnap.id,...dSnap.data()}:null;
+      if(live.linkedDocumentId&&(!linkedDoc||linkedDoc.reservationId!==live.id||linkedDoc.type!=="คำสั่งโรงเรียน"))throw new Error("เอกสารคู่ที่เชื่อมไม่ถูกต้อง");
+      const countLive=await tx.get(counterRef);
+      if(countLive.exists()!==countBefore.exists()||
+         registerCounterStamp(countLive.exists()?countLive.data():null)!==
+         registerCounterStamp(countBefore.exists()?countBefore.data():null))
+        throw new Error("มีรายการเปลี่ยนระหว่างลบ กรุณาดำเนินการอีกครั้ง");
+      const now=Date.now();
+      tx.delete(resRef);
+      if(linkedRef)tx.delete(linkedRef);
+      for(const reminder of reminders)tx.delete(reminder.ref);
+      tx.set(counterRef,{kind:"ORDER",year:parsed.year,
+        lastNumber:countLive.exists()?Number(countLive.data().lastNumber)||0:0,
+        revision:(Number(countLive.exists()?countLive.data().revision:0)||0)+1,
+        updatedAt:now},{merge:true});
+      tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,
+        "แอดมินลบเลขคำสั่งและเอกสารถาวร","ORDER",id,
+        `${entry.orderNumber}: ${entry.subject} / เอกสาร ${live.linkedDocumentId||"ไม่มี"} / PDF ใน Drive ไม่ถูกลบ`));
+    });
+  };
+  const requestPermanentDelete=async res=>{
+    if(currentUser.role!=="admin"||permanentBusy||bulkBusy)return;
+    setPermanentTarget(res);
+  };
+  const runPermanentRemoval=async()=>{
+    if(!permanentTarget||currentUser.role!=="admin"||permanentBusy)return;
+    const phrase=window.prompt("พิมพ์คำว่า ลบถาวร เพื่อยืนยันลบเลข "+permanentTarget.orderNumber+" และเอกสารที่เชื่อมทั้งหมด (แม้ลงนามแล้ว)\\nไฟล์ PDF ใน Google Drive ยังไม่ได้ถูกลบอัตโนมัติ");
+    if(phrase!=="ลบถาวร")return;
+    if(!window.confirm("ยืนยันอีกครั้ง: ข้อมูลเลขคำสั่งและเอกสารที่เชื่อมจะถูกลบถาวรจาก Firestore ไม่สามารถกู้คืนจากถังขยะได้"))return;
+    setPermanentBusy(true);
+    try{await deleteOrderPermanently(permanentTarget.id);
+      showToast("ลบเลขคำสั่งและเอกสารที่เชื่อมออกจากระบบแล้ว (ไฟล์ Drive ยังอยู่)","success");
+      setPermanentTarget(null);
+    }catch(e){showToast("ลบถาวรไม่สำเร็จ: "+String(e?.message||e),"error");}
+    finally{setPermanentBusy(false);}
+  };
+  const removeSelectedPermanently=async()=>{
+    if(currentUser.role!=="admin"||permanentBusy||!selectedPermanentIds.length)return;
+    if(selectedPermanentIds.length>50)return showToast("เลือกลบได้ครั้งละไม่เกิน 50 รายการ","error");
+    const phrase=window.prompt("คุณเลือก "+selectedPermanentIds.length+" รายการ รวมคำสั่งที่ลงนามแล้วได้\\nพิมพ์ ลบถาวร เพื่อยืนยัน (ไฟล์ PDF บน Drive จะยังคงอยู่)");
+    if(phrase!=="ลบถาวร")return;
+    if(!window.confirm("ลบถาวร "+selectedPermanentIds.length+" รายการจาก Firestore และเอกสารที่เชื่อมทั้งหมด ใช่หรือไม่?"))return;
+    const ids=[...selectedPermanentIds];
+    setPermanentBusy(true);
+    let done=0,fail=[];
+    for(let k=0;k<ids.length;k++){
+      setPermanentProgress("กำลังลบ "+(k+1)+"/"+ids.length);
+      try{await deleteOrderPermanently(ids[k]);done++;}
+      catch(err){fail.push({id:ids[k],message:String(err?.message||err)});}
+    }
+    setPermanentBusy(false);setPermanentProgress("");
+    setSelectedPermanentIds(fail.map(x=>x.id));
+    if(fail.length)showToast("ลบได้ "+done+" รายการ ล้มเหลว "+fail.length+" รายการ: "+fail[0].message,"error");
+    else showToast("ลบถาวร "+done+" รายการจากฐานข้อมูลสำเร็จ (Drive เก็บไฟล์เดิมไว้)","success");
+  };
+
+  const restoreNumberPreflight=async id=>{
+    const [reservationSnap,rows,docs]=await Promise.all([
+      getDocFromServer(getDocumentRef(ORDER_RESERVE_PATH,id)),
+      getDocsFromServer(getCollectionRef(ORDER_RESERVE_PATH)),
+      getDocsFromServer(getCollectionRef(DOCS_PATH))
+    ]);
+    if(!reservationSnap.exists())throw new Error("ไม่พบเลขเดิมสำหรับกู้คืน");
+    const data=reservationSnap.data(),number=parseRegisterNumber(data.orderNumber);
+    if(!number)throw new Error("เลขเดิมมีรูปแบบไม่ถูกต้อง");
+    const occupied=occupiedRegisterNumbers("ORDER",
+      rows.docs.map(x=>({id:x.id,...x.data()})),docs.docs.map(x=>({id:x.id,...x.data()})),id);
+    if(occupied.has(number.text))throw new Error("เลขนี้มีรายการใช้งานใหม่แล้ว ไม่สามารถกู้คืนจนกว่าจะแก้ไขเลข");
+    const counterRef=getDocumentRef(COUNTERS_PATH,`ORDER-${number.year}`);
+    const counterBefore=await getDocFromServer(counterRef);
+    return {counterRef,counterBefore,number};
+  };
+
   // Reservation, linked draft and audit log are updated atomically, per row.
   // No number counters are modified and no Drive files are deleted.
   const mutateTrialArchive=async(reservationId,restore=false)=>{
     if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้น");
     const resRef=getDocumentRef(ORDER_RESERVE_PATH,reservationId);
+    const preflight=restore?await restoreNumberPreflight(reservationId):null;
     const auditRef=doc(getCollectionRef(AUDIT_LOG_PATH));
     await runTransaction(db,async tx=>{
       const resSnap=await tx.get(resRef);
@@ -1559,6 +1728,14 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
       const linkedDoc=linkedSnap?.exists()?{id:linkedSnap.id,...linkedSnap.data()}:null;
       const rejection=restore?canRestoreTrialOrder(reservation,linkedDoc):canArchiveTrialOrder(reservation,linkedDoc);
       if(rejection)throw new Error(rejection);
+      let liveCounter=null;
+      if(preflight){
+        liveCounter=await tx.get(preflight.counterRef);
+        if(liveCounter.exists()!==preflight.counterBefore.exists()||
+           registerCounterStamp(liveCounter.exists()?liveCounter.data():null)!==
+           registerCounterStamp(preflight.counterBefore.exists()?preflight.counterBefore.data():null))
+          throw new Error("มีคนจองเลขระหว่างกู้คืน กรุณาลองใหม่");
+      }
       const now=Date.now(),action=restore?"กู้คืนรายการทดลอง":"จัดเก็บรายการทดลอง";
       tx.update(resRef,{
         trialArchived:!restore,
@@ -1572,6 +1749,14 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
         deletedAt:restore?null:now,deletedBy:restore?null:currentUser.id,
         history:arrayUnion({action,by:currentUser.id,time:now,subject:reservation.subject})
       });
+      if(preflight){
+        tx.set(preflight.counterRef,{
+          kind:"ORDER",year:preflight.number.year,
+          lastNumber:liveCounter.exists()?Number(liveCounter.data().lastNumber)||0:0,
+          revision:(Number(liveCounter.exists()?liveCounter.data().revision:0)||0)+1,
+          updatedAt:now
+        },{merge:true});
+      }
       tx.set(auditRef,auditPayload(currentUser,action,"ORDER",reservation.id,
         reservation.orderNumber+" — "+reservation.subject+(linkedRef?" (พร้อมเอกสารที่เชื่อม)":" (เฉพาะเลขจอง)")));
     });
@@ -1605,19 +1790,34 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
   const [recoverSubject, setRecoverSubject] = useState("");
   const [recoverDept, setRecoverDept] = useState("");
   const recoverCanceled = async () => {
-    if (!recoverItem || !recoverSubject.trim() || !recoverDept || currentUser.role !== "admin") return;
-    try {
-      await runTransaction(db, async tx => {
-        const ref = getDocumentRef(ORDER_RESERVE_PATH, recoverItem.id);
-        const snap = await tx.get(ref);
-        if (!snap.exists() || snap.data().status !== "canceled" || snap.data().linkedDocumentId) throw new Error("เลขนี้ไม่พร้อมใช้งาน");
-        tx.update(ref, { status: "reserved", subject: recoverSubject.trim(), responsibleDept: recoverDept,
-          createdBy: currentUser.id, responsibleName: currentUser.name, restoredBy: currentUser.id,
-          restoredAt: Date.now(), history: arrayUnion({action:"นำเลขกลับมาใช้ใหม่",by:currentUser.id,time:Date.now(),subject:recoverSubject.trim()}) });
-        tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"กู้เลขที่ยกเลิก","ORDER",recoverItem.id,`${snap.data().orderNumber}: ${recoverSubject}`));
+    if(!recoverItem||!recoverSubject.trim()||!recoverDept||currentUser.role!=="admin")return;
+    try{
+      const preflight=await restoreNumberPreflight(recoverItem.id);
+      await runTransaction(db,async tx=>{
+        const ref=getDocumentRef(ORDER_RESERVE_PATH,recoverItem.id);
+        const snap=await tx.get(ref);
+        if(!snap.exists()||snap.data().status!=="canceled"||snap.data().trialArchived||snap.data().linkedDocumentId)
+          throw new Error("เลขนี้ไม่พร้อมใช้งาน");
+        if(snap.data().orderNumber!==preflight.number.text)throw new Error("เลขถูกเปลี่ยนระหว่างกู้คืน");
+        const liveCounter=await tx.get(preflight.counterRef);
+        if(liveCounter.exists()!==preflight.counterBefore.exists()||
+           registerCounterStamp(liveCounter.exists()?liveCounter.data():null)!==
+           registerCounterStamp(preflight.counterBefore.exists()?preflight.counterBefore.data():null))
+          throw new Error("มีคนจองเลขระหว่างกู้คืน กรุณาลองใหม่");
+        const now=Date.now();
+        tx.update(ref,{status:"reserved",subject:recoverSubject.trim(),responsibleDept:recoverDept,
+          createdBy:currentUser.id,responsibleName:currentUser.name,
+          restoredBy:currentUser.id,restoredAt:now,
+          history:arrayUnion({action:"นำเลขกลับมาใช้ใหม่",by:currentUser.id,time:now,subject:recoverSubject.trim()})});
+        tx.set(preflight.counterRef,{kind:"ORDER",year:preflight.number.year,
+          lastNumber:liveCounter.exists()?Number(liveCounter.data().lastNumber)||0:0,
+          revision:(Number(liveCounter.exists()?liveCounter.data().revision:0)||0)+1,
+          updatedAt:now},{merge:true});
+        tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),
+          auditPayload(currentUser,"กู้เลขที่ยกเลิก","ORDER",recoverItem.id,`${snap.data().orderNumber}: ${recoverSubject}`));
       });
-      setRecoverItem(null); setShowCanceled(false); showToast("นำเลขกลับมาใช้ใหม่เรียบร้อย", "success");
-    } catch(e){ showToast(e.message,"error"); }
+      setRecoverItem(null);setShowCanceled(false);showToast("นำเลขกลับมาใช้ใหม่เรียบร้อย","success");
+    }catch(e){showToast(e.message,"error");}
   };
   return (
     <div className="space-y-4">
@@ -1693,11 +1893,28 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
           {bulkProgress&&<span className="text-indigo-800">{bulkProgress}</span>}
           <p className="w-full text-xs text-indigo-800">แอดมินจัดเก็บได้เฉพาะเลขจองว่างหรือคำสั่งร่างที่ยังไม่ลงนาม/เผยแพร่ เอกสารและประวัติยังอยู่ และเลขจะไม่ถูกนำมาใช้ซ้ำ</p>
         </div>}
+        {canSelectPermanent&&<div className="px-4 py-3 border-b bg-red-50 flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-2 text-red-900">
+            <input type="checkbox" disabled={!displayedReservations.length||permanentBusy}
+              checked={displayedReservations.length>0&&displayedReservations.every(r=>selectedPermanentIds.includes(r.id))}
+              onChange={e=>setSelectedPermanentIds(e.target.checked?displayedReservations.map(r=>r.id):[])} />
+            เลือกเพื่อลบถาวรทั้งหมดในหน้านี้
+          </label>
+          <span>เลือก {selectedPermanentIds.length} รายการ</span>
+          <button type="button" disabled={!selectedPermanentIds.length||permanentBusy||bulkBusy}
+            onClick={removeSelectedPermanently}
+            className="px-3 py-2 rounded bg-red-700 text-white font-bold disabled:opacity-40">
+            ลบถาวรรายการที่เลือก
+          </button>
+          {permanentProgress&&<span>{permanentProgress}</span>}
+          <p className="w-full text-xs text-red-800">เฉพาะแอดมิน: ลบได้ทุกสถานะ รวมสร้างคำสั่งและ ผอ.ลงนามแล้ว ลบเลขและเอกสารที่เชื่อมจากฐานข้อมูล แต่ไฟล์ใน Google Drive ยังคงอยู่ ต้องยืนยันสองขั้นตอน</p>
+        </div>}
         <div className="overflow-x-auto custom-scrollbar w-full pb-1">
           <table className="bhs-reservation-table min-w-[1000px] w-full text-left text-sm text-gray-600">
             <thead className="bg-blue-50 text-[#003366] text-xs uppercase font-bold border-b border-gray-200">
               <tr>
-                {canSelectTrial&&<th className="px-3 py-3.5 w-14 text-center">เลือก</th>}
+                {canSelectPermanent&&<th className="px-3 py-3.5 w-14 text-center">ลบถาวร</th>}
+                {canSelectTrial&&<th className="px-3 py-3.5 w-14 text-center">เก็บทดลอง</th>}
                 <th className="px-5 py-3.5 w-24">เลขที่</th>
                 <th className="px-5 py-3.5">รายการ (เรื่อง)</th>
                 <th className="px-5 py-3.5 w-32">วันที่ออกคำสั่ง</th>
@@ -1710,6 +1927,10 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
             <tbody className="divide-y divide-gray-100 bg-white">
               {displayedReservations.map((res) => (
                 <tr key={res.id} className="hover:bg-blue-50/50 transition-colors odd:bg-white even:bg-gray-50/30">
+                  {canSelectPermanent&&<td className="px-3 py-3.5 text-center">
+                    <input type="checkbox" disabled={permanentBusy} checked={selectedPermanentIds.includes(res.id)}
+                      onChange={e=>setSelectedPermanentIds(ids=>e.target.checked?[...new Set([...ids,res.id])]:ids.filter(id=>id!==res.id))}/>
+                  </td>}
                   {canSelectTrial&&<td className="px-3 py-3.5 text-center" title={archiveReason(res)||"เลือกเพื่อจัดเก็บ"}>
                     <input type="checkbox" disabled={!!archiveReason(res)||bulkBusy}
                       checked={selectedTrialIds.includes(res.id)}
@@ -1726,24 +1947,31 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
                   </td>
                   <td className="px-5 py-3.5 text-gray-500 break-words whitespace-normal min-w-[150px]">{res.remark && <div className="mb-1">{res.remark}</div>}</td>
                   <td className="px-5 py-3.5 text-center whitespace-nowrap">
-                    {showTrialArchived&&res.trialArchived&&currentUser.role==="admin"
-                      ? <button disabled={bulkBusy} onClick={()=>restoreTrial(res)} className="text-indigo-700 text-xs underline disabled:opacity-40">กู้คืนรายการทดลอง</button>
-                      : res.status === "canceled" && currentUser.role === "admin" ? <button className="text-blue-700 text-xs underline" onClick={() => {setRecoverItem(res);setRecoverSubject("");setRecoverDept(res.responsibleDept||"");}}>นำเลขกลับมาใช้</button> : !res.trialArchived && !res.linkedDocumentId && (currentUser.role === "admin" || currentUser.id === res.createdBy) && (
-                       <div className="flex items-center justify-center gap-1.5">
-                         <button onClick={() => openEditModal(res)} className="text-blue-500 hover:bg-blue-100 p-1.5 rounded transition-colors" title="แก้ไขรายการ">
-                           <Edit size={16} />
-                         </button>
-                         <button onClick={() => setDocToDelete(res.id)} className="text-red-500 hover:bg-red-100 p-1.5 rounded transition-colors" title="ลบรายการ">
-                           <Trash2 size={16} />
-                         </button>
-                       </div>
-                    )}
+                    <div className="flex gap-2 justify-center items-center">
+                      {currentUser.role==="admin"&&<button type="button" disabled={permanentBusy||bulkBusy}
+                        onClick={()=>openEditModal(res)} className="text-blue-700 hover:bg-blue-100 rounded p-1" title="แก้ไขเลขคำสั่งได้ทุกสถานะ">
+                        <Edit size={16}/>
+                      </button>}
+                      {showTrialArchived&&res.trialArchived&&currentUser.role==="admin"&&
+                        <button type="button" disabled={permanentBusy||bulkBusy} onClick={()=>restoreTrial(res)}
+                          className="text-indigo-700 text-xs underline">กู้คืน</button>}
+                      {res.status==="canceled"&&!res.trialArchived&&currentUser.role==="admin"&&
+                        <button type="button" onClick={()=>{setRecoverItem(res);setRecoverSubject("");setRecoverDept(res.responsibleDept||"");}}
+                          className="text-blue-700 text-xs underline">นำเลขกลับมาใช้</button>}
+                      {currentUser.role==="admin"&&<button type="button" disabled={permanentBusy||bulkBusy}
+                        onClick={()=>requestPermanentDelete(res)} className="text-red-700 hover:bg-red-100 rounded p-1" title="ลบถาวรเลขและเอกสารที่เชื่อม">
+                        <Trash2 size={16}/>
+                      </button>}
+                      {currentUser.role!=="admin"&&!res.trialArchived&&!res.linkedDocumentId&&res.status!=="canceled"&&currentUser.id===res.createdBy&&
+                        <><button type="button" onClick={()=>openEditModal(res)} className="text-blue-500 hover:bg-blue-100 p-1.5 rounded" title="แก้ไขรายการ"><Edit size={16}/></button>
+                          <button type="button" onClick={()=>setDocToDelete(res.id)} className="text-red-500 hover:bg-red-100 p-1.5 rounded" title="ยกเลิกเลขจอง"><Trash2 size={16}/></button></>}
+                    </div>
                   </td>
                 </tr>
               ))}
               {displayedReservations.length === 0 && (
                 <tr>
-                  <td colSpan={canSelectTrial?8:7} className="text-center py-10 text-gray-500 font-medium">ยังไม่มีการจองเลขคำสั่ง</td>
+                  <td colSpan={7+(canSelectTrial?1:0)+(canSelectPermanent?1:0)} className="text-center py-10 text-gray-500 font-medium">ยังไม่มีการจองเลขคำสั่ง</td>
                 </tr>
               )}
             </tbody>
@@ -1752,6 +1980,17 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
         <PageNavigator page={page} setPage={setPage} total={viewRows.length} pageSize={pageSize}/>
       </div>
 
+      {permanentTarget&&<div className="fixed inset-0 z-[130] bg-black/70 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl p-5 max-w-md w-full space-y-3">
+          <h3 className="text-lg font-bold text-red-800">ลบถาวรเลขคำสั่ง {permanentTarget.orderNumber}?</h3>
+          <p className="text-sm">เรื่อง: {permanentTarget.subject}</p>
+          <p className="text-sm text-red-700">ลบรายการเลขคำสั่งและเอกสารที่เชื่อมจาก Firestore ทุกสถานะ รวมเอกสารที่ลงนามแล้ว ไม่สามารถกู้คืนจากถังขยะได้ แต่ไฟล์ PDF บน Google Drive ยังอยู่</p>
+          <div className="flex gap-2">
+            <button className="flex-1 border rounded px-3 py-2" disabled={permanentBusy} onClick={()=>setPermanentTarget(null)}>ยกเลิก</button>
+            <button className="flex-1 bg-red-700 text-white font-bold rounded px-3 py-2 disabled:opacity-40" disabled={permanentBusy} onClick={runPermanentRemoval}>ยืนยันลบถาวร</button>
+          </div>
+        </div>
+      </div>}
       {recoverItem && <div className="fixed inset-0 z-[120] bg-black/60 flex items-center justify-center p-4"><div className="bg-white rounded-xl p-5 max-w-md w-full space-y-3">
         <h3 className="font-bold">นำเลข {recoverItem.orderNumber} กลับมาใช้ใหม่</h3>
         <p className="text-xs text-gray-500">เรื่องเดิม: {recoverItem.subject} (ยังเก็บไว้ในประวัติ)</p>
@@ -1779,7 +2018,11 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
               <div className="p-4 sm:p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
                 <div>
                   <label className="block text-xs sm:text-sm font-bold mb-1.5 text-gray-700">เลขที่ <span className="text-red-500">*</span></label>
-                  <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-blue-700 bg-blue-50" value={form.id ? form.orderNumber : "ระบบออกเลขให้เมื่อบันทึกสำเร็จ"} readOnly placeholder="เลขอัตโนมัติ" />
+                  <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-blue-700 bg-blue-50"
+            value={form.id ? form.orderNumber : "ระบบออกเลขให้เมื่อบันทึกสำเร็จ"}
+            onChange={e=>setForm({...form,orderNumber:e.target.value})}
+            readOnly={!form.id||currentUser.role!=="admin"} placeholder="เช่น 1/2569" />
+          {Boolean(form.id)&&currentUser.role==="admin"&&<p className="text-xs text-amber-700 mt-1">แก้เลขได้แม้คำสั่งอนุมัติ/ผอ.ลงนามแล้ว แต่จะไม่เปลี่ยนเลขภายในไฟล์ PDF ที่ลงนาม</p>}
                   {!form.id && <p className="text-[10px] text-gray-500 mt-1">เลขจริงจะปรากฏหลังบันทึกสำเร็จ</p>}
                 </div>
                 <div>
@@ -2014,6 +2257,9 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   };
 
   const handlePermanentDelete = async (docId) => {
+    if(documents.find(d=>d.id===docId)?.reservationId){
+      showToast("ลบคำสั่งที่เชื่อมทะเบียนจากเมนูเลขคำสั่งโรงเรียน เพื่อให้ลบทั้งสองจุด","error");return;
+    }
     if(documents.find(d=>d.id===docId)?.trialArchived){
       showToast("เอกสารทดลองต้องกู้คืนผ่านเมนูเลขคำสั่งโรงเรียนก่อน ไม่อนุญาตลบถาวรจากถังขยะ","error");return;
     }
@@ -2438,6 +2684,8 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleSaveEditDoc = async () => {
+    if(docToEdit?.type==="คำสั่งโรงเรียน"&&docToEdit?.reservationId&&editForm.docNumber!==docToEdit.docNumber)
+      return showToast("แก้เลขคำสั่งที่มีทะเบียนเชื่อมจากเมนูเลขคำสั่งโรงเรียนเท่านั้น","error");
     if(!editForm.subject || !editForm.from || !editForm.date) return showToast("กรุณากรอกข้อมูลให้ครบถ้วน", "error");
     setIsSavingEdit(true);
     try {
@@ -2975,8 +3223,8 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
         await runTransaction(db, async tx => {
           const resRef = getDocumentRef(ORDER_RESERVE_PATH, chosenReservation.id);
           const snapshot = await tx.get(resRef);
-          if (!snapshot.exists() || snapshot.data().status === "canceled" || snapshot.data().linkedDocumentId)
-            throw new Error("เลขจองนี้ถูกยกเลิกหรือใช้งานแล้ว กรุณาเลือกใหม่");
+          if (!snapshot.exists() || snapshot.data().status === "canceled" || snapshot.data().trialArchived || snapshot.data().linkedDocumentId || snapshot.data().orderNumber !== chosenReservation.orderNumber)
+            throw new Error("เลขจองเปลี่ยนหรือถูกใช้แล้ว กรุณาเลือกใหม่");
           tx.set(getDocumentRef(DOCS_PATH, newDocId), newDoc);
           tx.update(resRef, { status: "linked", linkedDocumentId: newDocId, linkedAt: Date.now() });
           tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"สร้างเอกสาร","DOCUMENT",newDocId,`${newDoc.docNumber}: ${form.subject}`));
@@ -3131,21 +3379,11 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
     return Number(match[1]) || 0;
   };
 
-  const highestFromDatabase = (reservations, documentRecords, year) => {
-    let high = 0;
-    for (const item of reservations) {
-      high = Math.max(high, sequenceForYear(item[sourceField], year));
-    }
-    // เอกสารที่ออกแล้วเก็บไว้ต่างจากทะเบียนจอง จึงต้องนำมาคิดด้วย
-    const type = registerKind === "ORDER" ? "คำสั่งโรงเรียน" : "หนังสือออก";
-    for (const item of documentRecords) {
-      if (item.type !== type) continue;
-      high = Math.max(high, sequenceForYear(item.docNumber, year));
-      if (registerKind === "ORDER") {
-        high = Math.max(high, sequenceForYear(item.orderNumber, year));
-      }
-    }
-    return high;
+  const highestFromDatabase=(reservations,documentRecords,year)=>{
+    const occupied=occupiedRegisterNumbers(registerKind,reservations,documentRecords);
+    let highest=0;
+    for(const value of occupied){const n=parseRegisterNumber(value);if(n?.year===year)highest=Math.max(highest,n.sequence);}
+    return highest;
   };
 
   const readRegisterState = async () => {
@@ -3153,9 +3391,9 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
     setLoadingInfo(true);
     try {
       const [counterSnap, reservationSnap, docsSnap, logsSnap] = await Promise.all([
-        getDoc(getDocumentRef(COUNTERS_PATH, counterId)),
-        getDocs(getCollectionRef(sourceCollection)),
-        getDocs(getCollectionRef(DOCS_PATH)),
+        getDocFromServer(getDocumentRef(COUNTERS_PATH, counterId)),
+        getDocsFromServer(getCollectionRef(sourceCollection)),
+        getDocsFromServer(getCollectionRef(DOCS_PATH)),
         getDocs(query(getCollectionRef(AUDIT_LOG_PATH), orderBy("timestamp", "desc"), limit(100)))
       ]);
       const records = reservationSnap.docs.map(item => item.data());
@@ -3177,9 +3415,9 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
     let cancelled = false;
     setLoadingInfo(true);
     Promise.all([
-      getDoc(getDocumentRef(COUNTERS_PATH, counterId)),
-      getDocs(getCollectionRef(sourceCollection)),
-      getDocs(getCollectionRef(DOCS_PATH)),
+      getDocFromServer(getDocumentRef(COUNTERS_PATH, counterId)),
+      getDocsFromServer(getCollectionRef(sourceCollection)),
+      getDocsFromServer(getCollectionRef(DOCS_PATH)),
       getDocs(query(getCollectionRef(AUDIT_LOG_PATH), orderBy("timestamp", "desc"), limit(100)))
     ]).then(([counterSnap, reservationSnap, docsSnap, logsSnap]) => {
       if (cancelled) return;
@@ -3208,12 +3446,9 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
       return showToast("กรุณาระบุเลขถัดไปเป็นจำนวนเต็มบวก", "error");
     }
     const next = Number(nextNumberText);
-    if (next <= Math.max(highestInDatabase, Number(counterInfo?.lastNumber) || 0)) {
-      return showToast("เลขที่ตั้งต้องมากกว่าเลขสูงสุดในทะเบียนและตัวนับปัจจุบัน", "error");
-    }
     if (!window.confirm(
       `ยืนยันให้${label}ที่จะออกถัดไปเป็น ${next}/${registerYear} ใช่หรือไม่?\n\n` +
-      "เลขเก่าจะไม่ถูกแก้ไข และระบบจะเก็บประวัติการตั้งค่า"
+      "ระบบจะตรวจเลขที่ยังใช้งานอยู่และข้ามเลขซ้ำโดยอัตโนมัติ; ไฟล์ PDF ที่ออกแล้วไม่เปลี่ยน"
     )) return;
 
     setSavingNumber(true);
@@ -3221,33 +3456,25 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
       const counterRef = getDocumentRef(COUNTERS_PATH, counterId);
       // อ่านทะเบียนล่าสุด ก่อนทำธุรกรรม และอ่าน counter ซ้ำภายในธุรกรรม
       // การจองเลขปกติก็เขียน counter เดียวกัน จึงป้องกันการเขียนทับการจองพร้อมกันได้
-      const [beforeSnap, reservationSnap, docsSnap] = await Promise.all([
-        getDoc(counterRef),
-        getDocs(getCollectionRef(sourceCollection)),
-        getDocs(getCollectionRef(DOCS_PATH))
-      ]);
-      const previousNumber = beforeSnap.exists() ? Number(beforeSnap.data().lastNumber) || 0 : 0;
-      const highest = highestFromDatabase(
-        reservationSnap.docs.map(item => item.data()),
-        docsSnap.docs.map(item => item.data()),
-        selectedYear
-      );
-      if (next <= Math.max(previousNumber, highest)) {
-        throw new Error(`เลขถัดไปต้องมากกว่า ${Math.max(previousNumber, highest)}/${registerYear}`);
-      }
+      const beforeSnap=await getDocFromServer(counterRef);
+      const previousNumber=beforeSnap.exists()?Number(beforeSnap.data().lastNumber)||0:0;
+      const highest=highestInDatabase;
       const timestamp = Date.now();
       const auditRef = doc(getCollectionRef(AUDIT_LOG_PATH));
       await runTransaction(db, async tx => {
         const liveSnap = await tx.get(counterRef);
         const liveNumber = liveSnap.exists() ? Number(liveSnap.data().lastNumber) || 0 : 0;
         // ไม่อนุญาตให้การตั้งเลขใหม่ทับการจองที่เกิดขึ้นขณะบันทึก
-        if (liveNumber !== previousNumber || liveSnap.exists() !== beforeSnap.exists()) {
+        if (liveSnap.exists() !== beforeSnap.exists() ||
+            registerCounterStamp(liveSnap.exists()?liveSnap.data():null)!==
+            registerCounterStamp(beforeSnap.exists()?beforeSnap.data():null)) {
           throw new Error("มีผู้อื่นจองเลขหรือปรับเลขระหว่างบันทึก กรุณากดตรวจสอบใหม่");
         }
         tx.set(counterRef, {
           kind: registerKind,
           year: selectedYear,
           lastNumber: next - 1,
+          revision: (Number(liveSnap.exists()?liveSnap.data().revision:0)||0)+1,
           manualSetAt: timestamp,
           manualSetBy: currentUser.id,
           updatedAt: timestamp
@@ -3255,17 +3482,17 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
         tx.set(auditRef, auditPayload(
           currentUser, "แอดมินกำหนดเลขถัดไป", "NUMBER_COUNTER", counterId,
           `${label} ปี ${registerYear}: ${previousNumber + 1}/${registerYear} → ${next}/${registerYear}; ` +
-          `เลขสูงสุดในข้อมูล ${highest}/${registerYear}`
+          `เลขสูงสุดในรายการใช้งาน ${highest}/${registerYear}`
         ));
       });
       setCounterInfo(previous => ({ ...(previous || {}), lastNumber: next - 1, kind: registerKind, year: selectedYear }));
-      setHighestInDatabase(Math.max(highestInDatabase, highest));
+      setHighestInDatabase(highest);
       setHistoryRows(previous => [{
         ...auditPayload(currentUser, "แอดมินกำหนดเลขถัดไป", "NUMBER_COUNTER", counterId,
           `ตั้งเลขถัดไปเป็น ${next}/${registerYear}`),
       }, ...previous].slice(0, 100));
       setNextNumberText("");
-      showToast(`ตั้งค่าเรียบร้อยแล้ว การขอ${label}ครั้งถัดไปจะเริ่มที่ ${next}/${registerYear}`, "success");
+      showToast(`ตั้งจุดเริ่มต้นที่ ${next}/${registerYear} แล้ว (ระบบจะข้ามเลขที่ยังใช้งานซ้ำ)`, "success");
     } catch (error) {
       showToast("ตั้งเลขถัดไปไม่สำเร็จ: " + error.message, "error");
     } finally {
@@ -3275,7 +3502,7 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
 
   if (!isAdmin) return null;
   const consumed = Number(counterInfo?.lastNumber) || 0;
-  const minAllowed = Math.max(consumed, highestInDatabase) + 1;
+  const minAllowed = 1;
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 md:p-6 space-y-4">
@@ -3300,15 +3527,15 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
         </label>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div className="rounded-lg bg-slate-50 border px-4 py-3"><p className="text-xs text-gray-500">ตัวนับเลขที่ออกไปแล้ว</p><p className="text-xl font-bold text-[#003366]">{loadingInfo ? "กำลังตรวจสอบ..." : `${consumed}/${registerYear}`}</p></div>
-        <div className="rounded-lg bg-slate-50 border px-4 py-3"><p className="text-xs text-gray-500">เลขสูงสุดที่พบในฐานข้อมูล</p><p className="text-xl font-bold text-[#003366]">{loadingInfo ? "กำลังตรวจสอบ..." : `${highestInDatabase}/${registerYear}`}</p></div>
+        <div className="rounded-lg bg-slate-50 border px-4 py-3"><p className="text-xs text-gray-500">ตำแหน่งตัวนับปัจจุบัน</p><p className="text-xl font-bold text-[#003366]">{loadingInfo ? "กำลังตรวจสอบ..." : `${consumed}/${registerYear}`}</p></div>
+        <div className="rounded-lg bg-slate-50 border px-4 py-3"><p className="text-xs text-gray-500">เลขสูงสุดในรายการที่ยังใช้งาน</p><p className="text-xl font-bold text-[#003366]">{loadingInfo ? "กำลังตรวจสอบ..." : `${highestInDatabase}/${registerYear}`}</p></div>
       </div>
       <label className="block text-sm font-bold text-gray-700">เลขที่จะออกถัดไป ({label})
         <input type="number" min={minAllowed} step="1" value={nextNumberText} onChange={e => setNextNumberText(e.target.value)} placeholder={`เช่น ${minAllowed}`} className="w-full border border-gray-300 rounded-lg p-3 mt-1 text-lg font-bold" />
       </label>
       {nextNumberText && /^[1-9]\d*$/.test(nextNumberText) &&
         <p className="text-sm text-blue-900 bg-blue-50 rounded-lg p-3">การจองครั้งถัดไปจะได้: <strong>{nextNumberText}/{registerYear}</strong></p>}
-      <p className="text-xs text-amber-800">ตั้งเลขใหม่ได้ทุกเมื่อ แต่ต้องมากกว่าเลขที่ออกไปแล้วในระบบ และไม่สามารถลดเลขย้อนหลังได้ • หากมีเลขที่ออกนอกระบบ ต้องตรวจสอบด้วยตนเองก่อนบันทึก</p>
+      <p className="text-xs text-amber-800">แอดมินตั้งเลขถัดไปเป็นจำนวนเต็มบวกใดก็ได้ รวมถึงเลขต่ำกว่าเดิม • ระบบข้ามเลขซ้ำเฉพาะทะเบียนและเอกสารที่ยังแสดงอยู่ • เลขที่ลบ/ยกเลิก/จัดเก็บไว้ไม่ขวาง</p>
       <button type="button" onClick={saveNextNumber} disabled={!yearIsValid || !nextNumberText.trim() || savingNumber || loadingInfo} className="px-5 py-2.5 rounded-lg bg-[#003366] text-white font-bold hover:bg-blue-900 disabled:opacity-40 flex items-center gap-2">
         <Save size={18}/>{savingNumber ? "กำลังบันทึก..." : `ยืนยันตั้ง${label}ถัดไป`}
       </button>

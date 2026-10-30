@@ -52,5 +52,9 @@ jobs:
         run: node tests/order-trial-archive-test.mjs
       - name: Admin number settings and bulk archival integration regression
         run: node tests/admin-order-archive-integration-test.mjs
+      - name: Number policy active-only regression
+        run: node tests/order-number-policy-test.mjs
+      - name: Admin full number control regression
+        run: node tests/admin-full-number-control-test.mjs
       - name: Vite production build
         run: npm run build
