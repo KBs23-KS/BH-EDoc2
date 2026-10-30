@@ -10,7 +10,7 @@ const years=Array.from({length:10},(_,i)=>String(new Date().getFullYear()+543-i)
 function filters({year,setYear,type,setType,status,setStatus,q,setQ}) {return null;}
 export function SearchCenter({documents,orderReservations=[],outgoingReservations=[],currentUser,dbUsers,changeMenu}) {
   const [q,setQ]=useState(''),[year,setYear]=useState(''),[type,setType]=useState(''),[status,setStatus]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[page,setPage]=useState(1);
-  const reserveRows=[...orderReservations.map(r=>({...r,type:'เลขคำสั่งโรงเรียน',docNumber:r.orderNumber,date:r.orderDate})),...outgoingReservations.map(r=>({...r,type:'ขอเลขที่หนังสือออก',docNumber:r.docNumber||r.outgoingNumber||r.number,date:r.docDate||r.outgoingDate||r.date}))].filter(r=>currentUser.role==='admin'||r.createdBy===currentUser.id);
+  const reserveRows=[...orderReservations.filter(r=>!r.trialArchived).map(r=>({...r,type:'เลขคำสั่งโรงเรียน',docNumber:r.orderNumber,date:r.orderDate})),...outgoingReservations.map(r=>({...r,type:'ขอเลขที่หนังสือออก',docNumber:r.docNumber||r.outgoingNumber||r.number,date:r.docDate||r.outgoingDate||r.date}))].filter(r=>currentUser.role==='admin'||r.createdBy===currentUser.id);
   const all=[...documents.filter(d=>canReadDoc(currentUser,d,dbUsers)),...reserveRows];
   const found=matchingDocs(all,{q,year,type,status,start:from,end:to}).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const reset=()=>setPage(1);const shown=found.slice((page-1)*20,page*20);
@@ -77,7 +77,7 @@ export function AckReport({documents,currentUser,dbUsers,onReminder,onAddRecipie
 }
 export function ExportRegisters({documents,orderReservations=[],outgoingReservations=[],currentUser,dbUsers,showToast}) {
   const [type,setType]=useState(''),[year,setYear]=useState(''),[from,setFrom]=useState(''),[to,setTo]=useState(''),[status,setStatus]=useState(''),[busy,setBusy]=useState(false);
-  const reserved=[...orderReservations.map(r=>({...r,type:'เลขคำสั่งโรงเรียน',docNumber:r.orderNumber,date:r.orderDate})),...outgoingReservations.map(r=>({...r,type:'ขอเลขที่หนังสือออก',docNumber:r.docNumber||r.outgoingNumber||r.number,date:r.docDate||r.outgoingDate||r.date}))].filter(r=>currentUser.role==='admin'||r.createdBy===currentUser.id);
+  const reserved=[...orderReservations.filter(r=>!r.trialArchived).map(r=>({...r,type:'เลขคำสั่งโรงเรียน',docNumber:r.orderNumber,date:r.orderDate})),...outgoingReservations.map(r=>({...r,type:'ขอเลขที่หนังสือออก',docNumber:r.docNumber||r.outgoingNumber||r.number,date:r.docDate||r.outgoingDate||r.date}))].filter(r=>currentUser.role==='admin'||r.createdBy===currentUser.id);
   const docs=matchingDocs([...documents.filter(d=>canReadDoc(currentUser,d,dbUsers)),...reserved],{type,year,start:from,end:to,status});
   const go=async format=>{setBusy(true);try{const fn=`BHS-register-${type||'all'}-${year||'all'}`;await (format==='xlsx'?exportXlsx(docs,fn):exportPdf(docs,fn));showToast('ส่งออกรายงานสำเร็จ','success')}catch(e){showToast(`ส่งออกไม่สำเร็จ: ${e.message}`,'error')}finally{setBusy(false)}};
   return <div className="bg-white rounded-xl shadow p-5 space-y-4"><h2 className={heading}>ส่งออกทะเบียน Excel / PDF</h2>

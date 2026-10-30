@@ -56,6 +56,7 @@ import {
   arrayUnion, runTransaction, getDocs, getDoc, writeBatch, query, orderBy, limit, startAfter,
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
+import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
@@ -982,7 +983,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           {activeMenu === "tasks" && <TasksView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "incoming" && <IncomingView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "orders" && <OrdersView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
-          {activeMenu === "order_reservations" && <OrderReservationsView reservations={orderReservations} currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
+          {activeMenu === "order_reservations" && <OrderReservationsView reservations={orderReservations} documents={documents} currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "outgoing_reservations" && <OutgoingReservationsView reservations={outgoingReservations} currentUser={currentUser} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "circulars" && <CircularsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "mydocs" && <MyDocsView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
@@ -1404,7 +1405,7 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
   );
 }
 
-function OrderReservationsView({ reservations, currentUser, systemSettings, showToast }) {
+function OrderReservationsView({ reservations, documents=[], currentUser, systemSettings, showToast }) {
   const [pageSize, setPageSize] = useState(20);
   const [showCanceled, setShowCanceled] = useState(false);
   const [page, setPage] = useState(1);
@@ -1414,6 +1415,13 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [docToDelete, setDocToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [showTrialArchived,setShowTrialArchived]=useState(false);
+  const [selectedTrialIds,setSelectedTrialIds]=useState([]);
+  const [bulkBusy,setBulkBusy]=useState(false);
+  const [bulkProgress,setBulkProgress]=useState("");
+  const documentsById=new Map(documents.map(d=>[d.id,d]));
+  const archiveReason=res=>canArchiveTrialOrder(res,res.linkedDocumentId?documentsById.get(res.linkedDocumentId):null);
+  useEffect(()=>setSelectedTrialIds([]),[filterYear,searchTerm,showCanceled,showTrialArchived,page,pageSize]);
 
   let defaultDept = "";
   if (currentUser.adminDept && currentUser.adminDept !== "-") defaultDept = currentUser.adminDept;
@@ -1432,7 +1440,7 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
   
   const filteredReservations = reservations.filter(res => {
     if (filterYear && getNumberYear(res.orderNumber) !== Number(filterYear)) return false;
-    if (res.status === "canceled") return false;
+    if (res.status === "canceled" || res.trialArchived) return false;
     const searchLower = searchTerm.toLowerCase();
     return (
       (res.orderNumber && res.orderNumber.toLowerCase().includes(searchLower)) ||
@@ -1441,7 +1449,15 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
   });
   
   const canceledRows = reservations.filter(r => r.status === "canceled" && (!filterYear || getNumberYear(r.orderNumber) === Number(filterYear)));
-  const displayedReservations = showCanceled && currentUser.role === "admin" ? canceledRows.slice((page-1)*pageSize,page*pageSize) : filteredReservations.slice((page - 1) * pageSize, page * pageSize);
+  const archivedRows=reservations.filter(r=>r.trialArchived &&
+    (!filterYear||getNumberYear(r.orderNumber)===Number(filterYear)) &&
+    (String(r.orderNumber||"").toLowerCase().includes(searchTerm.toLowerCase()) ||
+     String(r.subject||"").toLowerCase().includes(searchTerm.toLowerCase())));
+  const viewRows=showTrialArchived&&currentUser.role==="admin"?archivedRows:
+    showCanceled&&currentUser.role==="admin"?canceledRows:filteredReservations;
+  const displayedReservations=viewRows.slice((page-1)*pageSize,page*pageSize);
+  const canSelectTrial=currentUser.role==="admin"&&!showCanceled&&!showTrialArchived;
+  const selectableRows=displayedReservations.filter(r=>!archiveReason(r));
   useEffect(() => setPage(1), [searchTerm, filterYear, pageSize]);
 
   // Numbers are allocated during the Firestore transaction, not when the form opens.
@@ -1528,6 +1544,63 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
     setDocToDelete(null);
   };
 
+  // Reservation, linked draft and audit log are updated atomically, per row.
+  // No number counters are modified and no Drive files are deleted.
+  const mutateTrialArchive=async(reservationId,restore=false)=>{
+    if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้น");
+    const resRef=getDocumentRef(ORDER_RESERVE_PATH,reservationId);
+    const auditRef=doc(getCollectionRef(AUDIT_LOG_PATH));
+    await runTransaction(db,async tx=>{
+      const resSnap=await tx.get(resRef);
+      if(!resSnap.exists())throw new Error("ไม่พบรายการเลขคำสั่ง");
+      const reservation={id:resSnap.id,...resSnap.data()};
+      const linkedRef=reservation.linkedDocumentId?getDocumentRef(DOCS_PATH,reservation.linkedDocumentId):null;
+      const linkedSnap=linkedRef?await tx.get(linkedRef):null;
+      const linkedDoc=linkedSnap?.exists()?{id:linkedSnap.id,...linkedSnap.data()}:null;
+      const rejection=restore?canRestoreTrialOrder(reservation,linkedDoc):canArchiveTrialOrder(reservation,linkedDoc);
+      if(rejection)throw new Error(rejection);
+      const now=Date.now(),action=restore?"กู้คืนรายการทดลอง":"จัดเก็บรายการทดลอง";
+      tx.update(resRef,{
+        trialArchived:!restore,
+        trialArchivedAt:restore?null:now,trialArchivedBy:restore?null:currentUser.id,
+        trialRestoredAt:restore?now:null,trialRestoredBy:restore?currentUser.id:null,
+        history:arrayUnion({action,by:currentUser.id,time:now,subject:reservation.subject})
+      });
+      if(linkedRef)tx.update(linkedRef,{
+        isDeleted:!restore,trialArchived:!restore,trialArchivedAt:restore?null:now,
+        trialArchivedBy:restore?null:currentUser.id,
+        deletedAt:restore?null:now,deletedBy:restore?null:currentUser.id,
+        history:arrayUnion({action,by:currentUser.id,time:now,subject:reservation.subject})
+      });
+      tx.set(auditRef,auditPayload(currentUser,action,"ORDER",reservation.id,
+        reservation.orderNumber+" — "+reservation.subject+(linkedRef?" (พร้อมเอกสารที่เชื่อม)":" (เฉพาะเลขจอง)")));
+    });
+  };
+  const archiveSelected=async()=>{
+    if(currentUser.role!=="admin"||bulkBusy||!selectedTrialIds.length)return;
+    if(selectedTrialIds.length>50)return showToast("เลือกจัดเก็บได้ครั้งละไม่เกิน 50 รายการ","error");
+    const ids=[...selectedTrialIds];
+    if(!window.confirm("ยืนยันจัดเก็บรายการทดลอง "+ids.length+" รายการ?\\nระบบซ่อนเลขจองและคำสั่งร่างที่เชื่อมกัน โดยไม่ลบ PDF ไม่ลบประวัติ และไม่คืนเลขไปใช้ซ้ำ"))return;
+    setBulkBusy(true);setBulkProgress("กำลังตรวจสอบรายการ...");
+    let completed=0;const failures=[];
+    for(let k=0;k<ids.length;k++){
+      setBulkProgress("กำลังจัดเก็บ "+(k+1)+"/"+ids.length);
+      try{await mutateTrialArchive(ids[k]);completed++;}
+      catch(error){failures.push({id:ids[k],message:String(error?.message||error)});}
+    }
+    setBulkBusy(false);setBulkProgress("");
+    setSelectedTrialIds(failures.map(x=>x.id));
+    if(failures.length)showToast("จัดเก็บสำเร็จ "+completed+" รายการ; ไม่สำเร็จ "+failures.length+" รายการ: "+failures[0].message,"error");
+    else showToast("จัดเก็บรายการทดลอง "+completed+" รายการแล้ว สามารถกู้คืนได้","success");
+  };
+  const restoreTrial=async(res)=>{
+    if(currentUser.role!=="admin"||bulkBusy)return;
+    if(!window.confirm("กู้คืนเลข "+res.orderNumber+" และคำสั่งร่างที่เชื่อม (ถ้ามี) กลับไปยังรายการใช้งานใช่หรือไม่?"))return;
+    setBulkBusy(true);
+    try{await mutateTrialArchive(res.id,true);showToast("กู้คืนเลข "+res.orderNumber+" เรียบร้อย","success");}
+    catch(error){showToast("กู้คืนไม่สำเร็จ: "+String(error?.message||error),"error");}
+    finally{setBulkBusy(false);}
+  };
   const [recoverItem, setRecoverItem] = useState(null);
   const [recoverSubject, setRecoverSubject] = useState("");
   const [recoverDept, setRecoverDept] = useState("");
@@ -1551,7 +1624,14 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
       <SuccessNumberDialog number={savedNumber} label="จองเลขคำสั่งสำเร็จ" onClose={()=>setSavedNumber("")} />
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <h2 className="text-lg md:text-xl font-bold text-gray-800">เลขคำสั่งโรงเรียน</h2>
-        {currentUser.role === "admin" && <button className="border rounded-lg px-3 py-2 text-sm" onClick={() => {setShowCanceled(!showCanceled);setPage(1);}}>{showCanceled ? "กลับรายการใช้งาน" : "รายการที่ยกเลิก (แอดมิน)"}</button>}
+        {currentUser.role==="admin"&&<div className="flex flex-wrap items-center gap-2">
+          <button className="border rounded-lg px-3 py-2 text-sm" onClick={()=>{setShowTrialArchived(false);setShowCanceled(!showCanceled);setPage(1);}}>
+            {showCanceled?"กลับรายการใช้งาน":"รายการที่ยกเลิก (แอดมิน)"}
+          </button>
+          <button className="border border-indigo-300 text-indigo-800 bg-indigo-50 rounded-lg px-3 py-2 text-sm font-bold" onClick={()=>{setShowCanceled(false);setShowTrialArchived(!showTrialArchived);setPage(1);}}>
+            {showTrialArchived?"กลับรายการใช้งาน":"รายการทดลองที่จัดเก็บ ("+archivedRows.length+")"}
+          </button>
+        </div>}
         {currentUser.role !== "admin" && reservations.some(r=>r.createdBy===currentUser.id && r.status==="canceled") &&
           <details className="text-xs"><summary className="cursor-pointer underline">ประวัติเลขที่ฉันยกเลิก</summary>
             <div className="absolute z-20 bg-white shadow-lg border rounded p-3 max-h-52 overflow-auto">
@@ -1582,7 +1662,7 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
               <option value="">ทุกปี</option>
               {[...new Set(reservations.map(r => getNumberYear(r.orderNumber)).filter(Boolean))].sort((a,b)=>b-a).map(y=><option key={y} value={y}>{y}</option>)}
             </select>
-            <span className="text-xs text-gray-500 font-medium">พบ {showCanceled && currentUser.role === "admin" ? canceledRows.length : filteredReservations.length} รายการ</span>
+            <span className="text-xs text-gray-500 font-medium">พบ {viewRows.length} รายการ</span>
             <div>
               แสดง:
               <select 
@@ -1598,10 +1678,26 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
           </div>
         </div>
         
+        {canSelectTrial&&<div className="px-4 py-3 border-b bg-indigo-50 flex items-center gap-3 flex-wrap text-sm">
+          <label className="flex gap-2 items-center">
+            <input type="checkbox" disabled={!selectableRows.length||bulkBusy}
+              checked={selectableRows.length>0&&selectableRows.every(r=>selectedTrialIds.includes(r.id))}
+              onChange={e=>setSelectedTrialIds(e.target.checked?selectableRows.map(r=>r.id):[])} />
+            เลือกทั้งหมดในหน้านี้ (เฉพาะรายการที่จัดเก็บได้)
+          </label>
+          <span className="text-indigo-900">เลือก {selectedTrialIds.length} รายการ</span>
+          <button disabled={!selectedTrialIds.length||bulkBusy} onClick={archiveSelected}
+            className="rounded-lg bg-indigo-700 text-white font-bold px-3 py-2 disabled:opacity-40">
+            {bulkBusy?"กำลังจัดเก็บ...":"จัดเก็บ/ซ่อนรายการทดลองที่เลือก"}
+          </button>
+          {bulkProgress&&<span className="text-indigo-800">{bulkProgress}</span>}
+          <p className="w-full text-xs text-indigo-800">แอดมินจัดเก็บได้เฉพาะเลขจองว่างหรือคำสั่งร่างที่ยังไม่ลงนาม/เผยแพร่ เอกสารและประวัติยังอยู่ และเลขจะไม่ถูกนำมาใช้ซ้ำ</p>
+        </div>}
         <div className="overflow-x-auto custom-scrollbar w-full pb-1">
           <table className="bhs-reservation-table min-w-[1000px] w-full text-left text-sm text-gray-600">
             <thead className="bg-blue-50 text-[#003366] text-xs uppercase font-bold border-b border-gray-200">
               <tr>
+                {canSelectTrial&&<th className="px-3 py-3.5 w-14 text-center">เลือก</th>}
                 <th className="px-5 py-3.5 w-24">เลขที่</th>
                 <th className="px-5 py-3.5">รายการ (เรื่อง)</th>
                 <th className="px-5 py-3.5 w-32">วันที่ออกคำสั่ง</th>
@@ -1614,7 +1710,12 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
             <tbody className="divide-y divide-gray-100 bg-white">
               {displayedReservations.map((res) => (
                 <tr key={res.id} className="hover:bg-blue-50/50 transition-colors odd:bg-white even:bg-gray-50/30">
-                  <td className="px-5 py-3.5 font-bold text-gray-900 whitespace-nowrap">{res.orderNumber} {res.status === "canceled" && "(ยกเลิก)"} {res.linkedDocumentId && <span className="text-xs font-normal text-green-700">(สร้างคำสั่งแล้ว)</span>}</td>
+                  {canSelectTrial&&<td className="px-3 py-3.5 text-center" title={archiveReason(res)||"เลือกเพื่อจัดเก็บ"}>
+                    <input type="checkbox" disabled={!!archiveReason(res)||bulkBusy}
+                      checked={selectedTrialIds.includes(res.id)}
+                      onChange={e=>setSelectedTrialIds(ids=>e.target.checked?[...new Set([...ids,res.id])]:ids.filter(id=>id!==res.id))}/>
+                  </td>}
+                  <td className="px-5 py-3.5 font-bold text-gray-900 whitespace-nowrap">{res.orderNumber} {res.status === "canceled" && "(ยกเลิก)"} {res.trialArchived&&<span className="text-xs text-indigo-700">(จัดเก็บทดลอง)</span>} {res.linkedDocumentId && <span className="text-xs font-normal text-green-700">(สร้างคำสั่งแล้ว)</span>}</td>
                   <td className="px-5 py-3.5 text-gray-800 break-words whitespace-normal min-w-[250px]">{res.subject}</td>
                   <td className="px-5 py-3.5 whitespace-nowrap">{formatThaiDate(res.orderDate)}</td>
                   <td className="px-5 py-3.5 whitespace-nowrap">{res.responsibleName}</td>
@@ -1625,7 +1726,9 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
                   </td>
                   <td className="px-5 py-3.5 text-gray-500 break-words whitespace-normal min-w-[150px]">{res.remark && <div className="mb-1">{res.remark}</div>}</td>
                   <td className="px-5 py-3.5 text-center whitespace-nowrap">
-                    {res.status === "canceled" && currentUser.role === "admin" ? <button className="text-blue-700 text-xs underline" onClick={() => {setRecoverItem(res);setRecoverSubject("");setRecoverDept(res.responsibleDept||"");}}>นำเลขกลับมาใช้</button> : !res.linkedDocumentId && (currentUser.role === "admin" || currentUser.id === res.createdBy) && (
+                    {showTrialArchived&&res.trialArchived&&currentUser.role==="admin"
+                      ? <button disabled={bulkBusy} onClick={()=>restoreTrial(res)} className="text-indigo-700 text-xs underline disabled:opacity-40">กู้คืนรายการทดลอง</button>
+                      : res.status === "canceled" && currentUser.role === "admin" ? <button className="text-blue-700 text-xs underline" onClick={() => {setRecoverItem(res);setRecoverSubject("");setRecoverDept(res.responsibleDept||"");}}>นำเลขกลับมาใช้</button> : !res.trialArchived && !res.linkedDocumentId && (currentUser.role === "admin" || currentUser.id === res.createdBy) && (
                        <div className="flex items-center justify-center gap-1.5">
                          <button onClick={() => openEditModal(res)} className="text-blue-500 hover:bg-blue-100 p-1.5 rounded transition-colors" title="แก้ไขรายการ">
                            <Edit size={16} />
@@ -1640,13 +1743,13 @@ function OrderReservationsView({ reservations, currentUser, systemSettings, show
               ))}
               {displayedReservations.length === 0 && (
                 <tr>
-                  <td colSpan="7" className="text-center py-10 text-gray-500 font-medium">ยังไม่มีการจองเลขคำสั่ง</td>
+                  <td colSpan={canSelectTrial?8:7} className="text-center py-10 text-gray-500 font-medium">ยังไม่มีการจองเลขคำสั่ง</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-        <PageNavigator page={page} setPage={setPage} total={showCanceled && currentUser.role === "admin" ? canceledRows.length : filteredReservations.length} pageSize={pageSize}/>
+        <PageNavigator page={page} setPage={setPage} total={viewRows.length} pageSize={pageSize}/>
       </div>
 
       {recoverItem && <div className="fixed inset-0 z-[120] bg-black/60 flex items-center justify-center p-4"><div className="bg-white rounded-xl p-5 max-w-md w-full space-y-3">
@@ -1902,6 +2005,8 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   
   const handleRestore = async (docId) => {
     try {
+      if(documents.find(d=>d.id===docId)?.trialArchived)
+        throw new Error("รายการทดลองต้องกู้คืนที่เมนูเลขคำสั่งโรงเรียน เพื่อให้เลขและคำสั่งตรงกัน");
       await updateDoc(getDocumentRef(DOCS_PATH, docId), { isDeleted: false });
       writeAuditLog(currentUser, "กู้คืนเอกสาร", "DOCUMENT", docId, "กู้คืนเอกสารจากถังขยะ");
       showToast("กู้คืนเอกสารสำเร็จ", "success");
@@ -1909,6 +2014,9 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   };
 
   const handlePermanentDelete = async (docId) => {
+    if(documents.find(d=>d.id===docId)?.trialArchived){
+      showToast("เอกสารทดลองต้องกู้คืนผ่านเมนูเลขคำสั่งโรงเรียนก่อน ไม่อนุญาตลบถาวรจากถังขยะ","error");return;
+    }
     if(window.confirm("คุณแน่ใจหรือไม่ที่จะลบเอกสารนี้ถาวร? ข้อมูลจะไม่สามารถกู้คืนได้")) {
       try {
         await deleteDoc(getDocumentRef(DOCS_PATH, docId));
@@ -2807,7 +2915,7 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
   const [selectedReservation, setSelectedReservation] = useState("");
   const [createdSummary, setCreatedSummary] = useState(null);
   const availableReservations = orderReservations.filter(r =>
-    (r.status === "reserved" || !r.status) && !r.linkedDocumentId &&
+    (r.status === "reserved" || !r.status) && !r.linkedDocumentId && !r.trialArchived &&
     (r.createdBy === currentUser.id || currentUser.role === "admin")
   );
   const chosenReservation = availableReservations.find(r => r.id === selectedReservation);
@@ -2999,6 +3107,222 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
   );
 }
 
+function AdminRegisterNumberSettings({ currentUser, showToast }) {
+  const [registerKind, setRegisterKind] = useState("ORDER");
+  const [registerYear, setRegisterYear] = useState(String(new Date().getFullYear() + 543));
+  const [nextNumberText, setNextNumberText] = useState("");
+  const [counterInfo, setCounterInfo] = useState(null);
+  const [highestInDatabase, setHighestInDatabase] = useState(0);
+  const [loadingInfo, setLoadingInfo] = useState(false);
+  const [savingNumber, setSavingNumber] = useState(false);
+  const [historyRows, setHistoryRows] = useState([]);
+
+  const isAdmin = currentUser?.role === "admin";
+  const selectedYear = Number(registerYear);
+  const yearIsValid = /^\d{4}$/.test(registerYear) && selectedYear >= 2500 && selectedYear <= 2999;
+  const counterId = `${registerKind}-${registerYear}`;
+  const label = registerKind === "ORDER" ? "เลขคำสั่งโรงเรียน" : "เลขหนังสือออก";
+  const sourceCollection = registerKind === "ORDER" ? ORDER_RESERVE_PATH : OUTGOING_RESERVE_PATH;
+  const sourceField = registerKind === "ORDER" ? "orderNumber" : "docNumber";
+
+  const sequenceForYear = (value, year) => {
+    const match = /^(\d+)\/(\d{4})$/.exec(String(value || "").trim());
+    if (!match || Number(match[2]) !== year) return 0;
+    return Number(match[1]) || 0;
+  };
+
+  const highestFromDatabase = (reservations, documentRecords, year) => {
+    let high = 0;
+    for (const item of reservations) {
+      high = Math.max(high, sequenceForYear(item[sourceField], year));
+    }
+    // เอกสารที่ออกแล้วเก็บไว้ต่างจากทะเบียนจอง จึงต้องนำมาคิดด้วย
+    const type = registerKind === "ORDER" ? "คำสั่งโรงเรียน" : "หนังสือออก";
+    for (const item of documentRecords) {
+      if (item.type !== type) continue;
+      high = Math.max(high, sequenceForYear(item.docNumber, year));
+      if (registerKind === "ORDER") {
+        high = Math.max(high, sequenceForYear(item.orderNumber, year));
+      }
+    }
+    return high;
+  };
+
+  const readRegisterState = async () => {
+    if (!isAdmin || !yearIsValid) return;
+    setLoadingInfo(true);
+    try {
+      const [counterSnap, reservationSnap, docsSnap, logsSnap] = await Promise.all([
+        getDoc(getDocumentRef(COUNTERS_PATH, counterId)),
+        getDocs(getCollectionRef(sourceCollection)),
+        getDocs(getCollectionRef(DOCS_PATH)),
+        getDocs(query(getCollectionRef(AUDIT_LOG_PATH), orderBy("timestamp", "desc"), limit(100)))
+      ]);
+      const records = reservationSnap.docs.map(item => item.data());
+      const documentRecords = docsSnap.docs.map(item => item.data());
+      setHighestInDatabase(highestFromDatabase(records, documentRecords, selectedYear));
+      setCounterInfo(counterSnap.exists() ? counterSnap.data() : null);
+      setHistoryRows(logsSnap.docs.map(item => item.data()).filter(item =>
+        item.targetType === "NUMBER_COUNTER" && item.targetId === counterId
+      ));
+    } catch (error) {
+      showToast("โหลดข้อมูลทะเบียนไม่ได้: " + error.message, "error");
+    } finally {
+      setLoadingInfo(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAdmin || !yearIsValid) return;
+    let cancelled = false;
+    setLoadingInfo(true);
+    Promise.all([
+      getDoc(getDocumentRef(COUNTERS_PATH, counterId)),
+      getDocs(getCollectionRef(sourceCollection)),
+      getDocs(getCollectionRef(DOCS_PATH)),
+      getDocs(query(getCollectionRef(AUDIT_LOG_PATH), orderBy("timestamp", "desc"), limit(100)))
+    ]).then(([counterSnap, reservationSnap, docsSnap, logsSnap]) => {
+      if (cancelled) return;
+      setCounterInfo(counterSnap.exists() ? counterSnap.data() : null);
+      setHighestInDatabase(highestFromDatabase(
+        reservationSnap.docs.map(item => item.data()),
+        docsSnap.docs.map(item => item.data()),
+        selectedYear
+      ));
+      setHistoryRows(logsSnap.docs.map(item => item.data()).filter(item =>
+        item.targetType === "NUMBER_COUNTER" && item.targetId === counterId
+      ));
+    }).catch(error => {
+      if (!cancelled) showToast("โหลดข้อมูลทะเบียนไม่ได้: " + error.message, "error");
+    }).finally(() => {
+      if (!cancelled) setLoadingInfo(false);
+    });
+    return () => { cancelled = true; };
+  }, [registerKind, registerYear, isAdmin]);
+
+  const saveNextNumber = async () => {
+    if (!isAdmin) return;
+    if (!yearIsValid) return showToast("กรุณาระบุปี พ.ศ. ให้ถูกต้อง", "error");
+    if (!/^[1-9]\d*$/.test(nextNumberText.trim()) ||
+        !Number.isSafeInteger(Number(nextNumberText)) || Number(nextNumberText) > 999999999) {
+      return showToast("กรุณาระบุเลขถัดไปเป็นจำนวนเต็มบวก", "error");
+    }
+    const next = Number(nextNumberText);
+    if (next <= Math.max(highestInDatabase, Number(counterInfo?.lastNumber) || 0)) {
+      return showToast("เลขที่ตั้งต้องมากกว่าเลขสูงสุดในทะเบียนและตัวนับปัจจุบัน", "error");
+    }
+    if (!window.confirm(
+      `ยืนยันให้${label}ที่จะออกถัดไปเป็น ${next}/${registerYear} ใช่หรือไม่?\n\n` +
+      "เลขเก่าจะไม่ถูกแก้ไข และระบบจะเก็บประวัติการตั้งค่า"
+    )) return;
+
+    setSavingNumber(true);
+    try {
+      const counterRef = getDocumentRef(COUNTERS_PATH, counterId);
+      // อ่านทะเบียนล่าสุด ก่อนทำธุรกรรม และอ่าน counter ซ้ำภายในธุรกรรม
+      // การจองเลขปกติก็เขียน counter เดียวกัน จึงป้องกันการเขียนทับการจองพร้อมกันได้
+      const [beforeSnap, reservationSnap, docsSnap] = await Promise.all([
+        getDoc(counterRef),
+        getDocs(getCollectionRef(sourceCollection)),
+        getDocs(getCollectionRef(DOCS_PATH))
+      ]);
+      const previousNumber = beforeSnap.exists() ? Number(beforeSnap.data().lastNumber) || 0 : 0;
+      const highest = highestFromDatabase(
+        reservationSnap.docs.map(item => item.data()),
+        docsSnap.docs.map(item => item.data()),
+        selectedYear
+      );
+      if (next <= Math.max(previousNumber, highest)) {
+        throw new Error(`เลขถัดไปต้องมากกว่า ${Math.max(previousNumber, highest)}/${registerYear}`);
+      }
+      const timestamp = Date.now();
+      const auditRef = doc(getCollectionRef(AUDIT_LOG_PATH));
+      await runTransaction(db, async tx => {
+        const liveSnap = await tx.get(counterRef);
+        const liveNumber = liveSnap.exists() ? Number(liveSnap.data().lastNumber) || 0 : 0;
+        // ไม่อนุญาตให้การตั้งเลขใหม่ทับการจองที่เกิดขึ้นขณะบันทึก
+        if (liveNumber !== previousNumber || liveSnap.exists() !== beforeSnap.exists()) {
+          throw new Error("มีผู้อื่นจองเลขหรือปรับเลขระหว่างบันทึก กรุณากดตรวจสอบใหม่");
+        }
+        tx.set(counterRef, {
+          kind: registerKind,
+          year: selectedYear,
+          lastNumber: next - 1,
+          manualSetAt: timestamp,
+          manualSetBy: currentUser.id,
+          updatedAt: timestamp
+        }, { merge: true });
+        tx.set(auditRef, auditPayload(
+          currentUser, "แอดมินกำหนดเลขถัดไป", "NUMBER_COUNTER", counterId,
+          `${label} ปี ${registerYear}: ${previousNumber + 1}/${registerYear} → ${next}/${registerYear}; ` +
+          `เลขสูงสุดในข้อมูล ${highest}/${registerYear}`
+        ));
+      });
+      setCounterInfo(previous => ({ ...(previous || {}), lastNumber: next - 1, kind: registerKind, year: selectedYear }));
+      setHighestInDatabase(Math.max(highestInDatabase, highest));
+      setHistoryRows(previous => [{
+        ...auditPayload(currentUser, "แอดมินกำหนดเลขถัดไป", "NUMBER_COUNTER", counterId,
+          `ตั้งเลขถัดไปเป็น ${next}/${registerYear}`),
+      }, ...previous].slice(0, 100));
+      setNextNumberText("");
+      showToast(`ตั้งค่าเรียบร้อยแล้ว การขอ${label}ครั้งถัดไปจะเริ่มที่ ${next}/${registerYear}`, "success");
+    } catch (error) {
+      showToast("ตั้งเลขถัดไปไม่สำเร็จ: " + error.message, "error");
+    } finally {
+      setSavingNumber(false);
+    }
+  };
+
+  if (!isAdmin) return null;
+  const consumed = Number(counterInfo?.lastNumber) || 0;
+  const minAllowed = Math.max(consumed, highestInDatabase) + 1;
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 md:p-6 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Hash size={20} /> กำหนดเลขหนังสือที่จะออกถัดไป</h3>
+          <p className="text-xs text-gray-500 mt-1">เฉพาะแอดมิน • ตัวนับแยกกันระหว่างเลขคำสั่งกับหนังสือออก และแยกตามปี พ.ศ.</p>
+        </div>
+        <button type="button" className="text-sm border rounded-lg px-3 py-2 hover:bg-gray-50 disabled:opacity-50" onClick={readRegisterState} disabled={loadingInfo || savingNumber}>
+          <RefreshCw size={15} className="inline-block mr-1" /> ตรวจสอบเลขล่าสุด
+        </button>
+      </div>
+      <div className="grid md:grid-cols-2 gap-3">
+        <label className="block text-sm font-bold text-gray-700">ประเภททะเบียน
+          <select value={registerKind} onChange={e => { setRegisterKind(e.target.value); setNextNumberText(""); }} className="w-full border border-gray-300 rounded-lg p-2.5 mt-1 bg-white">
+            <option value="ORDER">ขอเลขคำสั่งโรงเรียน</option>
+            <option value="OUT">ขอเลขหนังสือออก</option>
+          </select>
+        </label>
+        <label className="block text-sm font-bold text-gray-700">ปี พ.ศ.
+          <input type="number" min="2500" max="2999" step="1" value={registerYear} onChange={e => { setRegisterYear(e.target.value); setNextNumberText(""); }} className="w-full border border-gray-300 rounded-lg p-2.5 mt-1" />
+        </label>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-lg bg-slate-50 border px-4 py-3"><p className="text-xs text-gray-500">ตัวนับเลขที่ออกไปแล้ว</p><p className="text-xl font-bold text-[#003366]">{loadingInfo ? "กำลังตรวจสอบ..." : `${consumed}/${registerYear}`}</p></div>
+        <div className="rounded-lg bg-slate-50 border px-4 py-3"><p className="text-xs text-gray-500">เลขสูงสุดที่พบในฐานข้อมูล</p><p className="text-xl font-bold text-[#003366]">{loadingInfo ? "กำลังตรวจสอบ..." : `${highestInDatabase}/${registerYear}`}</p></div>
+      </div>
+      <label className="block text-sm font-bold text-gray-700">เลขที่จะออกถัดไป ({label})
+        <input type="number" min={minAllowed} step="1" value={nextNumberText} onChange={e => setNextNumberText(e.target.value)} placeholder={`เช่น ${minAllowed}`} className="w-full border border-gray-300 rounded-lg p-3 mt-1 text-lg font-bold" />
+      </label>
+      {nextNumberText && /^[1-9]\d*$/.test(nextNumberText) &&
+        <p className="text-sm text-blue-900 bg-blue-50 rounded-lg p-3">การจองครั้งถัดไปจะได้: <strong>{nextNumberText}/{registerYear}</strong></p>}
+      <p className="text-xs text-amber-800">ตั้งเลขใหม่ได้ทุกเมื่อ แต่ต้องมากกว่าเลขที่ออกไปแล้วในระบบ และไม่สามารถลดเลขย้อนหลังได้ • หากมีเลขที่ออกนอกระบบ ต้องตรวจสอบด้วยตนเองก่อนบันทึก</p>
+      <button type="button" onClick={saveNextNumber} disabled={!yearIsValid || !nextNumberText.trim() || savingNumber || loadingInfo} className="px-5 py-2.5 rounded-lg bg-[#003366] text-white font-bold hover:bg-blue-900 disabled:opacity-40 flex items-center gap-2">
+        <Save size={18}/>{savingNumber ? "กำลังบันทึก..." : `ยืนยันตั้ง${label}ถัดไป`}
+      </button>
+      <details className="border rounded-lg p-3">
+        <summary className="cursor-pointer text-sm font-bold">ประวัติการตั้งเลขของทะเบียนนี้ ({historyRows.length} รายการล่าสุดที่พบ)</summary>
+        <div className="mt-2 max-h-48 overflow-y-auto divide-y text-xs">
+          {historyRows.length === 0 && <p className="py-2 text-gray-500">ยังไม่พบประวัติการตั้งเลข</p>}
+          {historyRows.map((item, index) => <p className="py-2" key={`${item.timestamp}-${index}`}>{formatDateTime(item.timestamp)} — {item.userName || "-"} — {item.detail || item.action}</p>)}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers }) {
   const [form, setForm] = useState(systemSettings);
   const [newDept, setNewDept] = useState("");
@@ -3099,6 +3423,7 @@ function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers })
         </div>
       </div>
       <OrgHeads form={form} setForm={setForm} dbUsers={dbUsers}/>
+      {currentUser.role==="admin"&&<AdminRegisterNumberSettings currentUser={currentUser} showToast={showToast}/>}
     </div>
   );
 }
