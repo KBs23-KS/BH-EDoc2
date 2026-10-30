@@ -8,6 +8,10 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const fromB64 = b64 => Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
 const MAX_EDITOR_BYTES=18*1024*1024;
+// Fountain-pen blue; screen rendering and signed PDF use the exact same RGB.
+const SIGNATURE_INK="#1E5BD8";
+const SIGNATURE_LINE_WIDTH=2.2;
+const PDF_SIGNATURE_INK=rgb(30/255,91/255,216/255);
 /** The server checks the director's signed session and requested document/Drive ID. */
 async function fetchOriginalPdf(document,file,signal){
   if(!file?.driveId)throw new Error("ไฟล์ต้นฉบับไม่มี Drive ID");
@@ -54,7 +58,7 @@ function PdfPage({ page, pageIndex, mode, marks, addMark, stamp }) {
     ctx.clearRect(0,0,canvas.width,canvas.height);
     for(const mark of marks){
       if(mark.type==="stroke"){
-        ctx.strokeStyle="#113b89";ctx.lineWidth=2.6;ctx.lineCap="round";ctx.lineJoin="round";
+        ctx.strokeStyle=SIGNATURE_INK;ctx.lineWidth=SIGNATURE_LINE_WIDTH;ctx.lineCap="round";ctx.lineJoin="round";
         ctx.beginPath();
         mark.points.forEach(([x,y],i)=>i?ctx.lineTo(x*canvas.width,y*canvas.height):ctx.moveTo(x*canvas.width,y*canvas.height));
         ctx.stroke();
@@ -86,7 +90,7 @@ function PdfPage({ page, pageIndex, mode, marks, addMark, stamp }) {
     const point=position(e),previous=current.points.at(-1);
     const canvas=overlay.current,ctx=canvas?.getContext("2d");
     if(ctx&&previous){
-      ctx.strokeStyle="#113b89";ctx.lineWidth=2.6;ctx.lineCap="round";ctx.lineJoin="round";
+      ctx.strokeStyle=SIGNATURE_INK;ctx.lineWidth=SIGNATURE_LINE_WIDTH;ctx.lineCap="round";ctx.lineJoin="round";
       ctx.beginPath();ctx.moveTo(previous[0]*canvas.width,previous[1]*canvas.height);
       ctx.lineTo(point[0]*canvas.width,point[1]*canvas.height);ctx.stroke();
     }
@@ -212,8 +216,8 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
         for(const m of items){
           if(m.type==="stroke"){
             const pts=m.points;
-            for(let j=1;j<pts.length;j++)pg.drawLine({start:{x:pts[j-1][0]*width,y:(1-pts[j-1][1])*height},end:{x:pts[j][0]*width,y:(1-pts[j][1])*height},thickness:1.6,color:rgb(.07,.23,.54)});
-            if(pts.length===1) pg.drawCircle({x:pts[0][0]*width,y:(1-pts[0][1])*height,size:.9,color:rgb(.07,.23,.54)});
+            for(let j=1;j<pts.length;j++)pg.drawLine({start:{x:pts[j-1][0]*width,y:(1-pts[j-1][1])*height},end:{x:pts[j][0]*width,y:(1-pts[j][1])*height},thickness:1.35,color:PDF_SIGNATURE_INK});
+            if(pts.length===1) pg.drawCircle({x:pts[0][0]*width,y:(1-pts[0][1])*height,size:.75,color:PDF_SIGNATURE_INK});
           }else if(m.type==="stamp"){
             let img=embeddedStamps.get(m.image);
             if(!img){img=await pdf.embedPng(fromB64(m.image.split(",")[1]));embeddedStamps.set(m.image,img);}
