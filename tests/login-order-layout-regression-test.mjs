@@ -11,7 +11,8 @@ assert.ok(login.includes('aria-pressed={showLoginPassword}'),"Button reflects to
 assert.ok(login.includes('autoComplete="current-password"'),"Browser password manager still supported");
 assert.ok(!login.includes("บัญชีทดสอบ (คลิกเพื่อเข้าสู่ระบบ)"),"No demonstration account buttons");
 assert.ok(!login.includes("dbUsers.slice(0, 5)"),"No public account shortcuts");
-assert.ok(login.includes('className="min-h-screen bg-slate-100'),"Current login design retained pending user approval");
+assert.ok(login.includes('min-h-[100svh]'),"Approved white-blue-gold login is responsive");
+assert.ok(login.includes('src="/bhs-school-crest.png"'),"Actual school crest asset used");
 assert.ok(table.includes('table-fixed w-full min-w-0'),"No forced 1000px minimum");
 assert.ok(table.includes('overflow-hidden'),"No horizontal table scroller");
 assert.ok(!table.includes('min-w-[1000px]'),"No old wide table");
