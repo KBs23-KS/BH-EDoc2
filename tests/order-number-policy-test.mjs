@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import {parseRegisterNumber,visibleReservation,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp} from "../src/orderNumberPolicy.js";
+assert.deepEqual(parseRegisterNumber("001/2569"),{sequence:1,year:2569,text:"1/2569"});
+assert.equal(parseRegisterNumber("0/2569"),null);
+assert.equal(parseRegisterNumber("1/2026"),null);
+assert.equal(visibleReservation({status:"canceled"}),false);
+const a={id:"a",orderNumber:"1/2569",status:"linked",linkedDocumentId:"docA"};
+const d={id:"docA",reservationId:"a",docNumber:"1/2569",type:"คำสั่งโรงเรียน"};
+const occupied=occupiedRegisterNumbers("ORDER",[a,{id:"old",orderNumber:"2/2569",status:"canceled"},{id:"archive",orderNumber:"3/2569",trialArchived:true}],[d,{id:"deleted",type:"คำสั่งโรงเรียน",docNumber:"4/2569",isDeleted:true}]);
+assert.deepEqual([...occupied],["1/2569"]);
+assert.deepEqual(nextAvailableNumber(1,2569,occupied),{sequence:2,text:"2/2569"});
+assert.equal(occupiedRegisterNumbers("ORDER",[a],[d],"a").size,0);
+assert.equal(checkLinkedOrder(a,d),"");
+assert.match(checkLinkedOrder(a,{...d,docNumber:"7/2569"}),/ไม่ตรงกัน/);
+assert.match(checkLinkedOrder(a,null),/ไม่ตรงกัน/);
+assert.notEqual(registerCounterStamp({lastNumber:1,revision:1}),registerCounterStamp({lastNumber:1,revision:2}));
+console.log("Visible-only numbering, history reuse and linked-document checks passed");
