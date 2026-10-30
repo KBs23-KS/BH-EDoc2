@@ -522,45 +522,72 @@ export default function App() {
 
   if (!activeProfile) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="relative isolate min-h-[100svh] overflow-hidden bg-[#FBFDFF] px-4 py-8 sm:py-10 flex items-center justify-center">
         {toastMsg && <Toast message={toastMsg.msg} type={toastMsg.type} onClose={() => setToastMsg(null)} />}
-        <div className="absolute inset-0 bg-[#003366]/5"></div>
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden z-10 border border-gray-100">
-          <div className="bg-[#003366] p-6 sm:p-8 text-center relative overflow-hidden">
-            <div className="relative z-10 w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4 shadow-lg border-2 border-[#D4AF37]">
-              <span className="text-[#003366] font-bold text-2xl sm:text-3xl">{systemSettings.schoolLogoText || "บ.ศ."}</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-[#D4AF37] relative z-10">ระบบสารบรรณอิเล็กทรอนิกส์</h1>
-            <p className="text-blue-100 text-xs sm:text-sm mt-1 relative z-10">{systemSettings.schoolName || "โรงเรียนบ้านแฮดศึกษา"}</p>
-          </div>
 
-          <div className="p-6 sm:p-8">
+        {/* New A-style login only; the school's internal pages retain their original layout. */}
+        <div aria-hidden="true" className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute -top-[24%] -left-[20%] w-[88%] h-[43%] rounded-[0_0_100%_0] bg-gradient-to-br from-[#012957] via-[#0758AA] to-[#1C68B0] rotate-[-5deg] shadow-xl" />
+          <div className="absolute -top-[17%] -left-[16%] w-[78%] h-[29%] rounded-[0_0_95%_0] border-b-[5px] sm:border-b-[7px] border-[#D9B15C] rotate-[-5deg]" />
+          <div className="absolute -bottom-[28%] -right-[24%] w-[102%] h-[56%] rounded-[100%_0_0_0] bg-gradient-to-bl from-[#002C61] via-[#0752A0] to-[#2E78C5] rotate-[-6deg]" />
+          <div className="absolute -bottom-[24%] -right-[20%] w-[95%] h-[50%] rounded-[100%_0_0_0] border-t-[5px] sm:border-t-[7px] border-[#D9B15C] rotate-[-6deg]" />
+          <div className="absolute top-[37%] -left-[24%] w-[67%] h-[34%] rounded-[50%] bg-[#CFE3F9]/30 blur-3xl" />
+          <div className="absolute top-[20%] -right-[20%] w-[66%] h-[38%] rounded-[50%] bg-[#E5F1FD]/60 blur-3xl" />
+          <div className="absolute inset-0 opacity-50" style={{backgroundImage:"radial-gradient(circle at 50% 38%, #ffffff 0%, transparent 67%)"}} />
+        </div>
+
+        <div className="relative z-10 w-full max-w-[460px] sm:max-w-[500px] flex flex-col items-center">
+          <header className="w-full text-center mb-5 sm:mb-6">
+            <img
+              src="/bhs-school-crest.png"
+              alt="ตราโรงเรียนบ้านแฮดศึกษา"
+              width="115"
+              height="131"
+              decoding="async"
+              className="mx-auto mb-3 h-auto w-[94px] sm:w-[115px] object-contain"
+            />
+            <h1 className="text-2xl sm:text-[32px] leading-tight font-extrabold tracking-tight text-[#003366]">
+              {systemSettings.schoolName || "โรงเรียนบ้านแฮดศึกษา"}
+            </h1>
+            <p className="mt-2 text-base sm:text-lg font-semibold text-[#52657D]">ระบบสารบรรณอิเล็กทรอนิกส์</p>
+            <div className="mx-auto mt-3 flex max-w-[250px] items-center gap-3">
+              <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[#D8AC49]" />
+              <span className="h-2 w-2 rotate-45 bg-[#D8AC49]" />
+              <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[#D8AC49]" />
+            </div>
+            <p className="mt-3 text-xs sm:text-sm font-bold tracking-[0.23em] text-[#264C7E]">BHS E-DOCUMENT</p>
+          </header>
+
+          <section className="w-full rounded-[24px] border border-[#E0E9F5] bg-white/95 px-6 py-7 sm:px-9 sm:py-9 shadow-[0_20px_60px_rgba(14,51,98,0.14)] backdrop-blur-sm">
             <form onSubmit={handleLogin} className="space-y-4 sm:space-y-5">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Username</label>
+                <label htmlFor="bhs-login-username" className="block text-sm font-semibold text-[#28425D] mb-2">ชื่อผู้ใช้</label>
                 <div className="relative">
-                  <UserIcon className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                  <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[#60758D]" aria-hidden="true" />
                   <input
+                    id="bhs-login-username"
                     type="text"
-                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    autoComplete="username"
+                    className="w-full rounded-xl border border-[#D5E1F0] bg-[#FAFCFF] py-3.5 pl-12 pr-4 text-[#1A3654] outline-none transition focus:border-[#205DA5] focus:ring-2 focus:ring-[#205DA5]/20"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="กรอกชื่อผู้ใช้งาน (เช่น admin)"
+                    placeholder="กรอกชื่อผู้ใช้"
                     required
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
+                <label htmlFor="bhs-login-password" className="block text-sm font-semibold text-[#28425D] mb-2">รหัสผ่าน</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-[#60758D]" aria-hidden="true" />
                   <input
+                    id="bhs-login-password"
                     type={showLoginPassword ? "text" : "password"}
                     autoComplete="current-password"
-                    className="w-full pl-10 pr-12 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full rounded-xl border border-[#D5E1F0] bg-[#FAFCFF] py-3.5 pl-12 pr-12 text-[#1A3654] outline-none transition focus:border-[#205DA5] focus:ring-2 focus:ring-[#205DA5]/20"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="รหัสผ่าน"
+                    placeholder="กรอกรหัสผ่าน"
                     required
                   />
                   <button
@@ -569,31 +596,30 @@ export default function App() {
                     title={showLoginPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
                     aria-pressed={showLoginPassword}
                     onClick={() => setShowLoginPassword(value => !value)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-500 hover:text-[#003366] hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-[#59738F] transition-colors hover:bg-[#E9F2FB] hover:text-[#003366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#205DA5]"
                   >
-                    {showLoginPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
+                    {showLoginPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                   </button>
                 </div>
               </div>
               <button
                 type="submit"
                 disabled={loading || dbUsers.length === 0}
-                className="w-full bg-[#003366] hover:bg-blue-900 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-colors flex justify-center items-center disabled:opacity-50"
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1555A5] to-[#003879] px-4 py-3.5 text-base font-bold text-white shadow-[0_9px_22px_rgba(0,54,113,0.22)] transition-colors hover:from-[#0B448C] hover:to-[#002B5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#003879] disabled:opacity-50"
               >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : "เข้าสู่ระบบ"}
+                {loading ? <Loader2 className="animate-spin" size={20} /> : <><LogOut className="rotate-180" size={19}/>เข้าสู่ระบบ</>}
               </button>
             </form>
 
             {dbUsers.length === 0 && (
-              <div className="mt-6 pt-6 border-t border-gray-100 text-center">
-                <p className="text-xs text-red-500 font-bold mb-2">ยังไม่มีข้อมูลเริ่มต้นในฐานข้อมูล</p>
-                <button onClick={setupInitialData} disabled={loading} className="bg-green-600 hover:bg-green-700 text-white text-xs font-bold py-2 px-4 rounded shadow">
-                  คลิกเพื่อติดตั้งข้อมูลจำลอง
+              <div className="mt-6 border-t border-[#E6EDF5] pt-5 text-center">
+                <p className="mb-2 text-xs font-semibold text-red-600">ยังไม่มีข้อมูลผู้ใช้งานในฐานข้อมูล</p>
+                <button onClick={setupInitialData} disabled={loading} className="rounded-lg bg-green-700 px-4 py-2 text-xs font-bold text-white hover:bg-green-800 disabled:opacity-50">
+                  ติดตั้งข้อมูลเริ่มต้น
                 </button>
               </div>
             )}
-
-          </div>
+          </section>
         </div>
       </div>
     );

@@ -58,5 +58,7 @@ jobs:
         run: node tests/admin-full-number-control-test.mjs
       - name: Order register responsive layout and login security UI regression
         run: node tests/login-order-layout-regression-test.mjs
+      - name: Official school crest and approved login design regression
+        run: node tests/login-official-crest-regression-test.mjs
       - name: Vite production build
         run: npm run build
