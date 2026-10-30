@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const signer=readFileSync(new URL("../src/PdfSignatureEditor.jsx",import.meta.url),"utf8");
+assert.ok(signer.includes('const SIGNATURE_INK="#1E5BD8"'));
+assert.ok(signer.includes("const SIGNATURE_LINE_WIDTH=2.2"));
+assert.ok(signer.includes("const PDF_SIGNATURE_INK=rgb(30/255,91/255,216/255)"));
+assert.equal(signer.split("ctx.strokeStyle=SIGNATURE_INK;ctx.lineWidth=SIGNATURE_LINE_WIDTH;").length-1,2);
+assert.ok(signer.includes("thickness:1.35,color:PDF_SIGNATURE_INK"));
+assert.ok(signer.includes("size:.75,color:PDF_SIGNATURE_INK"));
+assert.ok(!signer.includes("#113b89")&&!signer.includes("rgb(.07,.23,.54)"));
+assert.ok(signer.includes('if(m.type==="stamp")'));
+assert.ok(signer.includes("pdf.embedPng("));
+assert.ok(signer.includes('fetch("/api/signing-pdf"'));
+assert.ok(signer.includes("onSubmit(next)"));
+assert.ok(signer.includes("pdf.getPage(pageIndex+1)"));
+console.log("Director fountain-pen ink color regression passed");
