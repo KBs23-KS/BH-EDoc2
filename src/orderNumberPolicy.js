@@ -1,5 +1,5 @@
 export const parseRegisterNumber=value=>{
-  const m=/^([1-9]\d{0,8})\/(2[5-9]\d{2})$/.exec(String(value||"").trim());
+  const m=/^(0*[1-9]\d{0,8})\/(2[5-9]\d{2})$/.exec(String(value||"").trim());
   return m?{sequence:Number(m[1]),year:Number(m[2]),text:`${Number(m[1])}/${m[2]}`}:null;
 };
 export const visibleReservation=r=>Boolean(r&&r.status!=="canceled"&&!r.trialArchived);
