@@ -2438,15 +2438,6 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
 
   const handleInput = (id, key, value) => setInputs((prev) => ({ ...prev, [id]: { ...prev[id], [key]: value } }));
 
-  const handleRawFileChange = (docId, e) => {
-    const files = Array.from(e.target.files);
-    setInputs((prev) => ({ ...prev, [docId]: { ...prev[docId], rawSignedFiles: [...(prev[docId]?.rawSignedFiles || []), ...files] } }));
-  };
-
-  const removeRawFile = (docId, index) => {
-    setInputs((prev) => ({ ...prev, [docId]: { ...prev[docId], rawSignedFiles: prev[docId].rawSignedFiles.filter((_, i) => i !== index) } }));
-  };
-
   const submitAction = async (docObj, actionType, signedPdf = null) => {
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
       return showToast("กรุณาตั้งค่า GAS_WEB_APP_URL ให้ถูกต้องก่อนใช้งาน", "error");
@@ -2467,7 +2458,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
       }
     }
 
-    if (actionType === "APPROVE" && isDirectorStage && docObj.type === "คำสั่งโรงเรียน" && !signedPdf) {
+    if (actionType === "APPROVE" && isDirectorStage && isSinglePdfDocument(docObj.type) && !signedPdf) {
       setSignDoc(docObj);
       return;
     }
@@ -2512,8 +2503,8 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
 
       } else {
         let uploadedSignedFiles = [];
-        if (docObj.type === "คำสั่งโรงเรียน") {
-          if (!signedPdf) throw new Error("ต้องลงนาม PDF ก่อนอนุมัติคำสั่ง");
+        if (isSinglePdfDocument(docObj.type)) {
+          if (!signedPdf) throw new Error("ต้องลงนาม PDF ก่อนอนุมัติเอกสาร");
           setUploadStatus("กำลังจัดเก็บ PDF ที่ลงนามแล้ว...");
           // The signing page stays open after a failure; already uploaded file objects are reused.
           const originals=Array.isArray(signedPdf)?signedPdf:[signedPdf];
@@ -2529,8 +2520,6 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
           }
           uploadedSignedFiles=[...cached];
           if(uploadedSignedFiles.length!==originals.length)throw new Error("บันทึกไฟล์ลงนามไม่ครบ");
-        } else if (docInput.rawSignedFiles?.length) {
-          uploadedSignedFiles = await uploadMultipleFilesToDrive(docInput.rawSignedFiles, setUploadStatus);
         }
         const cmdTxt = docInput.command || "อนุมัติ / ดำเนินการ";
         setUploadStatus("กำลังบันทึกข้อมูลลงฐานระบบ...");
@@ -2667,21 +2656,6 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                         groups={inputs[docObj.id]?.routeGroups||[]} setGroups={v=>handleInput(docObj.id,"routeGroups",v)}
                         userIds={inputs[docObj.id]?.routeUserIds||[]} setUserIds={v=>handleInput(docObj.id,"routeUserIds",v)}
                         all={!!inputs[docObj.id]?.routeAll} setAll={v=>handleInput(docObj.id,"routeAll",v)} allowAll/>
-                    </div>
-                  )}
-                  {docObj.type === "หนังสือเวียนแจ้งรับทราบ" && (
-                    <div className="bg-gray-50 p-3 md:p-4 rounded-lg border border-gray-200">
-                      <label className="text-xs md:text-sm font-bold text-gray-700 block mb-2">แนบไฟล์ที่ลงนาม/เกษียณแล้ว</label>
-                      <label className="cursor-pointer text-xs md:text-sm bg-white border border-gray-300 px-3 md:px-4 py-2 rounded-lg inline-flex items-center hover:bg-gray-100 shadow-sm font-medium">
-                        <FileUp size={16} className="mr-2 text-blue-600 shrink-0" /> เลือกไฟล์
-                        <input type="file" className="hidden" multiple onChange={(e) => handleRawFileChange(docObj.id, e)} accept=".pdf,image/*" />
-                      </label>
-                      {inputs[docObj.id]?.rawSignedFiles?.map((f, i) => (
-                        <div key={i} className="flex justify-between items-center text-[10px] md:text-xs bg-white border border-green-200 mt-2 p-2 rounded shadow-sm">
-                          <span className="text-green-700 font-bold truncate pr-2">{f.name}</span>
-                          <button onClick={() => removeRawFile(docObj.id, i)} className="text-red-500 shrink-0"><X size={14} /></button>
-                        </div>
-                      ))}
                     </div>
                   )}
                   <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
