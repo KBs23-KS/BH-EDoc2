@@ -97,9 +97,12 @@ const MAX_APP_MS=7*24*60*60*1000;
 export function appSessionReady(){
   return Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&process.env.BHS_SIGNING_SESSION_SECRET?.length>=32);
 }
-export function makeAppSession(userId,remember=false){
+export const appSessionFingerprint = user =>
+  sign("bhs-app-session-user-v1:"+String(user?.username||"")+":"+
+       String(user?.password||"123456")+":"+String(user?.role||"")).slice(0,24);
+export function makeAppSession(userId,credentialTag){
   const body=Buffer.from(JSON.stringify({
-    kind:"app",userId,exp:Date.now()+MAX_APP_MS,nonce:randomBytes(12).toString("hex")
+    kind:"app",userId,credentialTag,exp:Date.now()+MAX_APP_MS,nonce:randomBytes(12).toString("hex")
   })).toString("base64url");
   return body+"."+sign(body);
 }
@@ -117,8 +120,9 @@ export function readAppSession(req){
   try{
     const data=JSON.parse(Buffer.from(body,"base64url").toString("utf8"));
     if(data.kind!=="app"||typeof data.userId!=="string"||!data.userId||
+      typeof data.credentialTag!=="string"||data.credentialTag.length!==24||
       data.exp<=Date.now()||data.exp>Date.now()+MAX_APP_MS)return null;
-    return data.userId;
+    return {userId:data.userId,credentialTag:data.credentialTag};
   }catch{return null;}
 }
 export function setAppSessionCookie(res,token,remember){
