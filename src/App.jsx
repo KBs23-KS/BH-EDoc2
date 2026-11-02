@@ -3017,12 +3017,12 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
         </div>
       )}
       
-      <div className="overflow-x-auto w-full">
-        <table className="bhs-doc-table min-w-full text-left text-sm text-gray-600">
+      <div className="w-full min-w-0 overflow-x-auto">
+        <table className="bhs-doc-table w-full min-w-0 table-fixed text-left text-sm text-gray-600">
           <thead className="bg-gray-50 text-gray-700 text-xs uppercase font-bold border-b border-gray-200">
             <tr>
-              <th className="px-4 md:px-5 py-3 md:py-4 min-w-[200px] md:min-w-[300px]">รายละเอียดเอกสาร</th>
-              <th className="px-4 md:px-5 py-3 md:py-4 min-w-[200px]">การสั่งการ / สถานะ</th>
+              <th scope="col" className="px-4 md:px-5 py-3 md:py-4">รายละเอียดเอกสาร</th>
+              <th scope="col" className="px-4 md:px-5 py-3 md:py-4 text-center">การสั่งการ / สถานะ</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 bg-white">
@@ -3035,7 +3035,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
 
               return (
                 <tr key={docObj.id} className="bhs-document-record hover:bg-blue-50/30 transition-colors">
-                <td className="px-4 md:px-5 py-4 align-top w-1/2">
+                <td className="min-w-0 px-4 md:px-5 py-4 align-top">
                   <div className="font-bold text-gray-900 text-sm md:text-base mb-1 break-words flex items-center flex-wrap gap-2">
                     {docObj.urgency && docObj.urgency !== "ปกติ" && (
                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full text-white ${docObj.urgency === 'ด่วนที่สุด' ? 'bg-red-600' : docObj.urgency === 'ด่วนมาก' ? 'bg-red-500' : 'bg-orange-500'}`}>
@@ -3058,11 +3058,11 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                     </div>
                     
                     {docObj.files?.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2 items-center bg-gray-50 p-2 md:p-2.5 rounded-lg border border-gray-200">
+                      <div className="mt-2 flex min-w-0 flex-wrap gap-2 items-center bg-gray-50 p-2 md:p-2.5 rounded-lg border border-gray-200">
                         <span className="text-[9px] md:text-[10px] font-bold text-gray-500 uppercase w-full md:w-auto">📄 {docObj.type === "หนังสือเข้า" ? "ไฟล์หนังสือเข้า" : "ไฟล์เสนอพิจารณา (ต้นฉบับ)"}:</span>
                         {docObj.files.map((f, i) => (
-                          <a key={i} href={f.url} target="_blank" rel="noreferrer" onClick={() => writeAuditLog(currentUser, "ดาวน์โหลด/เปิดไฟล์", "FILE", f.name, `เปิดไฟล์ต้นฉบับ: ${f.name}`)} className="text-[10px] md:text-[11px] font-bold bg-white border border-blue-300 text-blue-600 px-2 md:px-3 py-1.5 rounded-md shadow-sm hover:bg-blue-50 transition-colors flex items-center max-w-full">
-                            <FileIcon size={12} className="mr-1.5 shrink-0" /> <span className="truncate">{f.name}</span>
+                          <a key={i} href={f.url} target="_blank" rel="noreferrer" onClick={() => writeAuditLog(currentUser, "ดาวน์โหลด/เปิดไฟล์", "FILE", f.name, `เปิดไฟล์ต้นฉบับ: ${f.name}`)} className="text-[10px] md:text-[11px] font-bold bg-white border border-blue-300 text-blue-600 px-2 md:px-3 py-1.5 rounded-md shadow-sm hover:bg-blue-50 transition-colors flex min-w-0 items-center max-w-full overflow-hidden">
+                            <FileIcon size={12} className="mr-1.5 shrink-0" /> <span className="min-w-0 truncate" title={f.name}>{f.name}</span>
                           </a>
                         ))}
                       </div>
@@ -3071,8 +3071,8 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                       <div className="mt-2 flex flex-wrap gap-2 items-center bg-green-50 p-2 md:p-2.5 rounded-lg border border-green-100">
                         <span className="text-[9px] md:text-[10px] font-bold text-green-700 uppercase w-full md:w-auto">✅ {docObj.type === "หนังสือเข้า" ? "ไฟล์หนังสือเข้า" : "ฉบับสมบูรณ์"}:</span>
                         {docObj.signedFiles.map((f, i) => (
-                          <a key={i} href={f.url} target="_blank" rel="noreferrer" onClick={() => writeAuditLog(currentUser, "ดาวน์โหลด/เปิดไฟล์", "FILE", f.name, `เปิดไฟล์ฉบับสมบูรณ์: ${f.name}`)} className="text-[10px] md:text-[11px] font-bold bg-white border border-green-300 text-green-700 px-2 md:px-3 py-1.5 rounded-md shadow-sm hover:bg-green-100 transition-colors flex items-center max-w-full">
-                            <FileIcon size={12} className="mr-1.5 shrink-0" /> <span className="truncate">{f.name}</span>
+                          <a key={i} href={f.url} target="_blank" rel="noreferrer" onClick={() => writeAuditLog(currentUser, "ดาวน์โหลด/เปิดไฟล์", "FILE", f.name, `เปิดไฟล์ฉบับสมบูรณ์: ${f.name}`)} className="text-[10px] md:text-[11px] font-bold bg-white border border-green-300 text-green-700 px-2 md:px-3 py-1.5 rounded-md shadow-sm hover:bg-green-100 transition-colors flex min-w-0 items-center max-w-full overflow-hidden">
+                            <FileIcon size={12} className="mr-1.5 shrink-0" /> <span className="min-w-0 truncate" title={f.name}>{f.name}</span>
                           </a>
                         ))}
                       </div>
@@ -3086,7 +3086,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                     </div>
                   </td>
                   
-                  <td className="px-4 md:px-5 py-4 align-top text-[11px] md:text-xs w-1/2">
+                  <td className="min-w-0 px-4 md:px-5 py-4 align-top text-[11px] md:text-xs">
                     <div className="mb-3 flex w-full min-w-0 items-center justify-center text-center"><StatusBadge status={docObj.status} /></div>
                     <div className="space-y-2">
                       {docObj.assignedTo && <div className="bg-yellow-50 border border-yellow-100 p-2 rounded"><span className="font-bold text-yellow-800">แจ้ง/มอบหมาย:</span> <span className="text-yellow-700 break-words">{docObj.assignedTo}</span></div>}
