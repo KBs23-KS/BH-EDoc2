@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {
-  makeAppSession,readAppSession,setAppSessionCookie,clearAppSessionCookie,readSession
+  makeAppSession,readAppSession,appSessionFingerprint,setAppSessionCookie,clearAppSessionCookie,readSession
 } from "../api/_signatureServer.js";
 process.env.BHS_SIGNING_SESSION_SECRET="testing-only-secret-".repeat(4);
 process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON='{"project_id":"bhs-edoc-2"}';
 const cookieFor=(token)=>({headers:{cookie:"bhs_app_session="+token}});
-const rememberToken=makeAppSession("userA",true);
-assert.equal(readAppSession(cookieFor(rememberToken)),"userA");
+const credential=appSessionFingerprint({username:"director",password:"ExampleStrongPassword",role:"director"});
+const rememberToken=makeAppSession("userA",credential);
+assert.deepEqual(readAppSession(cookieFor(rememberToken)),{userId:"userA",credentialTag:credential});
+assert.notEqual(credential,appSessionFingerprint({username:"director",password:"ChangedPassword",role:"director"}),"changed password invalidates token on server verification");
 assert.equal(readSession(cookieFor(rememberToken)),null,"site session cannot grant PDF signing");
 assert.equal(readAppSession(cookieFor(rememberToken+"x")),null,"tampered session rejected");
 const res={headers:{},setHeader(k,v){this.headers[k]=v;}};
