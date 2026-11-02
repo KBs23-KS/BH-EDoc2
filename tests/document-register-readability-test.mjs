@@ -61,4 +61,10 @@ for(const width of [1660,1440,1180,920,760]){
 assert.ok(table.includes('flex min-w-0 items-center max-w-full overflow-hidden'),"Long PDF links must not expand table");
 assert.ok((table.match(/className="min-w-0 truncate" title={f.name}/g)||[]).length===2,"Original and signed filenames truncate within the cell");
 assert.ok(style.includes('text-overflow:ellipsis'),"Long filenames use ellipsis");
-console.log("Three registers, centered actions and fixed-column filename overflow PASS");
+// Signed-file display text only: incoming labels and audit log remain unchanged.
+const signedLabel='{docObj.type === "หนังสือเข้า" ? "ไฟล์หนังสือเข้า" : "ฉบับลงนามแล้ว"}';
+assert.equal(app.split(signedLabel).length-1,2,"Both document detail and register show the signed PDF label");
+assert.ok(!app.includes('"ไฟล์ฉบับสมบูรณ์ (สั่งการแล้ว)"'),"Old document detail signed label removed");
+assert.ok(!app.includes('"ฉบับสมบูรณ์"}'),"Old register signed label removed");
+assert.ok(app.includes('เปิดไฟล์ฉบับสมบูรณ์: ${f.name}'),"Existing audit events are not changed");
+console.log("Three registers, centered actions and signed PDF labels PASS");

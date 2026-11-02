@@ -2702,7 +2702,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
               )}
               {docObj.signedFiles?.length > 0 && (
                 <div className="bg-green-50 p-2.5 md:p-3 rounded-lg mb-4 flex flex-wrap gap-2 items-center border border-green-100">
-                  <span className="text-[9px] md:text-[10px] font-bold text-green-700 uppercase w-full md:w-auto">✅ {docObj.type === "หนังสือเข้า" ? "ไฟล์หนังสือเข้า" : "ไฟล์ฉบับสมบูรณ์ (สั่งการแล้ว)"}:</span>
+                  <span className="text-[9px] md:text-[10px] font-bold text-green-700 uppercase w-full md:w-auto">✅ {docObj.type === "หนังสือเข้า" ? "ไฟล์หนังสือเข้า" : "ฉบับลงนามแล้ว"}:</span>
                   {docObj.signedFiles.map((f, i) => (
                     <a key={i} href={f.url} target="_blank" rel="noreferrer" onClick={() => writeAuditLog(currentUser, "ดาวน์โหลด/เปิดไฟล์", "FILE", f.name, `เปิดไฟล์ฉบับสมบูรณ์: ${f.name}`)} className="inline-flex items-center text-[10px] md:text-xs bg-white border border-green-300 text-green-700 px-2 md:px-3 py-1.5 rounded-md hover:bg-green-100 shadow-sm font-medium truncate max-w-full">
                       <Download size={14} className="mr-1.5 shrink-0" /> <span className="truncate">{f.name}</span>
@@ -3073,7 +3073,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                     )}
                     {docObj.signedFiles?.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-2 items-center bg-green-50 p-2 md:p-2.5 rounded-lg border border-green-100">
-                        <span className="text-[9px] md:text-[10px] font-bold text-green-700 uppercase w-full md:w-auto">✅ {docObj.type === "หนังสือเข้า" ? "ไฟล์หนังสือเข้า" : "ฉบับสมบูรณ์"}:</span>
+                        <span className="text-[9px] md:text-[10px] font-bold text-green-700 uppercase w-full md:w-auto">✅ {docObj.type === "หนังสือเข้า" ? "ไฟล์หนังสือเข้า" : "ฉบับลงนามแล้ว"}:</span>
                         {docObj.signedFiles.map((f, i) => (
                           <a key={i} href={f.url} target="_blank" rel="noreferrer" onClick={() => writeAuditLog(currentUser, "ดาวน์โหลด/เปิดไฟล์", "FILE", f.name, `เปิดไฟล์ฉบับสมบูรณ์: ${f.name}`)} className="text-[10px] md:text-[11px] font-bold bg-white border border-green-300 text-green-700 px-2 md:px-3 py-1.5 rounded-md shadow-sm hover:bg-green-100 transition-colors flex min-w-0 items-center max-w-full overflow-hidden">
                             <FileIcon size={12} className="mr-1.5 shrink-0" /> <span className="min-w-0 truncate" title={f.name}>{f.name}</span>
