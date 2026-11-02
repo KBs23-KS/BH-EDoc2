@@ -120,6 +120,10 @@ const DOC_STATUS = {
   RETURNED: "ส่งกลับแก้ไข",
 };
 
+const isSinglePdfDocument = type => ["คำสั่งโรงเรียน", "หนังสือเวียนแจ้งรับทราบ"].includes(type);
+const isPdfUpload = file => Boolean(file && (file.type === "application/pdf" || String(file.name || "").toLowerCase().endsWith(".pdf")));
+const isSameUpload = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+
 const DEFAULT_SETTINGS = {
   schoolName: "โรงเรียนบ้านแฮดศึกษา",
   schoolLogoText: "บ.ศ.",
@@ -169,6 +173,14 @@ function formatDateTime(ts) {
 }
 function getThaiDateLong() {
   return new Date().toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function DocumentVersionBadge({ docObj }) {
+  const version = Number(docObj?.activeFileVersion || 1);
+  if (version < 2) return null;
+  return <span className="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[10px] md:text-[11px] font-bold text-green-800">
+    ฉบับแก้ไขล่าสุด (ฉบับที่ {version})
+  </span>;
 }
 
 function StatusBadge({ status }) {
@@ -833,7 +845,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { id: "orders", label: "คำสั่งโรงเรียน", icon: <FileText size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"], badge: ordersUnreadCount },
     { id: "outgoing_reservations", label: "ขอเลขที่หนังสือออก", icon: <FileUp size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"] },
     { id: "circulars", label: "หนังสือเวียนแจ้งรับทราบ", icon: <Bell size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"], badge: circularsUnreadCount },
-    { id: "mydocs", label: "เอกสารที่ดำเนินการ", icon: <Send size={20} />, roles: ["admin", "clerk", "teacher"] },
+    { id: "mydocs", label: "เอกสารที่ดำเนินการ", icon: <Send size={20} />, roles: ["admin", "clerk", "teacher"], badge: returnedDocs.length, badgeKind: "returned" },
     { id: "users", label: "จัดการผู้ใช้งาน", icon: <Users size={20} />, roles: ["admin"] },
     { id: "settings", label: "ตั้งค่าระบบ", icon: <Settings size={20} />, roles: ["admin"] },
     { id: "audit", label: "Audit Log (ประวัติกิจกรรม)", icon: <ClipboardList size={20} />, roles: ["admin"] },
@@ -886,7 +898,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                   >
                     <span className={"bhs-luxury-nav-icon bhs-nav-icon-"+m.id}>{m.icon}</span>
                     <span className="bhs-luxury-nav-text">{m.label}</span>
-                    {m.badge > 0 && <span className="bhs-luxury-nav-count">{m.badge > 99 ? "99+" : m.badge}</span>}
+                    {m.badge > 0 && <span className={`bhs-luxury-nav-count ${m.badgeKind === "returned" ? "bhs-nav-count-alert" : ""}`}>{m.badge > 99 ? "99+" : m.badge}</span>}
                   </button>
                 ))}
               </nav>
@@ -2587,6 +2599,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                 <div className="flex flex-wrap gap-2 mb-2 items-center">
                   <span className="text-[10px] md:text-[11px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">{docObj.type}</span>
                   <span className="text-[10px] md:text-[11px] font-bold px-2 py-0.5 bg-yellow-100 text-yellow-800 border border-yellow-200 rounded">{docObj.status}</span>
+                  <DocumentVersionBadge docObj={docObj} />
                   {docObj.urgency && docObj.urgency !== "ปกติ" && (
                      <span className={`text-[10px] md:text-[11px] font-bold px-2 py-0.5 rounded text-white ${docObj.urgency === 'ด่วนที่สุด' ? 'bg-red-600' : docObj.urgency === 'ด่วนมาก' ? 'bg-red-500' : 'bg-orange-500'}`}>
                        {docObj.urgency}
@@ -2929,6 +2942,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                        </span>
                     )}
                     {docObj.subject}
+                    <DocumentVersionBadge docObj={docObj} />
                     <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5 whitespace-nowrap">แนบ {(docObj.files?.length||0)+(docObj.signedFiles?.length||0)+(docObj.extraAttachments?.length||0)} ไฟล์</span>
                     {docObj.date === getTodayIso() && <span className="bhs-new-today-badge text-[10px] md:text-[11px] font-extrabold px-2.5 py-0.5 rounded-full whitespace-nowrap">ใหม่ วันนี้</span>}
                   </div>
@@ -3042,7 +3056,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
       {versionsDoc && <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl p-5 max-w-lg w-full max-h-[80vh] overflow-y-auto space-y-3">
         <h3 className="font-bold">ประวัติไฟล์: {versionsDoc.subject}</h3>
         {(versionsDoc.fileVersions || [{version:1,files:versionsDoc.files||[]}]).map((v,i)=><div key={i} className="border rounded p-3">
-          <p className="font-bold text-sm">ฉบับที่ {v.version} {v.version === versionsDoc.activeFileVersion && "(ล่าสุด)"}</p>
+          <p className="font-bold text-sm">ฉบับที่ {v.version} {v.version === (versionsDoc.activeFileVersion || 1) ? "(ล่าสุด — ใช้พิจารณา/ลงนาม)" : "(ฉบับเก่า — ไม่ใช้ลงนาม)"}</p>
           {(v.files||[]).map((f,j)=><a key={j} href={f.url} target="_blank" rel="noreferrer" className="block text-blue-600 text-sm underline">{f.name}</a>)}
         </div>)}
         <button className="border rounded p-2" onClick={()=>setVersionsDoc(null)}>ปิด</button>
