@@ -30,3 +30,22 @@ export function checkLinkedOrder(res,doc){
   return "";
 }
 export const registerCounterStamp=data=>JSON.stringify([Number(data?.lastNumber)||0,Number(data?.updatedAt)||0,Number(data?.revision)||0]);
+
+/** Incoming book numbers are unique among active incoming letters within the same Buddhist year. */
+export const incomingDocumentYear = date => {
+  const raw=Number(String(date||"").slice(0,4));
+  return raw>=2400&&raw<=2999?raw:raw>=1900&&raw<2400?raw+543:0;
+};
+export const normalizeIncomingNumber = number => {
+  const raw=String(number||"").replace(/\\s+/g,"").trim();
+  const parsed=parseRegisterNumber(raw);
+  return parsed?.text||raw.toLocaleLowerCase("th-TH");
+};
+export function incomingNumberConflict(documents,number,date,exceptId="") {
+  const key=normalizeIncomingNumber(number),year=incomingDocumentYear(date);
+  if(!key||!year)return null;
+  return (documents||[]).find(d=>d.id!==exceptId&&d.type==="หนังสือเข้า"&&visibleDocument(d)&&incomingDocumentYear(d.date)===year&&normalizeIncomingNumber(d.docNumber)===key)||null;
+}
+export const canManageDocument = (user,record) => Boolean(
+  user?.role==="admin" || (user?.role==="clerk"&&record?.type==="หนังสือเข้า")
+);
