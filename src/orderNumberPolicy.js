@@ -37,7 +37,7 @@ export const incomingDocumentYear = date => {
   return raw>=2400&&raw<=2999?raw:raw>=1900&&raw<2400?raw+543:0;
 };
 export const normalizeIncomingNumber = number => {
-  const raw=String(number||"").replace(/\\s+/g,"").trim();
+  const raw=String(number||"").replace(/\s+/g,"").trim();
   const parsed=parseRegisterNumber(raw);
   return parsed?.text||raw.toLocaleLowerCase("th-TH");
 };
