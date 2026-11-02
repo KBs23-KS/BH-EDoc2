@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build",
+    "build": "node tests/persistent-session-pdf-scroll-test.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

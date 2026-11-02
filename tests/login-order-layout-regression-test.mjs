@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
-const login=app.slice(app.indexOf("  if (!activeProfile) {"),app.indexOf("\n  return (\n    <>\n      {toastMsg",app.indexOf("  if (!activeProfile) {")));
+const login=app.slice(app.indexOf("  if (!loggedInProfile) {"),app.indexOf("\n  return (\n    <>\n      {toastMsg",app.indexOf("  if (!loggedInProfile) {")));
 const order=app.slice(app.indexOf("function OrderReservationsView("),app.indexOf("\nfunction DashboardView("));
 const table=order.slice(order.indexOf("hidden lg:block w-full overflow-hidden"),order.indexOf("<PageNavigator page={page}"));
 assert.ok(login.includes('type={showLoginPassword ? "text" : "password"}'),"Password input toggles between hidden and visible");

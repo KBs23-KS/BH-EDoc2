@@ -23,7 +23,9 @@ async function fetchOriginalPdf(document,file,signal){
   if(!res.ok){
     let message="บริการเปิด PDF อัตโนมัติยังไม่พร้อม";
     try{message=(await res.json()).error||message;}catch{}
-    throw new Error(message);
+    const failure=new Error(message);
+    if(res.status===401)failure.signingSessionExpired=true;
+    throw failure;
   }
   const bytes=new Uint8Array(await res.arrayBuffer());
   if(!bytes.length||bytes.length>MAX_EDITOR_BYTES)throw new Error("PDF มีขนาดใหญ่เกินไป");
@@ -114,15 +116,42 @@ function PdfPage({ page, pageIndex, mode, marks, addMark, stamp }) {
 }
 
 /** Draw at any position on any PDF page, or click to place an uploaded signature image. */
-export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
+/**
+ * Keep at most three page canvases alive. Unmounted pages retain their marks in the
+ * editor's marks map; placeholders keep natural scrolling on low-memory iPads.
+ */
+function PdfLazyPage({pdf,pageIndex,active,mode,stamp,marks,addMark,minHeight,onError}){
+  const [page,setPage]=useState(null);
+  useEffect(()=>{
+    let canceled=false;
+    setPage(null);
+    if(!active||!pdf)return()=>{canceled=true;};
+    pdf.getPage(pageIndex+1).then(p=>{if(!canceled)setPage(p);})
+      .catch(e=>{if(!canceled)onError("อ่านหน้า PDF ไม่สำเร็จ: "+e.message);});
+    return()=>{canceled=true;};
+  },[pdf,pageIndex,active]);
+  return <div data-pdf-page={pageIndex} className="w-full mx-auto relative flex items-start justify-center"
+    style={{minHeight:`${minHeight}px`,scrollMarginTop:"12px"}}>
+    {page&&active?<PdfPage page={page} pageIndex={pageIndex} mode={mode} stamp={stamp}
+      marks={marks} addMark={addMark}/>:<div className="bg-white shadow-lg mx-auto w-full max-w-[900px] flex items-start justify-center pt-3 text-slate-400 text-xs"
+      style={{height:`${minHeight}px`}}>หน้า {pageIndex+1}</div>}
+  </div>;
+}
+
+export function PdfSignatureEditor({ document, username, onCancel, onSubmit, busy }) {
   const sourceFiles=(document.files||[]).filter(f=>f.driveId && (f.type==="PDF" || f.name?.toLowerCase().endsWith(".pdf")));
   const [fileIndex,setFileIndex]=useState(0);
   const [allSigned,setAllSigned]=useState([]);
   const [sourceBytes,setSourceBytes]=useState(null);
   const [pageCount,setPageCount]=useState(0);
   const [pageIndex,setPageIndex]=useState(0);
-  const [activePage,setActivePage]=useState(null);
   const pdfRef=useRef(null);
+  const scrollRef=useRef(null);
+  const [viewerWidth,setViewerWidth]=useState(780);
+  const [retryKey,setRetryKey]=useState(0);
+  const [needsReauth,setNeedsReauth]=useState(false);
+  const [reauthPassword,setReauthPassword]=useState("");
+  const [reauthBusy,setReauthBusy]=useState(false);
   const [marks,setMarks]=useState({});
   const [mode,setMode]=useState("view");
   const [stamp,setStamp]=useState(null);
@@ -138,12 +167,12 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
     if(request!==loadRequest.current){void pdf.destroy();return;}
     releasePdf();pdfRef.current=pdf;
     setSourceBytes(bytes);setPageCount(pdf.numPages);setPageIndex(0);setMarks({});
-    setMode("view");setLoadedFromDevice(label);setLoading(false);
+    setMode("view");setLoadedFromDevice(label);setNeedsReauth(false);setLoading(false);
   };
   useEffect(()=>{
     let disposed=false;
     const controller=new AbortController(),request=++loadRequest.current;
-    releasePdf();setSourceBytes(null);setPageCount(0);setActivePage(null);
+    releasePdf();setSourceBytes(null);setPageCount(0);
     setLoading(true);setError("");setMarks({});setLoadedFromDevice("");
     (async()=>{
       if(!sourceFiles.length)throw new Error("เอกสารนี้ไม่มีไฟล์ PDF ที่ระบบสามารถลงนามได้");
@@ -151,21 +180,61 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
       if(!disposed)await acceptPdf(bytes,request,"เปิด PDF อัตโนมัติสำเร็จ");
     })().catch(e=>{
       if(!disposed&&request===loadRequest.current){
-        setError("ไม่สามารถเปิด PDF อัตโนมัติ: "+String(e?.message||e)+" — สามารถดาวน์โหลดและเลือกไฟล์แทนได้");
+        if(e?.signingSessionExpired){
+          setNeedsReauth(true);
+          setError("สิทธิ์เปิด PDF เพื่อลงนามหมดอายุ กรุณายืนยันรหัสผ่านอีกครั้งด้านล่าง โดยไม่ต้องออกจากระบบ");
+        }else setError("ไม่สามารถเปิด PDF อัตโนมัติ: "+String(e?.message||e)+" — สามารถดาวน์โหลดและเลือกไฟล์แทนได้");
         setLoading(false);
       }
     });
     return()=>{disposed=true;controller.abort();loadRequest.current++;releasePdf();};
-  },[document.id,fileIndex]);
+  },[document.id,fileIndex,retryKey]);
   useEffect(()=>{
-    const pdf=pdfRef.current;
-    if(!pdf||!pageCount)return;
-    let disposed=false;
-    setActivePage(null);
-    pdf.getPage(pageIndex+1).then(page=>{if(!disposed)setActivePage(page);})
-      .catch(e=>{if(!disposed)setError("อ่านหน้า PDF ไม่สำเร็จ: "+e.message);});
-    return()=>{disposed=true;};
-  },[pageIndex,pageCount,fileIndex]);
+    if(!sourceBytes||!scrollRef.current)return;
+    scrollRef.current.scrollTop=0;
+  },[sourceBytes]);
+  useEffect(()=>{
+    const update=()=>setViewerWidth(Math.max(320,scrollRef.current?.clientWidth||window.innerWidth||780));
+    update();window.addEventListener("resize",update);
+    return()=>window.removeEventListener("resize",update);
+  },[]);
+  const pageHeight=Math.round(Math.min(1450,Math.max(420,Math.min(viewerWidth-32,900)*1.4)));
+  const scrollToPage=index=>{
+    const next=Math.max(0,Math.min(pageCount-1,index));
+    const viewport=scrollRef.current;
+    const el=viewport?.querySelector(`[data-pdf-page="${next}"]`);
+    if(!el||!viewport)return;
+    setPageIndex(next);
+    viewport.scrollTo({top:viewport.scrollTop+el.getBoundingClientRect().top-viewport.getBoundingClientRect().top-12,behavior:"smooth"});
+  };
+  const trackVisiblePage=()=>{
+    const viewport=scrollRef.current;
+    if(!viewport)return;
+    const probe=viewport.getBoundingClientRect().top+viewport.clientHeight*.33;
+    let visible=0;
+    for(const el of viewport.querySelectorAll("[data-pdf-page]")){
+      if(el.getBoundingClientRect().top<=probe)visible=Number(el.dataset.pdfPage);
+      else break;
+    }
+    setPageIndex(prev=>prev===visible?prev:visible);
+  };
+  const reauthorize=async e=>{
+    e.preventDefault();
+    if(!username||!reauthPassword||reauthBusy)return;
+    setReauthBusy(true);
+    try{
+      const response=await fetch("/api/signing-session",{
+        method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+        body:JSON.stringify({username,password:reauthPassword})
+      });
+      if(!response.ok){
+        const result=await response.json().catch(()=>({}));
+        throw new Error(result.error||"ยืนยันตัวตนไม่สำเร็จ");
+      }
+      setReauthPassword("");setError("");setNeedsReauth(false);setRetryKey(k=>k+1);
+    }catch(err){setError(err.message);}
+    finally{setReauthBusy(false);}
+  };
   const loadFromDevice=async event=>{
     const file=event.target.files?.[0];event.target.value="";
     if(!file)return;
@@ -176,7 +245,7 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
       if(!accepted)return;
     }
     const request=++loadRequest.current;
-    setLoading(true);setError("");setSourceBytes(null);setPageCount(0);setActivePage(null);releasePdf();
+    setLoading(true);setError("");setSourceBytes(null);setPageCount(0);releasePdf();
     try{
       if(file.size>MAX_EDITOR_BYTES)throw new Error("PDF ใหญ่เกิน 18 MB สำหรับการลงนามบนแท็บเล็ต");
       const bytes=await readLocalSignaturePdf(file);
@@ -246,10 +315,18 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
       <button disabled={saving||busy||loading||!!error||!sourceBytes} onClick={saveCurrent} className="px-4 py-2 bg-green-700 disabled:opacity-50 rounded font-bold text-sm">{saving||busy?"กำลังบันทึก...":fileIndex<sourceFiles.length-1?"เซ็นไฟล์นี้แล้วไปถัดไป":"บันทึกและอนุมัติ"}</button>
       <button onClick={onCancel} disabled={saving||busy} className="px-3 py-2 bg-red-700 rounded text-sm">ปิด</button>
     </div>
-    <div className="overflow-y-auto flex-1 p-4 space-y-4 bg-slate-600">
+    <div ref={scrollRef} onScroll={sourceBytes?trackVisiblePage:undefined}
+      className="overflow-y-auto flex-1 p-3 sm:p-4 space-y-4 bg-slate-600">
       <p className="text-center text-xs text-slate-100">เลือก «เลื่อนหน้า» เพื่ออ่าน / «เขียนลายเซ็น» เพื่อใช้ Apple Pencil หรือเมาส์ / «วางลายเซ็น» เพื่อคลิกตำแหน่ง</p>
       {loading&&<p className="text-center py-8">กำลังเปิด PDF อัตโนมัติ...</p>}
       {error&&<div className="bg-red-100 text-red-800 max-w-xl mx-auto rounded p-3">{error}<button onClick={()=>setError("")} className="ml-2 underline">ปิดข้อความ</button></div>}
+      {needsReauth&&<form onSubmit={reauthorize} className="max-w-xl mx-auto bg-white text-slate-800 rounded p-4 flex flex-wrap gap-2 items-center">
+        <label className="text-sm font-semibold" htmlFor="bhs-sign-recheck">ยืนยันรหัสผ่าน ผอ. เพื่อต่อสิทธิ์เปิด PDF 30 นาที</label>
+        <input id="bhs-sign-recheck" type="password" autoComplete="current-password" required
+          value={reauthPassword} onChange={e=>setReauthPassword(e.target.value)}
+          className="flex-1 min-w-[160px] border border-slate-300 rounded p-2 text-sm" placeholder="รหัสผ่าน"/>
+        <button type="submit" disabled={reauthBusy} className="bg-blue-700 text-white px-4 py-2 rounded text-sm font-bold disabled:opacity-50">{reauthBusy?"กำลังยืนยัน...":"ยืนยันและเปิด PDF อีกครั้ง"}</button>
+      </form>}
       {!sourceBytes&&!loading&&sourceFiles[fileIndex]&&<div className="bg-slate-100 text-slate-800 max-w-xl mx-auto rounded-xl p-5 space-y-4">
         <h3 className="font-bold text-lg">เปิดไฟล์ต้นฉบับเพื่อเซ็น</h3>
         <p className="text-sm">ระบบ Google Drive จำกัดการอ่านผ่านเว็บไซต์ แต่ยังเซ็น PDF ได้โดยใช้ต้นฉบับที่ดาวน์โหลดจาก Drive โดยไม่ต้องใช้รหัส Backup ของแอดมิน</p>
@@ -263,12 +340,19 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
         <p className="text-xs text-amber-800">ต้องเลือกไฟล์ต้นฉบับของหนังสือฉบับนี้เท่านั้น ข้อมูลในไฟล์ที่เลือกจะถูกใช้สร้างฉบับลงนามและอัปโหลดเมื่อกด “บันทึกและอนุมัติ”</p>
       </div>}
       {loadedFromDevice&&<div className="max-w-xl mx-auto bg-green-100 text-green-900 rounded p-3 text-sm">เปิด PDF จากเครื่องแล้ว: {loadedFromDevice} — พร้อมเขียนหรือวางลายเซ็น</div>}
-      {sourceBytes&&<div className="flex items-center justify-center gap-3 text-sm">
-        <button className="px-3 py-2 rounded bg-slate-700 disabled:opacity-40" disabled={pageIndex===0} onClick={()=>setPageIndex(i=>i-1)}>หน้าก่อนหน้า</button>
-        <span>หน้า {pageIndex+1} / {pageCount}</span>
-        <button className="px-3 py-2 rounded bg-slate-700 disabled:opacity-40" disabled={pageIndex>=pageCount-1} onClick={()=>setPageIndex(i=>i+1)}>หน้าถัดไป</button>
+      {sourceBytes&&<div className="sticky top-0 z-20 flex items-center justify-center gap-3 text-sm bg-slate-800/95 rounded p-2 shadow">
+        <button type="button" className="px-3 py-2 rounded bg-slate-700 disabled:opacity-40" disabled={pageIndex===0}
+          onClick={()=>scrollToPage(pageIndex-1)}>หน้าก่อนหน้า</button>
+        <span aria-live="polite">หน้า {pageIndex+1} / {pageCount}</span>
+        <button type="button" className="px-3 py-2 rounded bg-slate-700 disabled:opacity-40" disabled={pageIndex>=pageCount-1}
+          onClick={()=>scrollToPage(pageIndex+1)}>หน้าถัดไป</button>
       </div>}
-      {activePage&&<PdfPage key={fileIndex+"-"+pageIndex} page={activePage} pageIndex={pageIndex} mode={mode} stamp={stamp} marks={marks[pageIndex]||[]} addMark={addMark}/>} 
+      {sourceBytes&&<div className="space-y-3">
+        {Array.from({length:pageCount},(_,i)=><PdfLazyPage key={fileIndex+"-"+i}
+          pdf={pdfRef.current} pageIndex={i} active={Math.abs(i-pageIndex)<=1}
+          mode={mode} stamp={stamp} marks={marks[i]||[]} addMark={addMark}
+          minHeight={pageHeight} onError={setError}/>)}
+      </div>} 
     </div>
   </div>;
 }
