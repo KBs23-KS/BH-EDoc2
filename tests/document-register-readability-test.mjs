@@ -31,4 +31,15 @@ assert.ok(table.includes('inline-flex shrink-0 items-center justify-center white
 assert.ok(table.includes('inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-red-200'),"Delete button must stay fully visible when narrow");
 assert.ok(table.includes("openEditDocModal(docObj)"),"Edit behavior preserved");
 assert.ok(table.includes("setDocToDelete(docObj.id)"),"Delete behavior preserved");
-console.log("Three register views, status badges and centered actions across viewport widths PASS");
+// Regression for the 2026-11-02 screenshot: huge document filenames made
+// the left column consume the table width, clipping the actions on the right.
+assert.ok(table.includes('className="bhs-doc-table w-full min-w-0 table-fixed'),"Document table must use fixed layout");
+assert.ok(!table.includes('min-w-[200px] md:min-w-[300px]'),"Header must not force intrinsic widths");
+assert.ok(!table.includes('align-top w-1/2'),"Document columns must not use competing half-width classes");
+assert.ok(style.includes('@media (min-width:721px)'),"Desktop proportions must not override mobile cards");
+assert.ok(style.includes('width:70%;'),"Details column gets a bounded share");
+assert.ok(style.includes('width:30%;'),"Status/actions column reserves enough room");
+assert.ok(table.includes('flex min-w-0 items-center max-w-full overflow-hidden'),"Long PDF links must not expand table");
+assert.ok((table.match(/className="min-w-0 truncate" title={f.name}/g)||[]).length===2,"Original and signed filenames truncate within the cell");
+assert.ok(style.includes('text-overflow:ellipsis'),"Long filenames use ellipsis");
+console.log("Three registers, centered actions and fixed-column filename overflow PASS");
