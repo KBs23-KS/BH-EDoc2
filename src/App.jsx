@@ -3019,6 +3019,10 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
       
       <div className="w-full min-w-0 overflow-x-auto">
         <table className="bhs-doc-table w-full min-w-0 table-fixed text-left text-sm text-gray-600">
+          <colgroup>
+            <col className="bhs-doc-details-column" style={{ width: "70%" }} />
+            <col className="bhs-doc-status-column" style={{ width: "30%" }} />
+          </colgroup>
           <thead className="bg-gray-50 text-gray-700 text-xs uppercase font-bold border-b border-gray-200">
             <tr>
               <th scope="col" className="px-4 md:px-5 py-3 md:py-4">รายละเอียดเอกสาร</th>

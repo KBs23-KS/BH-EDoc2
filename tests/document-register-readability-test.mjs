@@ -37,20 +37,27 @@ assert.ok(table.includes('className="bhs-doc-table w-full min-w-0 table-fixed'),
 assert.ok(!table.includes('min-w-[200px] md:min-w-[300px]'),"Header must not force intrinsic widths");
 assert.ok(!table.includes('align-top w-1/2'),"Document columns must not use competing half-width classes");
 assert.ok(style.includes('@media (min-width:721px)'),"Desktop proportions must not override mobile cards");
-assert.ok(style.includes('width:calc(100% - max(20%, 230px));'),"Details use 80% on wide screens and give back room when status minimum is needed");
-assert.ok(style.includes('width:max(20%, 230px);'),"Status/actions use 20% on wide screens but never less than 230px");
-assert.ok(!style.includes('width:70%;'),"Old fixed 70% split must not override responsive sizing");
-assert.ok(!style.includes('width:30%;'),"Old fixed 30% split must not override responsive sizing");
-// Verify the intended CSS sizing behavior over representative register widths.
-// CSS max(20%, 230px) is equivalent to Math.max(total*0.2,230).
-for(const width of [1600,1200,1000,850,780]){
-  const status=Math.max(width*.2,230),details=width-status;
-  assert.ok(status>=230,"Actions/status remain readable");
-  assert.ok(Math.abs(details+status-width)<1e-9,"Columns fill table without overflow");
-  if(width>=1150)assert.equal(status/width,.2,"Wide registers use 80/20");
+// The prior stylesheet applied width only to td/th, leaving the rendered table
+// near 50:50. HTML colgroup must be the source of the fixed 70:30 split.
+assert.ok(table.includes('<colgroup>'),"The shared register table defines physical columns");
+assert.ok(table.includes('<col className="bhs-doc-details-column" style={{ width: "70%" }} />'),"Details column is explicitly 70 percent");
+assert.ok(table.includes('<col className="bhs-doc-status-column" style={{ width: "30%" }} />'),"Actions/status column is explicitly 30 percent");
+assert.ok(style.includes('col.bhs-doc-details-column{width:70%}'),"The register stylesheet reinforces the left column");
+assert.ok(style.includes('col.bhs-doc-status-column{width:30%}'),"The register stylesheet reinforces the right column");
+assert.ok(!style.includes('width:calc(100% - max(20%, 230px));'),"Old 80:20 distribution cannot override");
+assert.ok(!style.includes('width:max(20%, 230px);'),"Old 230px width rule cannot override");
+assert.ok(style.includes('iPad in portrait orientation'),"Portrait iPad gets document cards");
+assert.ok(style.includes('(orientation:portrait) and (min-width:721px) and (max-width:1100px)'),"Portrait iPad breakpoint defined");
+assert.ok(style.includes('.bhs-doc-table colgroup{display:none!important}'),"Column widths disabled in card layout");
+assert.ok(style.includes('.bhs-doc-table tbody tr.bhs-document-record>td{'),"Card rows stack cells on portrait iPads");
+assert.ok(style.includes('@media(max-width:720px)'),"Phone layout still uses cards");
+assert.ok(style.includes('display:block!important;width:100%!important'),"Existing phone card layout remains enabled");
+// For any desktop or landscape iPad table width, colgroup establishes 70/30.
+for(const width of [1660,1440,1180,920,760]){
+  const left=width*.7,right=width*.3;
+  assert.ok(Math.abs(left+right-width)<1e-9,"Column ratio does not overflow the table");
+  assert.ok(Math.abs(left/right-7/3)<1e-9,"Details/status ratio remains 70/30");
 }
-assert.ok(style.includes('@media(max-width:720px)'),"Mobile layout remains stacked cards");
-assert.ok(style.includes('display:block!important;width:100%!important'),"Mobile table/card switch remains enabled");
 assert.ok(table.includes('flex min-w-0 items-center max-w-full overflow-hidden'),"Long PDF links must not expand table");
 assert.ok((table.match(/className="min-w-0 truncate" title={f.name}/g)||[]).length===2,"Original and signed filenames truncate within the cell");
 assert.ok(style.includes('text-overflow:ellipsis'),"Long filenames use ellipsis");
