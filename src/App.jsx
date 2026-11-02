@@ -2828,30 +2828,29 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleResubmit = async () => {
-    if (!resubmitForm.subject) return showToast("กรุณาระบุชื่อเรื่อง", "error");
+    if (!resubmitForm.subject.trim()) return showToast("กรุณาระบุชื่อเรื่อง", "error");
+    if (!resubmitNewFiles.length) return showToast("กรุณาอัปโหลดไฟล์ฉบับแก้ไขใหม่ก่อนส่งเรื่อง", "error");
+    if (isSinglePdfDocument(docToResubmit.type) && (resubmitNewFiles.length !== 1 || !isPdfUpload(resubmitNewFiles[0])))
+      return showToast("คำสั่งและหนังสือเวียนต้องใช้ PDF ใหม่เพียง 1 ไฟล์", "error");
     setIsResubmitting(true);
     setResubmitStatus("เตรียมส่งเรื่องใหม่...");
     try {
-      let uploadedFiles = [];
-      if (resubmitNewFiles.length > 0) {
-        uploadedFiles = await uploadMultipleFilesToDrive(resubmitNewFiles, setResubmitStatus);
-      }
+      const uploadedFiles = await uploadMultipleFilesToDrive(resubmitNewFiles, setResubmitStatus);
       setResubmitStatus("กำลังอัปเดตระบบ...");
-      
-      const newFilesArray = uploadedFiles.length ? uploadedFiles : (docToResubmit.files || []);
-      const nextVersion = (docToResubmit.activeFileVersion || 1) + (uploadedFiles.length ? 1 : 0);
+      const nextVersion = (docToResubmit.activeFileVersion || 1) + 1;
       const previousVersions = docToResubmit.fileVersions || [{ version:1, files:docToResubmit.files || [], timestamp:docToResubmit.createdAt || Date.now() }];
-      
-      await commitDocumentWithAudit(currentUser, docToResubmit.id, {
+      await commitCheckedAction(currentUser, docToResubmit, {
         subject: resubmitForm.subject,
-        files: newFilesArray,
-        fileVersions: uploadedFiles.length ? [...previousVersions, {version:nextVersion,files:newFilesArray,timestamp:Date.now(),reason:"ส่งกลับแก้ไข"}] : previousVersions,
+        files: uploadedFiles,
+        fileVersions: [...previousVersions, { version:nextVersion, files:uploadedFiles, timestamp:Date.now(), reason:"ส่งกลับแก้ไข" }],
         activeFileVersion: nextVersion,
         status: DOC_STATUS.WAITING_DEPUTY,
         rejectReason: "",
         deputyComment: "",
         directorCommand: "",
-        history: arrayUnion({ action: "แก้ไขและส่งเรื่องใหม่", by: currentUser.id, byName: currentUser.name, role: ROLES[currentUser.role.toUpperCase()]?.name, timestamp: Date.now(), detail: "ส่งกลับเข้ากระบวนการอีกครั้ง" })
+        signedFiles: [],
+        lastEventAt: Date.now(),
+        history: arrayUnion({ action: "แก้ไขและส่งเรื่องใหม่", by: currentUser.id, byName: currentUser.name, role: ROLES[currentUser.role.toUpperCase()]?.name, timestamp: Date.now(), detail: "ส่งกลับเข้ากระบวนการอีกครั้ง (ฉบับที่ " + nextVersion + ")" })
       }, "แก้ไขและส่งเรื่องใหม่", resubmitForm.subject);
       showToast("ส่งเรื่องกลับเข้าสู่กระบวนการพิจารณาแล้ว", "success");
       setDocToResubmit(null);
@@ -3158,10 +3157,18 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                 <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" value={resubmitForm.subject} onChange={(e) => setResubmitForm({ ...resubmitForm, subject: e.target.value })} />
               </div>
               <div className="bg-gray-50 p-3 sm:p-4 rounded-lg border border-gray-200">
-                <label className="text-xs sm:text-sm font-bold text-gray-700 block mb-2">แนบไฟล์เพิ่มเติม (ไฟล์เดิมจะยังอยู่ครบ)</label>
+                <label className="text-xs sm:text-sm font-bold text-gray-700 block mb-2">{isSinglePdfDocument(docToResubmit.type) ? "อัปโหลด PDF ฉบับแก้ไขใหม่ 1 ไฟล์ *" : "อัปโหลดไฟล์ฉบับแก้ไขใหม่ * (เลือกเพิ่มสะสมได้)"}</label>
+                <p className="text-[11px] text-gray-500 mb-2">ไฟล์เดิมจะถูกเก็บในประวัติ ไม่ใช้พิจารณาหรือลงนามในรอบใหม่</p>
                 <label className="cursor-pointer text-xs sm:text-sm bg-white border border-gray-300 px-3 sm:px-4 py-2 rounded-lg inline-flex items-center hover:bg-gray-100 shadow-sm font-medium">
-                  <FileUp size={16} className="mr-2 text-blue-600 shrink-0" /> เลือกไฟล์เพิ่ม
-                  <input type="file" className="hidden" multiple onChange={(e) => setResubmitNewFiles(Array.from(e.target.files))} accept=".pdf,image/*" />
+                  <FileUp size={16} className="mr-2 text-blue-600 shrink-0" /> {isSinglePdfDocument(docToResubmit.type) ? "เลือก PDF ใหม่" : "เลือกไฟล์เพิ่ม"}
+                  <input type="file" className="hidden" multiple={!isSinglePdfDocument(docToResubmit.type)}
+                    accept={isSinglePdfDocument(docToResubmit.type) ? ".pdf,application/pdf" : ".pdf,image/*"}
+                    onChange={e => {
+                      const chosen = Array.from(e.target.files || []);
+                      e.target.value = "";
+                      if (isSinglePdfDocument(docToResubmit.type)) setResubmitNewFiles(chosen.slice(0, 1));
+                      else setResubmitNewFiles(prev => [...prev, ...chosen.filter(f => !prev.some(p => isSameUpload(p, f)))]);
+                    }} />
                 </label>
                 {resubmitNewFiles.map((f, i) => (
                   <div key={i} className="flex justify-between items-center text-[10px] md:text-xs bg-white border border-blue-200 mt-2 p-2 rounded shadow-sm">
