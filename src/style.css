@@ -337,9 +337,10 @@
   .bhs-new-today-badge {animation:none;}
 }
 
-/* Ensure long Thai subjects/PDF names never steal the actions/status column.
-   On desktop/tablet, the status/actions column always gets 30% of the table.
-   Mobile retains the stacked full-width card layout defined below. */
+/* Long Thai subjects/PDF names must never steal the action/status column.
+   Wide layouts use details/status 80:20. When 20% is smaller than 230px,
+   status/actions reserve 230px, naturally shifting toward roughly 70:30 on
+   narrower tablets/laptops. Phones still use the existing stacked cards. */
 @media (min-width:721px){
   .bhs-luxury-main .bhs-doc-table{
     table-layout:fixed;
@@ -348,12 +349,12 @@
   }
   .bhs-luxury-main .bhs-doc-table thead th:first-child,
   .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:first-child{
-    width:70%;
+    width:calc(100% - max(20%, 230px));
     min-width:0;
   }
   .bhs-luxury-main .bhs-doc-table thead th:last-child,
   .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:last-child{
-    width:30%;
+    width:max(20%, 230px);
     min-width:0;
   }
 }
