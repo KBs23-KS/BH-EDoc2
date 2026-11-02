@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
 const logo=readFileSync(new URL("../public/bhs-school-crest.png",import.meta.url));
-const start=app.indexOf("  if (!activeProfile) {");
+const start=app.indexOf("  if (!loggedInProfile) {");
 const end=app.indexOf("\n  return (\n    <>\n      {toastMsg",start);
 assert.ok(start>=0&&end>start,"Login component isolated");
 const login=app.slice(start,end);
