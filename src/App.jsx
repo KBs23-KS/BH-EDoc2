@@ -59,7 +59,7 @@ import {
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
-import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp} from "./orderNumberPolicy";
+import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
@@ -240,6 +240,27 @@ const commitCheckedAction = async (user, item, updates, action, detail) => {
 const buddhistYear = (isoDate) => Number(String(isoDate || "").slice(0, 4)) + 543;
 const getNumberYear = (value) => Number(String(value || "").split("/")[1]);
 const uniqueId = (prefix = "ITEM") => `${prefix}-${crypto.randomUUID()}`;
+
+/** Serialize incoming-number writes per year; edits, registrations and restores share this lock. */
+async function withIncomingNumberLock({number,date,exceptId="",apply}) {
+  const year=incomingDocumentYear(date);
+  if(!String(number||"").trim())throw new Error("กรุณาระบุเลขรับหนังสือเข้า");
+  if(!year||year<2500||year>2999)throw new Error("วันที่หนังสือเข้าไม่ถูกต้อง");
+  const counterRef=getDocumentRef(COUNTERS_PATH,`INCOMING-${year}`);
+  const [before,docs]=await Promise.all([getDocFromServer(counterRef),getDocsFromServer(getCollectionRef(DOCS_PATH))]);
+  const duplicate=incomingNumberConflict(docs.docs.map(entry=>({id:entry.id,...entry.data()})),number,date,exceptId);
+  if(duplicate)throw new Error(`เลขรับ ${number} ซ้ำกับหนังสือเข้าในปี ${year} กรุณาเลือกเลขใหม่`);
+  return runTransaction(db,async tx=>{
+    const live=await tx.get(counterRef);
+    if(registerCounterStamp(live.exists()?live.data():null)!==
+       registerCounterStamp(before.exists()?before.data():null))
+      throw new Error("ทะเบียนหนังสือเข้ามีการเปลี่ยนแปลงระหว่างตรวจสอบ กรุณาลองบันทึกอีกครั้ง");
+    const result=await apply(tx);
+    const now=Date.now(),revision=(Number(live.exists()?live.data().revision:0)||0)+1;
+    tx.set(counterRef,{kind:"INCOMING",year,revision,updatedAt:now},{merge:true});
+    return result;
+  });
+}
 
 // The number cursor is admin-controlled. Only VISIBLE records block a number.
 // Read active records from the server and serialize all new writes through the yearly counter.
@@ -2763,6 +2784,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const openEditDocModal = (docObj) => {
+    if(!canManageDocument(currentUser,docObj))return showToast("ไม่มีสิทธิ์แก้ไขเอกสารประเภทนี้","error");
     setEditForm({ 
        subject: docObj.subject || "", 
        docNumber: docObj.docNumber || "",
@@ -3003,7 +3025,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                        {docObj.extraAttachments.map((f,i)=><a key={i} href={f.url} target="_blank" rel="noreferrer" className="block text-blue-600 underline text-xs">{f.name} — {f.addedByName||''}</a>)}
                     </div>}
                     {([DOC_STATUS.PUBLISHED,DOC_STATUS.COMPLETED].includes(docObj.status)) && (currentUser.role==="admin" || docObj.createdBy===currentUser.id) && <button className="text-xs text-blue-700 border rounded p-2 mt-2" onClick={()=>setExtraDoc(docObj)}>+ เพิ่มไฟล์ประกอบหลังอนุมัติ</button>}
-                    {currentUser.role === "admin" && (
+                    {canManageDocument(currentUser,docObj) && (
                       <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2 justify-end">
                         <button onClick={() => openEditDocModal(docObj)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-colors flex items-center border border-blue-200">
                           <Edit size={12} className="mr-1" /> แก้ไข
@@ -3170,7 +3192,9 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
            <div className="bg-white p-5 sm:p-6 rounded-xl shadow-xl w-full max-w-[95%] sm:max-w-sm text-center animate-fade-in">
              <AlertCircle size={40} className="mx-auto text-yellow-500 mb-3 sm:mb-4 sm:w-12 sm:h-12" />
              <h3 className="text-base sm:text-lg font-bold mb-2">ย้ายลงถังขยะ?</h3>
-             <p className="text-xs sm:text-sm text-gray-500 mb-5 sm:mb-6">เอกสารนี้จะถูกซ่อนจากระบบ แต่สามารถกู้คืนได้ในเมนูถังขยะ</p>
+             <p className="text-xs sm:text-sm text-gray-500 mb-3">เอกสารนี้จะถูกซ่อนจากระบบ แต่แอดมินสามารถกู้คืนได้ในเมนูถังขยะ</p>
+             {documents.some(d=>d.id===docToDelete&&[DOC_STATUS.PUBLISHED,DOC_STATUS.COMPLETED].includes(d.status))&&
+               <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mb-4">หนังสือนี้ผ่านการอนุมัติ/เผยแพร่แล้ว การย้ายลงถังขยะจะทำให้ครูไม่เห็นรายการในหน้าปกติ แต่เก็บประวัติไว้</p>}
              <div className="flex gap-2 sm:gap-3">
                <button onClick={() => setDocToDelete(null)} className="flex-1 px-3 sm:px-4 py-2 bg-gray-100 text-xs sm:text-sm font-bold rounded hover:bg-gray-200 transition-colors">ยกเลิก</button>
                <button onClick={executeDeleteDoc} className="flex-1 px-3 sm:px-4 py-2 bg-yellow-600 text-white text-xs sm:text-sm font-bold rounded hover:bg-yellow-700 transition-colors">ย้ายลงถังขยะ</button>
@@ -3219,7 +3243,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
 
               <div>
                 <label className="block text-xs sm:text-sm font-bold mb-1.5 text-gray-700">ประเภทเอกสาร</label>
-                <select className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm" value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
+                <select disabled={currentUser.role==="clerk"} className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm disabled:opacity-60" value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
                   <option value="หนังสือเข้า">หนังสือเข้า</option>
                   <option value="คำสั่งโรงเรียน">คำสั่งโรงเรียน</option>
                   <option value="หนังสือเวียนแจ้งรับทราบ">หนังสือเวียนแจ้งรับทราบ</option>
