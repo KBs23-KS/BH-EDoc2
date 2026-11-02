@@ -87,3 +87,43 @@ export function allowedToSign(user,document,driveId){
   if(!["คำสั่งโรงเรียน","หนังสือเวียนแจ้งรับทราบ"].includes(document.type))return false;
   return (document.files||[]).some(f=>f.driveId===driveId&&(f.type==="PDF"||String(f.name||"").toLowerCase().endsWith(".pdf")));
 }
+
+/**
+ * Separate non-signing website session. Never accepted by readSession() or allowedToSign().
+ * 7 days only when explicitly remembered; otherwise an in-browser-session cookie.
+ */
+const APP_COOKIE="bhs_app_session";
+const MAX_APP_MS=7*24*60*60*1000;
+export function appSessionReady(){
+  return Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&process.env.BHS_SIGNING_SESSION_SECRET?.length>=32);
+}
+export function makeAppSession(userId,remember=false){
+  const body=Buffer.from(JSON.stringify({
+    kind:"app",userId,exp:Date.now()+MAX_APP_MS,nonce:randomBytes(12).toString("hex")
+  })).toString("base64url");
+  return body+"."+sign(body);
+}
+export function readAppSession(req){
+  if(!appSessionReady())return null;
+  const raw=String(req.headers.cookie||"").split(";").map(x=>x.trim()).find(x=>x.startsWith(APP_COOKIE+"="));
+  const value=raw?.slice(APP_COOKIE.length+1);
+  if(!value||value.length>1024)return null;
+  const [body,mac,...more]=value.split(".");
+  if(more.length||!body||!mac)return null;
+  let actual;
+  try{actual=Buffer.from(mac,"base64url");}catch{return null;}
+  const expected=Buffer.from(sign(body),"base64url");
+  if(actual.length!==expected.length||!timingSafeEqual(actual,expected))return null;
+  try{
+    const data=JSON.parse(Buffer.from(body,"base64url").toString("utf8"));
+    if(data.kind!=="app"||typeof data.userId!=="string"||!data.userId||
+      data.exp<=Date.now()||data.exp>Date.now()+MAX_APP_MS)return null;
+    return data.userId;
+  }catch{return null;}
+}
+export function setAppSessionCookie(res,token,remember){
+  res.setHeader("Set-Cookie",APP_COOKIE+"="+token+"; Path=/api; HttpOnly; Secure; SameSite=Strict"+(remember?"; Max-Age=604800":""));
+}
+export function clearAppSessionCookie(res){
+  res.setHeader("Set-Cookie",APP_COOKIE+"=; Path=/api; HttpOnly; Secure; SameSite=Strict; Max-Age=0");
+}
