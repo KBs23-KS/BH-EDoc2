@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {
+  makeAppSession,readAppSession,setAppSessionCookie,clearAppSessionCookie,readSession
+} from "../api/_signatureServer.js";
+process.env.BHS_SIGNING_SESSION_SECRET="testing-only-secret-".repeat(4);
+process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON='{"project_id":"bhs-edoc-2"}';
+const cookieFor=(token)=>({headers:{cookie:"bhs_app_session="+token}});
+const rememberToken=makeAppSession("userA",true);
+assert.equal(readAppSession(cookieFor(rememberToken)),"userA");
+assert.equal(readSession(cookieFor(rememberToken)),null,"site session cannot grant PDF signing");
+assert.equal(readAppSession(cookieFor(rememberToken+"x")),null,"tampered session rejected");
+const res={headers:{},setHeader(k,v){this.headers[k]=v;}};
+setAppSessionCookie(res,rememberToken,true);
+assert.match(res.headers["Set-Cookie"],/HttpOnly; Secure; SameSite=Strict; Max-Age=604800/);
+setAppSessionCookie(res,rememberToken,false);
+assert.doesNotMatch(res.headers["Set-Cookie"],/Max-Age=/);
+clearAppSessionCookie(res);
+assert.match(res.headers["Set-Cookie"],/Max-Age=0/);
+const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
+const editor=readFileSync(new URL("../src/PdfSignatureEditor.jsx",import.meta.url),"utf8");
+const api=readFileSync(new URL("../api/app-session.js",import.meta.url),"utf8");
+assert.ok(app.includes('fetch("/api/app-session",{method:"GET"'),"refresh restores verified app session");
+assert.ok(app.includes("sessionChecking"),"login screen does not flicker before session check");
+assert.ok(app.includes("remember:rememberLogin"),"optional seven-day persistence");
+assert.ok(app.includes('fetch("/api/app-session",{method:"DELETE"'),"logout clears persistent session");
+assert.ok(api.includes('matchesLegacyPassword(password,user)'),"server independently validates password");
+assert.ok(editor.includes('onScroll={sourceBytes?trackVisiblePage:undefined}'),"scrolling updates current page");
+assert.ok(editor.includes("onClick={()=>scrollToPage(pageIndex+1)}"),"next navigates from visible page");
+assert.ok(editor.includes("Math.abs(i-pageIndex)<=1"),"only visible and neighboring canvases rendered");
+assert.ok(editor.includes("reauthorize=async e=>"),"signing reauthentication in-place");
+assert.ok(editor.includes("setReauthPassword(\"\")"),"password not persisted after reauthentication");
+console.log("Browser login persistence, signing separation and low-memory scroll tests passed");
