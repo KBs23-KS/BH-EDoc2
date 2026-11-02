@@ -185,11 +185,12 @@ function DocumentVersionBadge({ docObj }) {
 
 function StatusBadge({ status }) {
   let color = "bg-gray-100 text-gray-800 border-gray-200";
-  if (status === DOC_STATUS.WAITING_DEPUTY || status === DOC_STATUS.WAITING_DIRECTOR) color = "bg-yellow-100 text-yellow-800 border-yellow-200";
+  if (status === DOC_STATUS.WAITING_DEPUTY) color = "bg-blue-100 text-blue-700 border-blue-300";
+  if (status === DOC_STATUS.WAITING_DIRECTOR) color = "bg-orange-100 text-orange-800 border-orange-300";
   if (status === DOC_STATUS.COMPLETED || status === DOC_STATUS.PUBLISHED) color = "bg-green-100 text-green-800 border-green-200";
   if (status === DOC_STATUS.RETURNED) color = "bg-red-100 text-red-800 border-red-200";
   return (
-    <span className={`px-2.5 py-1 inline-flex text-[11px] font-bold rounded-full border shadow-sm ${color}`}>
+    <span className={`px-2.5 py-1 inline-flex text-[12px] leading-[1.45] font-extrabold rounded-full border shadow-sm ${color}`}>
       {status}
     </span>
   );
@@ -3033,7 +3034,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
               const currentUserAcked = docObj.acknowledgedBy?.includes(currentUser.id);
 
               return (
-                <tr key={docObj.id} className="hover:bg-blue-50/30 transition-colors">
+                <tr key={docObj.id} className="bhs-document-record hover:bg-blue-50/30 transition-colors">
                 <td className="px-4 md:px-5 py-4 align-top w-1/2">
                   <div className="font-bold text-gray-900 text-sm md:text-base mb-1 break-words flex items-center flex-wrap gap-2">
                     {docObj.urgency && docObj.urgency !== "ปกติ" && (
