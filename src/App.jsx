@@ -2771,16 +2771,24 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const executeDeleteDoc = async () => {
-    if(!docToDelete) return;
+    if(!docToDelete)return;
     try {
-      await commitDocumentWithAudit(currentUser, docToDelete, {
-        isDeleted: true, deletedAt: Date.now(), deletedBy: currentUser.id
-      }, "ลบ/ซ่อนเอกสาร", "ย้ายเอกสารลงถังขยะ");
-      showToast("ย้ายเอกสารลงถังขยะแล้ว", "success");
-    } catch(err) {
-      showToast("ลบไม่สำเร็จ: " + err.message, "error");
-    }
-    setDocToDelete(null);
+      await runTransaction(db,async tx=>{
+        const ref=getDocumentRef(DOCS_PATH,docToDelete),snapshot=await tx.get(ref);
+        if(!snapshot.exists())throw new Error("ไม่พบเอกสาร");
+        const fresh=snapshot.data();
+        if(!canManageDocument(currentUser,fresh))throw new Error("ไม่มีสิทธิ์ลบเอกสารประเภทนี้");
+        if(fresh.isDeleted)throw new Error("เอกสารถูกย้ายลงถังขยะไปแล้ว");
+        const now=Date.now(),detail=`ย้ายลงถังขยะ: ${fresh.type} เลขรับ/เลขที่ ${fresh.docNumber||"-"} เรื่อง ${fresh.subject||"-"}`;
+        tx.update(ref,{
+          isDeleted:true,deletedAt:now,deletedBy:currentUser.id,
+          history:arrayUnion({action:"ย้ายลงถังขยะ",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp:now,detail})
+        });
+        tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"ลบ/ซ่อนเอกสาร","DOCUMENT",docToDelete,detail));
+      });
+      showToast("ย้ายเอกสารลงถังขยะแล้ว","success");
+      setDocToDelete(null);
+    }catch(err){showToast("ลบไม่สำเร็จ: "+err.message,"error");}
   };
 
   const openEditDocModal = (docObj) => {
@@ -2797,26 +2805,58 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleSaveEditDoc = async () => {
-    if(docToEdit?.type==="คำสั่งโรงเรียน"&&docToEdit?.reservationId&&editForm.docNumber!==docToEdit.docNumber)
+    if(!docToEdit||!canManageDocument(currentUser,docToEdit))
+      return showToast("ไม่มีสิทธิ์แก้ไขเอกสารประเภทนี้","error");
+    if(currentUser.role==="clerk"&&editForm.type!=="หนังสือเข้า")
+      return showToast("ธุรการแก้ไขได้เฉพาะหนังสือเข้า","error");
+    if(docToEdit.type==="คำสั่งโรงเรียน"&&docToEdit.reservationId&&editForm.docNumber!==docToEdit.docNumber)
       return showToast("แก้เลขคำสั่งที่มีทะเบียนเชื่อมจากเมนูเลขคำสั่งโรงเรียนเท่านั้น","error");
-    if(!editForm.subject || !editForm.from || !editForm.date) return showToast("กรุณากรอกข้อมูลให้ครบถ้วน", "error");
+    if(!editForm.subject.trim()||!editForm.from.trim()||!editForm.date)
+      return showToast("กรุณากรอกข้อมูลให้ครบถ้วน","error");
+    if(editForm.type==="หนังสือเข้า"&&!editForm.docNumber.trim())
+      return showToast("กรุณาระบุเลขรับหนังสือเข้า","error");
     setIsSavingEdit(true);
     try {
-      await updateDoc(getDocumentRef(DOCS_PATH, docToEdit.id), { 
-        subject: editForm.subject, 
-        docNumber: editForm.docNumber,
-        date: editForm.date, 
-        urgency: editForm.urgency,
-        from: editForm.from, 
-        type: editForm.type,
-        history: arrayUnion({ action: "ผู้ดูแลระบบแก้ไขข้อมูล", by: currentUser.id, byName: currentUser.name, role: ROLES[currentUser.role.toUpperCase()]?.name, timestamp: Date.now(), detail: "-" })
-      });
-      writeAuditLog(currentUser, "แก้ไขเอกสาร", "DOCUMENT", docToEdit.id, `แก้ไขเรื่อง: ${editForm.subject}`);
-      showToast("แก้ไขข้อมูลเอกสารสำเร็จ", "success");
+      const changes={
+        subject:editForm.subject.trim(),
+        docNumber:editForm.type==="หนังสือเข้า"?editForm.docNumber.trim():editForm.docNumber,
+        date:editForm.date,
+        urgency:editForm.urgency,
+        from:editForm.from.trim(),
+        type:editForm.type
+      };
+      if(editForm.type==="หนังสือเข้า"){
+        await withIncomingNumberLock({
+          number:changes.docNumber,date:changes.date,exceptId:docToEdit.id,
+          apply:async tx=>{
+            const ref=getDocumentRef(DOCS_PATH,docToEdit.id),snapshot=await tx.get(ref);
+            if(!snapshot.exists())throw new Error("ไม่พบเอกสาร");
+            const fresh=snapshot.data();
+            if(fresh.isDeleted||!canManageDocument(currentUser,fresh))
+              throw new Error("เอกสารถูกลบหรือไม่มีสิทธิ์แก้ไข");
+            if(fresh.type!==docToEdit.type||fresh.docNumber!==docToEdit.docNumber||
+               fresh.date!==docToEdit.date||fresh.subject!==docToEdit.subject)
+              throw new Error("ข้อมูลเอกสารถูกเปลี่ยนโดยผู้ใช้อื่น กรุณาปิดหน้าต่างแล้วเปิดใหม่");
+            const changed=Object.entries(changes).filter(([key,value])=>String(fresh[key]??"")!==String(value??""))
+              .map(([key,value])=>`${key}: ${fresh[key]??"-"} → ${value||"-"}`);
+            const detail=changed.join("; ")||"ยืนยันข้อมูลเดิม";
+            const timestamp=Date.now();
+            tx.update(ref,{...changes,history:arrayUnion({action:"แก้ไขข้อมูลหนังสือเข้า",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp,detail})});
+            tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"แก้ไขหนังสือเข้า","DOCUMENT",docToEdit.id,detail));
+          }
+        });
+      } else {
+        if(currentUser.role!=="admin")throw new Error("ไม่มีสิทธิ์แก้ไขเอกสารประเภทนี้");
+        const batch=writeBatch(db);
+        batch.update(getDocumentRef(DOCS_PATH,docToEdit.id),{
+          ...changes,history:arrayUnion({action:"ผู้ดูแลระบบแก้ไขข้อมูล",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp:Date.now(),detail:"แก้ไขเรื่อง "+changes.subject})
+        });
+        batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"แก้ไขเอกสาร","DOCUMENT",docToEdit.id,"แก้ไขเรื่อง "+changes.subject));
+        await batch.commit();
+      }
+      showToast("แก้ไขข้อมูลเอกสารสำเร็จ","success");
       setDocToEdit(null);
-    } catch(err) {
-      showToast("แก้ไขไม่สำเร็จ: " + err.message, "error");
-    }
+    }catch(err){showToast("แก้ไขไม่สำเร็จ: "+err.message,"error");}
     setIsSavingEdit(false);
   };
 
