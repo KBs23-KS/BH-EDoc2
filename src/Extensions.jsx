@@ -1,6 +1,7 @@
 import React,{useState} from 'react';
 import {matchingDocs,docYear,canReadDoc,canViewPending,pendingAgeDays,recipientsOf,URGENCY,sortUrgency,quarterlySeries} from './workflow';
 import {exportPdf,exportXlsx} from './reportExport';
+import {preferredDocumentFile,signedPublicationMissing,fileLink} from './documentFilePolicy.js';
 const kinds=['หนังสือเข้า','เลขคำสั่งโรงเรียน','คำสั่งโรงเรียน','ขอเลขที่หนังสือออก','หนังสือเวียนแจ้งรับทราบ'];
 const statuses=['รอรองผู้อำนวยการ','รอผู้อำนวยการ','ส่งกลับแก้ไข','อนุมัติ/สั่งการแล้ว','เผยแพร่แล้ว'];
 const cn='w-full border border-slate-300 rounded p-2 text-sm bg-white';
@@ -26,11 +27,22 @@ export function SearchCenter({documents,orderReservations=[],outgoingReservation
       <label className="text-xs">ถึงวันที่<input className={cn} type="date" value={to} onChange={e=>{setTo(e.target.value);reset()}}/></label>
     </div>
     <p className="text-sm text-gray-500">พบ {amount(found.length)} รายการ</p>
-    {shown.map(d=><div className="border rounded-lg p-3 space-y-1" key={`${d.type}-${d.id}`}>
-      <div className="flex justify-between gap-3"><b className="text-sm">{d.subject}</b><span className="text-xs text-gray-500 shrink-0">{d.docNumber||'-'}</span></div>
-      <p className="text-xs text-gray-500">{d.type} | {d.date||'-'} | {d.status||'-'}</p>
-      {d.files?.[0]?.url ? <a href={d.files[0].url} rel="noreferrer" target="_blank" className="text-blue-700 text-xs underline">เปิดเอกสาร</a> : <span className="text-gray-400 text-xs">รายการทะเบียน</span>}
-    </div>)}
+    {shown.map(d=>{
+      const preferred=preferredDocumentFile(d);
+      const missingSigned=signedPublicationMissing(d);
+      return <div className="border rounded-lg p-3 space-y-1" key={`${d.type}-${d.id}`}>
+        <div className="flex justify-between gap-3"><b className="text-sm">{d.subject}</b><span className="text-xs text-gray-500 shrink-0">{d.docNumber||'-'}</span></div>
+        <p className="text-xs text-gray-500">{d.type} | {d.date||'-'} | {d.status||'-'}</p>
+        {preferred ? <a href={fileLink(preferred.file)} rel="noreferrer" target="_blank"
+          className={`text-xs underline ${preferred.signed?"text-green-700 font-bold":"text-blue-700"}`}>
+          {preferred.signed?"เปิด PDF ที่ ผอ. ลงนามแล้ว":"เปิดเอกสาร"}
+        </a> : missingSigned ? <span className="text-amber-700 text-xs font-semibold">ไม่พบไฟล์ PDF ลงนามในรายการนี้ กรุณาตรวจสอบกับธุรการหรือแอดมิน</span>
+          : <span className="text-gray-400 text-xs">รายการทะเบียน</span>}
+        {missingSigned&&d.files?.[0]&&fileLink(d.files[0])&&<div className="text-xs">
+          <a href={fileLink(d.files[0])} rel="noreferrer" target="_blank" className="text-gray-500 underline">ดูไฟล์ต้นฉบับ (ยังไม่ใช่ฉบับลงนาม)</a>
+        </div>}
+      </div>;
+    })}
     <div className="flex items-center justify-between gap-2 text-sm"><button className="border rounded px-3 py-2 disabled:opacity-40" disabled={page===1} onClick={()=>setPage(n=>n-1)}>ก่อนหน้า</button><span>หน้า {page}/{Math.max(1,Math.ceil(found.length/20))}</span><button className="border rounded px-3 py-2 disabled:opacity-40" disabled={page>=Math.ceil(found.length/20)} onClick={()=>setPage(n=>n+1)}>ถัดไป</button></div>
   </div>;
 }
