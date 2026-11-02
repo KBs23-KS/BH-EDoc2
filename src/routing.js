@@ -1,5 +1,6 @@
 /** BHS routing helpers: pure functions, no network writes. Existing document fields remain valid. */
 export const isFinalDoc = d => ["อนุมัติ/สั่งการแล้ว","เผยแพร่แล้ว"].includes(d?.status);
+export const isRoutingEligibleDoc = d => Boolean(d?.type === "หนังสือเข้า" && isFinalDoc(d) && !d.isDeleted);
 export const activeUser = u => u && u.status !== "inactive";
 export const groupMembership = (u,group) => u.adminDept===group || u.subjectArea===group;
 const idOfHead = value => typeof value==="string"?value:value?.primary||"";
@@ -42,7 +43,7 @@ export function headCompleted(doc,group) {
   return (doc?.headActions||[]).some(e=>e.group===group);
 }
 export function pendingHeadGroups(doc,user,settings) {
-  return isFinalDoc(doc) ? headGroups(user,settings).filter(g=>routingGroups(doc).includes(g.group)&&!headCompleted(doc,g.group)) : [];
+  return isRoutingEligibleDoc(doc) ? headGroups(user,settings).filter(g=>routingGroups(doc).includes(g.group)&&!headCompleted(doc,g.group)) : [];
 }
 export function assignedEvents(doc,user) {
   const events=[...(doc?.routingEntries||[]),...(doc?.headActions||[])];
@@ -51,6 +52,7 @@ export function assignedEvents(doc,user) {
 }
 export function assignmentKey(entry,userId){return String(entry.id)+"::"+String(userId);}
 export function pendingAssignmentEvents(doc,user) {
+  if(!isRoutingEligibleDoc(doc))return [];
   const done=doc?.assignmentAcknowledged||[];
   return assignedEvents(doc,user).filter(e=>!done.includes(assignmentKey(e,user.id)));
 }
