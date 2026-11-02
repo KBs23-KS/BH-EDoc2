@@ -24,7 +24,8 @@ const editor=readFileSync(new URL("../src/PdfSignatureEditor.jsx",import.meta.ur
 const api=readFileSync(new URL("../api/app-session.js",import.meta.url),"utf8");
 assert.ok(app.includes('fetch("/api/app-session",{method:"GET"'),"refresh restores verified app session");
 assert.ok(app.includes("sessionChecking"),"login screen does not flicker before session check");
-assert.ok(app.includes("remember:rememberLogin"),"optional seven-day persistence");
+assert.ok(app.includes("remember:true"),"seven-day session is now automatic without checkbox");
+assert.ok(!app.includes("rememberLogin"),"no opt-in checkbox for remembering login");
 assert.ok(app.includes('fetch("/api/app-session",{method:"DELETE"'),"logout clears persistent session");
 assert.ok(api.includes('matchesLegacyPassword(password,user)'),"server independently validates password");
 assert.ok(editor.includes('onScroll={sourceBytes?trackVisiblePage:undefined}'),"scrolling updates current page");
