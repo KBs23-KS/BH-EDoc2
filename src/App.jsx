@@ -3288,7 +3288,8 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
     if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
     if (docType === "คำสั่งโรงเรียน" && !chosenReservation) return showToast("กรุณาเลือกเลขคำสั่งที่จองไว้ก่อน", "error");
-    if (docType === "คำสั่งโรงเรียน" && !rawFiles.some(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"))) return showToast("กรุณาแนบ PDF สำหรับเสนอ ผอ.ลงนาม", "error");
+    if (isSinglePdfDocument(docType) && (rawFiles.length !== 1 || !isPdfUpload(rawFiles[0])))
+      return showToast("คำสั่งและหนังสือเวียนต้องแนบ PDF เพียง 1 ไฟล์เพื่อเสนอ ผอ. ลงนาม", "error");
     const number=docType==="คำสั่งโรงเรียน"?chosenReservation?.orderNumber:form.docNumber;
     const possibleDup=documents.filter(d=>d.type===docType && !d.isDeleted && ((number&&d.docNumber===number)||(d.subject||"").trim().toLowerCase()===form.subject.trim().toLowerCase()));
     if(possibleDup.length&&!window.confirm("พบเอกสารที่มีเลขที่หรือชื่อเรื่องเหมือนกัน "+possibleDup.length+" รายการ\nคุณต้องการบันทึกต่อหรือไม่?"))return;
@@ -3442,10 +3443,16 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
 
         <div className="border-2 border-dashed border-gray-300 p-4 sm:p-6 rounded-lg bg-gray-50 text-center hover:bg-gray-100 transition-colors">
           <FileIcon className="mx-auto h-8 w-8 sm:h-10 sm:w-10 text-gray-400 mb-2" />
-          <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">อัปโหลดไฟล์แนบ</label>
+          <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">{docType === "หนังสือเข้า" ? "อัปโหลดไฟล์แนบ (เลือกเพิ่มสะสมได้)" : "อัปโหลด PDF หลัก (1 ไฟล์)"}</label>
           <label className="cursor-pointer text-xs sm:text-sm bg-white border border-blue-300 text-blue-600 px-3 sm:px-4 py-2 rounded-lg inline-block shadow-sm hover:bg-blue-50 font-medium">
             คลิกเลือกไฟล์
-            <input type="file" multiple onChange={(e) => setRawFiles(Array.from(e.target.files))} accept=".pdf,image/*" className="hidden" />
+            <input type="file" multiple={docType === "หนังสือเข้า"} accept={docType === "หนังสือเข้า" ? ".pdf,image/*" : ".pdf,application/pdf"}
+               onChange={e => {
+                 const chosen = Array.from(e.target.files || []);
+                 e.target.value = "";
+                 if (docType === "หนังสือเข้า") setRawFiles(prev => [...prev, ...chosen.filter(f => !prev.some(p => isSameUpload(p, f)))]);
+                 else setRawFiles(chosen.slice(0, 1));
+               }} className="hidden" />
           </label>
           {rawFiles.length > 0 && (
             <div className="mt-4 space-y-2 text-left">
@@ -3453,6 +3460,8 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
                 <div key={i} className="text-[10px] sm:text-xs bg-white border border-gray-200 p-2 rounded shadow-sm flex items-center justify-between">
                   <span className="font-bold text-gray-700 truncate pr-2">{f.name}</span>
                   <span className="text-gray-400 shrink-0">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                  <button type="button" onClick={() => setRawFiles(prev => prev.filter((_, idx) => idx !== i))}
+                    className="text-red-600 border border-red-200 bg-red-50 rounded px-2 py-1 font-bold shrink-0" aria-label={`ลบไฟล์ ${f.name}`}>ลบ</button>
                 </div>
               ))}
             </div>
