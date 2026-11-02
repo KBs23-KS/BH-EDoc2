@@ -337,26 +337,17 @@
   .bhs-new-today-badge {animation:none;}
 }
 
-/* Long Thai subjects/PDF names must never steal the action/status column.
-   Wide layouts use details/status 80:20. When 20% is smaller than 230px,
-   status/actions reserve 230px, naturally shifting toward roughly 70:30 on
-   narrower tablets/laptops. Phones still use the existing stacked cards. */
+/* The actual 70:30 split comes from <colgroup> in AdvancedSearchTable.
+   Never size table cells independently: those widths do not reliably determine
+   column ratios under table-layout:fixed and caused a visible 50:50 layout. */
 @media (min-width:721px){
   .bhs-luxury-main .bhs-doc-table{
     table-layout:fixed;
     width:100%;
     max-width:100%;
   }
-  .bhs-luxury-main .bhs-doc-table thead th:first-child,
-  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:first-child{
-    width:calc(100% - max(20%, 230px));
-    min-width:0;
-  }
-  .bhs-luxury-main .bhs-doc-table thead th:last-child,
-  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:last-child{
-    width:max(20%, 230px);
-    min-width:0;
-  }
+  .bhs-luxury-main .bhs-doc-table col.bhs-doc-details-column{width:70%}
+  .bhs-luxury-main .bhs-doc-table col.bhs-doc-status-column{width:30%}
 }
 .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td a{
   overflow-wrap:anywhere;
@@ -424,5 +415,49 @@
   }
   .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:first-child{
     border-left:0!important;
+  }
+}
+
+/* iPad in portrait orientation: card rows instead of tiny 70:30 columns.
+   Keep the landscape iPad / desktop two-column register and 720px phone cards. */
+@media (max-width:720px), (orientation:portrait) and (min-width:721px) and (max-width:1100px){
+  .bhs-luxury-main .bhs-doc-table colgroup{display:none!important}
+}
+@media (orientation:portrait) and (min-width:721px) and (max-width:1100px){
+  .bhs-luxury-main .bhs-doc-table{
+    display:block!important;
+    width:100%!important;
+    min-width:0!important;
+    table-layout:auto;
+  }
+  .bhs-luxury-main .bhs-doc-table thead{display:none!important}
+  .bhs-luxury-main .bhs-doc-table tbody{
+    display:grid;
+    gap:12px;
+    padding:12px;
+    background:#f6f8fc;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record{
+    display:block;
+    border:1px solid #e4ecf7;
+    border-left:4px solid #b1c6e2;
+    border-radius:14px;
+    background:#fff!important;
+    box-shadow:0 3px 12px rgba(21,66,125,.04);
+    overflow:hidden;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record:nth-child(even){
+    border-left-color:#75a4e3;
+    background:#f6f9fd!important;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td{
+    display:block;
+    width:100%!important;
+    min-width:0!important;
+    padding:14px!important;
+    border:0!important;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td+td{
+    border-top:1px solid #dbe6f4!important;
   }
 }
