@@ -2648,6 +2648,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
     <div className="space-y-4 md:space-y-6">
       {signDoc && <PdfSignatureEditor
         document={signDoc}
+        username={currentUser.username}
         onCancel={()=>setSignDoc(null)}
         onSubmit={async file=>submitAction(signDoc,"APPROVE",file)}
         busy={processingId === signDoc.id}
