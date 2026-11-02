@@ -2383,11 +2383,28 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   
   const handleRestore = async (docId) => {
     try {
-      if(documents.find(d=>d.id===docId)?.trialArchived)
+      if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้นที่กู้คืนจากถังขยะได้");
+      const item=documents.find(d=>d.id===docId);
+      if(item?.trialArchived)
         throw new Error("รายการทดลองต้องกู้คืนที่เมนูเลขคำสั่งโรงเรียน เพื่อให้เลขและคำสั่งตรงกัน");
-      await updateDoc(getDocumentRef(DOCS_PATH, docId), { isDeleted: false });
-      writeAuditLog(currentUser, "กู้คืนเอกสาร", "DOCUMENT", docId, "กู้คืนเอกสารจากถังขยะ");
-      showToast("กู้คืนเอกสารสำเร็จ", "success");
+      if(item?.type==="หนังสือเข้า"){
+        await withIncomingNumberLock({number:item.docNumber,date:item.date,exceptId:docId,
+          apply:async tx=>{
+            const ref=getDocumentRef(DOCS_PATH,docId),snapshot=await tx.get(ref);
+            if(!snapshot.exists()||!snapshot.data().isDeleted||snapshot.data().type!=="หนังสือเข้า")
+              throw new Error("ข้อมูลในถังขยะเปลี่ยนไป กรุณาเปิดใหม่");
+            if(snapshot.data().docNumber!==item.docNumber||snapshot.data().date!==item.date)
+              throw new Error("เลขรับหรือวันที่เปลี่ยน กรุณาเปิดใหม่");
+            const now=Date.now();
+            tx.update(ref,{isDeleted:false,deletedAt:null,deletedBy:null,
+              history:arrayUnion({action:"กู้คืนหนังสือเข้า",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp:now,detail:item.docNumber||"-"})});
+            tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"กู้คืนเอกสาร","DOCUMENT",docId,`กู้คืนหนังสือเข้า เลขรับ ${item.docNumber||"-"}`));
+          }
+        });
+      }else{
+        await commitDocumentWithAudit(currentUser,docId,{isDeleted:false,deletedAt:null,deletedBy:null},"กู้คืนเอกสาร","กู้คืนเอกสารจากถังขยะ");
+      }
+      showToast("กู้คืนเอกสารสำเร็จ","success");
     } catch(err) { showToast(err.message, "error"); }
   };
 
@@ -3335,6 +3352,12 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
     if (isSubmitting)return;
     if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
+    if (docType==="หนังสือเข้า"&&!["admin","clerk"].includes(currentUser.role))
+      return showToast("เฉพาะเจ้าหน้าที่ธุรการหรือแอดมินที่ลงทะเบียนหนังสือเข้าได้","error");
+    if (docType==="หนังสือเข้า"&&!String(form.docNumber||"").trim())
+      return showToast("กรุณาระบุเลขรับหนังสือเข้า","error");
+    if (docType==="หนังสือเข้า"&&incomingNumberConflict(documents,form.docNumber,form.date))
+      return showToast("เลขรับหนังสือเข้าซ้ำกับรายการที่มีอยู่ กรุณาตรวจสอบก่อนบันทึก","error");
     if (docType === "คำสั่งโรงเรียน" && !chosenReservation) return showToast("กรุณาเลือกเลขคำสั่งที่จองไว้ก่อน", "error");
     if (isSinglePdfDocument(docType) && (rawFiles.length !== 1 || !isPdfUpload(rawFiles[0])))
       return showToast("คำสั่งและหนังสือเวียนต้องแนบ PDF เพียง 1 ไฟล์เพื่อเสนอ ผอ. ลงนาม", "error");
@@ -3359,7 +3382,7 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
       
       const newDoc = {
         subject: form.subject, 
-        docNumber: docType === "คำสั่งโรงเรียน" ? chosenReservation.orderNumber : docType === "หนังสือเข้า" ? form.docNumber : "",
+        docNumber: docType === "คำสั่งโรงเรียน" ? chosenReservation.orderNumber : docType === "หนังสือเข้า" ? form.docNumber.trim() : "",
         reservationId: docType === "คำสั่งโรงเรียน" ? chosenReservation.id : null,
         date: form.date, 
         urgency: docType === "หนังสือเข้า" ? form.urgency : "ปกติ",
@@ -3392,6 +3415,13 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
           tx.set(getDocumentRef(DOCS_PATH, newDocId), newDoc);
           tx.update(resRef, { status: "linked", linkedDocumentId: newDocId, linkedAt: Date.now() });
           tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"สร้างเอกสาร","DOCUMENT",newDocId,`${newDoc.docNumber}: ${form.subject}`));
+        });
+      } else if (docType === "หนังสือเข้า") {
+        await withIncomingNumberLock({number:newDoc.docNumber,date:newDoc.date,
+          apply:async tx=>{
+            tx.set(getDocumentRef(DOCS_PATH,newDocId),newDoc);
+            tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"ลงทะเบียนหนังสือเข้า","DOCUMENT",newDocId,`เลขรับ ${newDoc.docNumber}: ${newDoc.subject}`));
+          }
         });
       } else {
         const batch = writeBatch(db);
