@@ -977,7 +977,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                         {shownNotifications.map(notif => (
                           <div key={notif.id} className="p-3.5 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => {
                             setIsNotifOpen(false);
-                            if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
+                            if (notif.id.startsWith("ret-")) setActiveMenu("mydocs");
+                             else if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
                           }}>
                             <div className="flex gap-3 items-start">
                                <div className={`mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm ${notif.type === 'warning' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' : notif.type === 'error' ? 'bg-red-100 text-red-600 border-red-200' : 'bg-blue-100 text-blue-600 border-blue-200'}`}>
@@ -2351,7 +2352,7 @@ function MyDocsView({ documents, currentUser, dbUsers, systemSettings, showToast
   return (
     <div className="space-y-4">
       <h2 className="text-lg md:text-xl font-bold text-gray-800">เอกสารที่ดำเนินการ</h2>
-      <AdvancedSearchTable documents={myDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} hideFilters={false} showToast={showToast} />
+      <AdvancedSearchTable documents={myDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} hideFilters={false} prioritizeReturned showToast={showToast} />
     </div>
   );
 }
@@ -2676,7 +2677,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
   );
 }
 
-function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSettings, hideFilters = false, allowAcknowledge = false, showToast }) {
+function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSettings, hideFilters = false, allowAcknowledge = false, prioritizeReturned = false, showToast }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -2730,6 +2731,8 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
 
   useEffect(()=>setPage(1),[search,filterType,filterStatus,filterDate,filterYear,pageSize]);
   const sortedFiltered = sortUrgency(filtered);
+  if (prioritizeReturned) sortedFiltered.sort((a, b) =>
+    Number(b.status === DOC_STATUS.RETURNED) - Number(a.status === DOC_STATUS.RETURNED));
   const pagedDocs = sortedFiltered.slice((page-1)*pageSize, page*pageSize);
   const isAcknowledgeRole = ["clerk", "teacher"].includes(currentUser.role);
   
