@@ -336,3 +336,63 @@
 @media (prefers-reduced-motion:reduce) {
   .bhs-new-today-badge {animation:none;}
 }
+
+/* BHS Document Register Readability 2026-11-02
+   Shared by incoming letters, published orders, circulars and the owner's list.
+   Presentation only; no impact on document state or signing. */
+.bhs-luxury-main .bhs-doc-table{
+  border-collapse:separate;
+  border-spacing:0;
+}
+.bhs-luxury-main .bhs-doc-table thead th{
+  background:#f1f5fb;
+  border-bottom:1px solid #d7e1ee;
+  color:#45617f;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record:nth-child(odd){
+  background:#fff;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record:nth-child(even){
+  background:#f6f9fd;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record:hover{
+  background:#eff6ff;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td{
+  padding-top:19px;
+  padding-bottom:19px;
+  border-bottom:1px solid #ccd9e9;
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:first-child{
+  border-left:3px solid #b1c6e2;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record:nth-child(even)>td:first-child{
+  border-left-color:#75a4e3;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td+td{
+  border-left:1px solid #e3eaf3;
+}
+@media(max-width:720px){
+  /* Keep the existing separate mobile cards; strengthen contrast, not density. */
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record:nth-child(odd){
+    background:#fff!important;
+    border-left:4px solid #b1c6e2;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record:nth-child(even){
+    background:#f6f9fd!important;
+    border-left:4px solid #75a4e3;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td{
+    padding:14px!important;
+    border-bottom:0!important;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td+td{
+    border-top:1px solid #dbe6f4!important;
+    border-left:0!important;
+  }
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:first-child{
+    border-left:0!important;
+  }
+}
