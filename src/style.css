@@ -24,6 +24,7 @@
 .bhs-luxury-nav-link.is-active .bhs-luxury-nav-icon{color:#d4b77e}
 .bhs-luxury-nav-text{flex:1;min-width:0}
 .bhs-luxury-nav-count{font-size:10px;color:#e7ca95;background:rgba(196,152,85,.16);border-radius:5px;padding:2px 6px;font-weight:700}
+.bhs-nav-count-alert{color:#fff;background:#dc2626;border-radius:999px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;padding:2px 6px;font-size:11px;box-shadow:0 0 0 2px rgba(220,38,38,.15)}
 .bhs-luxury-account{padding:17px 16px;display:flex;gap:9px;align-items:center;border-top:1px solid rgba(255,255,255,.1);background:rgba(0,0,0,.11)}
 .bhs-luxury-avatar{width:35px;height:35px;flex-shrink:0;border-radius:10px;background:rgba(211,181,128,.18);border:1px solid rgba(217,188,139,.24);color:#e7ca95;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
 .bhs-luxury-account-info{min-width:0;flex:1}
