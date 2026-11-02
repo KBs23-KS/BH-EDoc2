@@ -120,6 +120,10 @@ const DOC_STATUS = {
   RETURNED: "ส่งกลับแก้ไข",
 };
 
+const isSinglePdfDocument = type => ["คำสั่งโรงเรียน", "หนังสือเวียนแจ้งรับทราบ"].includes(type);
+const isPdfUpload = file => Boolean(file && (file.type === "application/pdf" || String(file.name || "").toLowerCase().endsWith(".pdf")));
+const isSameUpload = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+
 const DEFAULT_SETTINGS = {
   schoolName: "โรงเรียนบ้านแฮดศึกษา",
   schoolLogoText: "บ.ศ.",
@@ -169,6 +173,14 @@ function formatDateTime(ts) {
 }
 function getThaiDateLong() {
   return new Date().toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" });
+}
+
+function DocumentVersionBadge({ docObj }) {
+  const version = Number(docObj?.activeFileVersion || 1);
+  if (version < 2) return null;
+  return <span className="inline-flex items-center rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-[10px] md:text-[11px] font-bold text-green-800">
+    ฉบับแก้ไขล่าสุด (ฉบับที่ {version})
+  </span>;
 }
 
 function StatusBadge({ status }) {
@@ -833,7 +845,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     { id: "orders", label: "คำสั่งโรงเรียน", icon: <FileText size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"], badge: ordersUnreadCount },
     { id: "outgoing_reservations", label: "ขอเลขที่หนังสือออก", icon: <FileUp size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"] },
     { id: "circulars", label: "หนังสือเวียนแจ้งรับทราบ", icon: <Bell size={20} />, roles: ["admin", "director", "deputy", "clerk", "teacher"], badge: circularsUnreadCount },
-    { id: "mydocs", label: "เอกสารที่ดำเนินการ", icon: <Send size={20} />, roles: ["admin", "clerk", "teacher"] },
+    { id: "mydocs", label: "เอกสารที่ดำเนินการ", icon: <Send size={20} />, roles: ["admin", "clerk", "teacher"], badge: returnedDocs.length, badgeKind: "returned" },
     { id: "users", label: "จัดการผู้ใช้งาน", icon: <Users size={20} />, roles: ["admin"] },
     { id: "settings", label: "ตั้งค่าระบบ", icon: <Settings size={20} />, roles: ["admin"] },
     { id: "audit", label: "Audit Log (ประวัติกิจกรรม)", icon: <ClipboardList size={20} />, roles: ["admin"] },
@@ -886,7 +898,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                   >
                     <span className={"bhs-luxury-nav-icon bhs-nav-icon-"+m.id}>{m.icon}</span>
                     <span className="bhs-luxury-nav-text">{m.label}</span>
-                    {m.badge > 0 && <span className="bhs-luxury-nav-count">{m.badge > 99 ? "99+" : m.badge}</span>}
+                    {m.badge > 0 && <span className={`bhs-luxury-nav-count ${m.badgeKind === "returned" ? "bhs-nav-count-alert" : ""}`}>{m.badge > 99 ? "99+" : m.badge}</span>}
                   </button>
                 ))}
               </nav>
@@ -965,7 +977,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                         {shownNotifications.map(notif => (
                           <div key={notif.id} className="p-3.5 hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => {
                             setIsNotifOpen(false);
-                            if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
+                            if (notif.id.startsWith("ret-")) setActiveMenu("mydocs");
+                             else if(notif.docId)openDocument(notif.docId);else setActiveMenu(notif.targetMenu);
                           }}>
                             <div className="flex gap-3 items-start">
                                <div className={`mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center border shadow-sm ${notif.type === 'warning' ? 'bg-yellow-100 text-yellow-600 border-yellow-200' : notif.type === 'error' ? 'bg-red-100 text-red-600 border-red-200' : 'bg-blue-100 text-blue-600 border-blue-200'}`}>
@@ -2339,7 +2352,7 @@ function MyDocsView({ documents, currentUser, dbUsers, systemSettings, showToast
   return (
     <div className="space-y-4">
       <h2 className="text-lg md:text-xl font-bold text-gray-800">เอกสารที่ดำเนินการ</h2>
-      <AdvancedSearchTable documents={myDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} hideFilters={false} showToast={showToast} />
+      <AdvancedSearchTable documents={myDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} hideFilters={false} prioritizeReturned showToast={showToast} />
     </div>
   );
 }
@@ -2426,15 +2439,6 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
 
   const handleInput = (id, key, value) => setInputs((prev) => ({ ...prev, [id]: { ...prev[id], [key]: value } }));
 
-  const handleRawFileChange = (docId, e) => {
-    const files = Array.from(e.target.files);
-    setInputs((prev) => ({ ...prev, [docId]: { ...prev[docId], rawSignedFiles: [...(prev[docId]?.rawSignedFiles || []), ...files] } }));
-  };
-
-  const removeRawFile = (docId, index) => {
-    setInputs((prev) => ({ ...prev, [docId]: { ...prev[docId], rawSignedFiles: prev[docId].rawSignedFiles.filter((_, i) => i !== index) } }));
-  };
-
   const submitAction = async (docObj, actionType, signedPdf = null) => {
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
       return showToast("กรุณาตั้งค่า GAS_WEB_APP_URL ให้ถูกต้องก่อนใช้งาน", "error");
@@ -2455,7 +2459,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
       }
     }
 
-    if (actionType === "APPROVE" && isDirectorStage && docObj.type === "คำสั่งโรงเรียน" && !signedPdf) {
+    if (actionType === "APPROVE" && isDirectorStage && isSinglePdfDocument(docObj.type) && !signedPdf) {
       setSignDoc(docObj);
       return;
     }
@@ -2500,8 +2504,8 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
 
       } else {
         let uploadedSignedFiles = [];
-        if (docObj.type === "คำสั่งโรงเรียน") {
-          if (!signedPdf) throw new Error("ต้องลงนาม PDF ก่อนอนุมัติคำสั่ง");
+        if (isSinglePdfDocument(docObj.type)) {
+          if (!signedPdf) throw new Error("ต้องลงนาม PDF ก่อนอนุมัติเอกสาร");
           setUploadStatus("กำลังจัดเก็บ PDF ที่ลงนามแล้ว...");
           // The signing page stays open after a failure; already uploaded file objects are reused.
           const originals=Array.isArray(signedPdf)?signedPdf:[signedPdf];
@@ -2517,8 +2521,6 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
           }
           uploadedSignedFiles=[...cached];
           if(uploadedSignedFiles.length!==originals.length)throw new Error("บันทึกไฟล์ลงนามไม่ครบ");
-        } else if (docInput.rawSignedFiles?.length) {
-          uploadedSignedFiles = await uploadMultipleFilesToDrive(docInput.rawSignedFiles, setUploadStatus);
         }
         const cmdTxt = docInput.command || "อนุมัติ / ดำเนินการ";
         setUploadStatus("กำลังบันทึกข้อมูลลงฐานระบบ...");
@@ -2587,6 +2589,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                 <div className="flex flex-wrap gap-2 mb-2 items-center">
                   <span className="text-[10px] md:text-[11px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">{docObj.type}</span>
                   <span className="text-[10px] md:text-[11px] font-bold px-2 py-0.5 bg-yellow-100 text-yellow-800 border border-yellow-200 rounded">{docObj.status}</span>
+                  <DocumentVersionBadge docObj={docObj} />
                   {docObj.urgency && docObj.urgency !== "ปกติ" && (
                      <span className={`text-[10px] md:text-[11px] font-bold px-2 py-0.5 rounded text-white ${docObj.urgency === 'ด่วนที่สุด' ? 'bg-red-600' : docObj.urgency === 'ด่วนมาก' ? 'bg-red-500' : 'bg-orange-500'}`}>
                        {docObj.urgency}
@@ -2656,21 +2659,6 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                         all={!!inputs[docObj.id]?.routeAll} setAll={v=>handleInput(docObj.id,"routeAll",v)} allowAll/>
                     </div>
                   )}
-                  {docObj.type === "หนังสือเวียนแจ้งรับทราบ" && (
-                    <div className="bg-gray-50 p-3 md:p-4 rounded-lg border border-gray-200">
-                      <label className="text-xs md:text-sm font-bold text-gray-700 block mb-2">แนบไฟล์ที่ลงนาม/เกษียณแล้ว</label>
-                      <label className="cursor-pointer text-xs md:text-sm bg-white border border-gray-300 px-3 md:px-4 py-2 rounded-lg inline-flex items-center hover:bg-gray-100 shadow-sm font-medium">
-                        <FileUp size={16} className="mr-2 text-blue-600 shrink-0" /> เลือกไฟล์
-                        <input type="file" className="hidden" multiple onChange={(e) => handleRawFileChange(docObj.id, e)} accept=".pdf,image/*" />
-                      </label>
-                      {inputs[docObj.id]?.rawSignedFiles?.map((f, i) => (
-                        <div key={i} className="flex justify-between items-center text-[10px] md:text-xs bg-white border border-green-200 mt-2 p-2 rounded shadow-sm">
-                          <span className="text-green-700 font-bold truncate pr-2">{f.name}</span>
-                          <button onClick={() => removeRawFile(docObj.id, i)} className="text-red-500 shrink-0"><X size={14} /></button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                   <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                     <button onClick={() => submitAction(docObj, "APPROVE")} disabled={processingId === docObj.id} className="w-full sm:flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-bold shadow-md flex justify-center items-center">
                       {processingId === docObj.id ? <><Loader2 className="animate-spin mr-2" size={18} /> {uploadStatus}</> : <><CheckCircle size={18} className="mr-2 shrink-0" /> {["คำสั่งโรงเรียน","หนังสือเวียนแจ้งรับทราบ"].includes(docObj.type)?"ลงนาม / อนุมัติ":"อนุมัติ / สั่งการ"}</>}
@@ -2689,7 +2677,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
   );
 }
 
-function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSettings, hideFilters = false, allowAcknowledge = false, showToast }) {
+function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSettings, hideFilters = false, allowAcknowledge = false, prioritizeReturned = false, showToast }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -2743,6 +2731,8 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
 
   useEffect(()=>setPage(1),[search,filterType,filterStatus,filterDate,filterYear,pageSize]);
   const sortedFiltered = sortUrgency(filtered);
+  if (prioritizeReturned) sortedFiltered.sort((a, b) =>
+    Number(b.status === DOC_STATUS.RETURNED) - Number(a.status === DOC_STATUS.RETURNED));
   const pagedDocs = sortedFiltered.slice((page-1)*pageSize, page*pageSize);
   const isAcknowledgeRole = ["clerk", "teacher"].includes(currentUser.role);
   
@@ -2815,30 +2805,29 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleResubmit = async () => {
-    if (!resubmitForm.subject) return showToast("กรุณาระบุชื่อเรื่อง", "error");
+    if (!resubmitForm.subject.trim()) return showToast("กรุณาระบุชื่อเรื่อง", "error");
+    if (!resubmitNewFiles.length) return showToast("กรุณาอัปโหลดไฟล์ฉบับแก้ไขใหม่ก่อนส่งเรื่อง", "error");
+    if (isSinglePdfDocument(docToResubmit.type) && (resubmitNewFiles.length !== 1 || !isPdfUpload(resubmitNewFiles[0])))
+      return showToast("คำสั่งและหนังสือเวียนต้องใช้ PDF ใหม่เพียง 1 ไฟล์", "error");
     setIsResubmitting(true);
     setResubmitStatus("เตรียมส่งเรื่องใหม่...");
     try {
-      let uploadedFiles = [];
-      if (resubmitNewFiles.length > 0) {
-        uploadedFiles = await uploadMultipleFilesToDrive(resubmitNewFiles, setResubmitStatus);
-      }
+      const uploadedFiles = await uploadMultipleFilesToDrive(resubmitNewFiles, setResubmitStatus);
       setResubmitStatus("กำลังอัปเดตระบบ...");
-      
-      const newFilesArray = uploadedFiles.length ? uploadedFiles : (docToResubmit.files || []);
-      const nextVersion = (docToResubmit.activeFileVersion || 1) + (uploadedFiles.length ? 1 : 0);
+      const nextVersion = (docToResubmit.activeFileVersion || 1) + 1;
       const previousVersions = docToResubmit.fileVersions || [{ version:1, files:docToResubmit.files || [], timestamp:docToResubmit.createdAt || Date.now() }];
-      
-      await commitDocumentWithAudit(currentUser, docToResubmit.id, {
+      await commitCheckedAction(currentUser, docToResubmit, {
         subject: resubmitForm.subject,
-        files: newFilesArray,
-        fileVersions: uploadedFiles.length ? [...previousVersions, {version:nextVersion,files:newFilesArray,timestamp:Date.now(),reason:"ส่งกลับแก้ไข"}] : previousVersions,
+        files: uploadedFiles,
+        fileVersions: [...previousVersions, { version:nextVersion, files:uploadedFiles, timestamp:Date.now(), reason:"ส่งกลับแก้ไข" }],
         activeFileVersion: nextVersion,
         status: DOC_STATUS.WAITING_DEPUTY,
         rejectReason: "",
         deputyComment: "",
         directorCommand: "",
-        history: arrayUnion({ action: "แก้ไขและส่งเรื่องใหม่", by: currentUser.id, byName: currentUser.name, role: ROLES[currentUser.role.toUpperCase()]?.name, timestamp: Date.now(), detail: "ส่งกลับเข้ากระบวนการอีกครั้ง" })
+        signedFiles: [],
+        lastEventAt: Date.now(),
+        history: arrayUnion({ action: "แก้ไขและส่งเรื่องใหม่", by: currentUser.id, byName: currentUser.name, role: ROLES[currentUser.role.toUpperCase()]?.name, timestamp: Date.now(), detail: "ส่งกลับเข้ากระบวนการอีกครั้ง (ฉบับที่ " + nextVersion + ")" })
       }, "แก้ไขและส่งเรื่องใหม่", resubmitForm.subject);
       showToast("ส่งเรื่องกลับเข้าสู่กระบวนการพิจารณาแล้ว", "success");
       setDocToResubmit(null);
@@ -2929,6 +2918,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                        </span>
                     )}
                     {docObj.subject}
+                    <DocumentVersionBadge docObj={docObj} />
                     <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5 whitespace-nowrap">แนบ {(docObj.files?.length||0)+(docObj.signedFiles?.length||0)+(docObj.extraAttachments?.length||0)} ไฟล์</span>
                     {docObj.date === getTodayIso() && <span className="bhs-new-today-badge text-[10px] md:text-[11px] font-extrabold px-2.5 py-0.5 rounded-full whitespace-nowrap">ใหม่ วันนี้</span>}
                   </div>
@@ -3042,7 +3032,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
       {versionsDoc && <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center p-4"><div className="bg-white rounded-xl p-5 max-w-lg w-full max-h-[80vh] overflow-y-auto space-y-3">
         <h3 className="font-bold">ประวัติไฟล์: {versionsDoc.subject}</h3>
         {(versionsDoc.fileVersions || [{version:1,files:versionsDoc.files||[]}]).map((v,i)=><div key={i} className="border rounded p-3">
-          <p className="font-bold text-sm">ฉบับที่ {v.version} {v.version === versionsDoc.activeFileVersion && "(ล่าสุด)"}</p>
+          <p className="font-bold text-sm">ฉบับที่ {v.version} {v.version === (versionsDoc.activeFileVersion || 1) ? "(ล่าสุด — ใช้พิจารณา/ลงนาม)" : "(ฉบับเก่า — ไม่ใช้ลงนาม)"}</p>
           {(v.files||[]).map((f,j)=><a key={j} href={f.url} target="_blank" rel="noreferrer" className="block text-blue-600 text-sm underline">{f.name}</a>)}
         </div>)}
         <button className="border rounded p-2" onClick={()=>setVersionsDoc(null)}>ปิด</button>
@@ -3144,10 +3134,18 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                 <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" value={resubmitForm.subject} onChange={(e) => setResubmitForm({ ...resubmitForm, subject: e.target.value })} />
               </div>
               <div className="bg-gray-50 p-3 sm:p-4 rounded-lg border border-gray-200">
-                <label className="text-xs sm:text-sm font-bold text-gray-700 block mb-2">แนบไฟล์เพิ่มเติม (ไฟล์เดิมจะยังอยู่ครบ)</label>
+                <label className="text-xs sm:text-sm font-bold text-gray-700 block mb-2">{isSinglePdfDocument(docToResubmit.type) ? "อัปโหลด PDF ฉบับแก้ไขใหม่ 1 ไฟล์ *" : "อัปโหลดไฟล์ฉบับแก้ไขใหม่ * (เลือกเพิ่มสะสมได้)"}</label>
+                <p className="text-[11px] text-gray-500 mb-2">ไฟล์เดิมจะถูกเก็บในประวัติ ไม่ใช้พิจารณาหรือลงนามในรอบใหม่</p>
                 <label className="cursor-pointer text-xs sm:text-sm bg-white border border-gray-300 px-3 sm:px-4 py-2 rounded-lg inline-flex items-center hover:bg-gray-100 shadow-sm font-medium">
-                  <FileUp size={16} className="mr-2 text-blue-600 shrink-0" /> เลือกไฟล์เพิ่ม
-                  <input type="file" className="hidden" multiple onChange={(e) => setResubmitNewFiles(Array.from(e.target.files))} accept=".pdf,image/*" />
+                  <FileUp size={16} className="mr-2 text-blue-600 shrink-0" /> {isSinglePdfDocument(docToResubmit.type) ? "เลือก PDF ใหม่" : "เลือกไฟล์เพิ่ม"}
+                  <input type="file" className="hidden" multiple={!isSinglePdfDocument(docToResubmit.type)}
+                    accept={isSinglePdfDocument(docToResubmit.type) ? ".pdf,application/pdf" : ".pdf,image/*"}
+                    onChange={e => {
+                      const chosen = Array.from(e.target.files || []);
+                      e.target.value = "";
+                      if (isSinglePdfDocument(docToResubmit.type)) setResubmitNewFiles(chosen.slice(0, 1));
+                      else setResubmitNewFiles(prev => [...prev, ...chosen.filter(f => !prev.some(p => isSameUpload(p, f)))]);
+                    }} />
                 </label>
                 {resubmitNewFiles.map((f, i) => (
                   <div key={i} className="flex justify-between items-center text-[10px] md:text-xs bg-white border border-blue-200 mt-2 p-2 rounded shadow-sm">
@@ -3274,7 +3272,8 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
     if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
     if (docType === "คำสั่งโรงเรียน" && !chosenReservation) return showToast("กรุณาเลือกเลขคำสั่งที่จองไว้ก่อน", "error");
-    if (docType === "คำสั่งโรงเรียน" && !rawFiles.some(f => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"))) return showToast("กรุณาแนบ PDF สำหรับเสนอ ผอ.ลงนาม", "error");
+    if (isSinglePdfDocument(docType) && (rawFiles.length !== 1 || !isPdfUpload(rawFiles[0])))
+      return showToast("คำสั่งและหนังสือเวียนต้องแนบ PDF เพียง 1 ไฟล์เพื่อเสนอ ผอ. ลงนาม", "error");
     const number=docType==="คำสั่งโรงเรียน"?chosenReservation?.orderNumber:form.docNumber;
     const possibleDup=documents.filter(d=>d.type===docType && !d.isDeleted && ((number&&d.docNumber===number)||(d.subject||"").trim().toLowerCase()===form.subject.trim().toLowerCase()));
     if(possibleDup.length&&!window.confirm("พบเอกสารที่มีเลขที่หรือชื่อเรื่องเหมือนกัน "+possibleDup.length+" รายการ\nคุณต้องการบันทึกต่อหรือไม่?"))return;
@@ -3428,10 +3427,16 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
 
         <div className="border-2 border-dashed border-gray-300 p-4 sm:p-6 rounded-lg bg-gray-50 text-center hover:bg-gray-100 transition-colors">
           <FileIcon className="mx-auto h-8 w-8 sm:h-10 sm:w-10 text-gray-400 mb-2" />
-          <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">อัปโหลดไฟล์แนบ</label>
+          <label className="block text-xs sm:text-sm font-bold text-gray-700 mb-2">{docType === "หนังสือเข้า" ? "อัปโหลดไฟล์แนบ (เลือกเพิ่มสะสมได้)" : "อัปโหลด PDF หลัก (1 ไฟล์)"}</label>
           <label className="cursor-pointer text-xs sm:text-sm bg-white border border-blue-300 text-blue-600 px-3 sm:px-4 py-2 rounded-lg inline-block shadow-sm hover:bg-blue-50 font-medium">
             คลิกเลือกไฟล์
-            <input type="file" multiple onChange={(e) => setRawFiles(Array.from(e.target.files))} accept=".pdf,image/*" className="hidden" />
+            <input type="file" multiple={docType === "หนังสือเข้า"} accept={docType === "หนังสือเข้า" ? ".pdf,image/*" : ".pdf,application/pdf"}
+               onChange={e => {
+                 const chosen = Array.from(e.target.files || []);
+                 e.target.value = "";
+                 if (docType === "หนังสือเข้า") setRawFiles(prev => [...prev, ...chosen.filter(f => !prev.some(p => isSameUpload(p, f)))]);
+                 else setRawFiles(chosen.slice(0, 1));
+               }} className="hidden" />
           </label>
           {rawFiles.length > 0 && (
             <div className="mt-4 space-y-2 text-left">
@@ -3439,6 +3444,8 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
                 <div key={i} className="text-[10px] sm:text-xs bg-white border border-gray-200 p-2 rounded shadow-sm flex items-center justify-between">
                   <span className="font-bold text-gray-700 truncate pr-2">{f.name}</span>
                   <span className="text-gray-400 shrink-0">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                  <button type="button" onClick={() => setRawFiles(prev => prev.filter((_, idx) => idx !== i))}
+                    className="text-red-600 border border-red-200 bg-red-50 rounded px-2 py-1 font-bold shrink-0" aria-label={`ลบไฟล์ ${f.name}`}>ลบ</button>
                 </div>
               ))}
             </div>
