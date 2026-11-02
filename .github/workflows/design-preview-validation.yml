@@ -60,5 +60,7 @@ jobs:
         run: node tests/login-order-layout-regression-test.mjs
       - name: Official school crest and approved login design regression
         run: node tests/login-official-crest-regression-test.mjs
+      - name: Original-name signed PDF and remembered username regression
+        run: node tests/signed-pdf-filename-and-remember-username-test.mjs
       - name: Vite production build
         run: npm run build

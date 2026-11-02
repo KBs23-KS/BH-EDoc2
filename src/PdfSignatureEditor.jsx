@@ -3,6 +3,7 @@ import * as pdfjs from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument, rgb } from "pdf-lib";
 import {readLocalSignaturePdf,signaturePdfNamesMatch} from "./signatureLocalPdf.js";
+import {signedPdfFileName} from "./signedPdfFileName.js";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -227,7 +228,7 @@ export function PdfSignatureEditor({ document, onCancel, onSubmit, busy }) {
       }
       const bytes=await pdf.save();
       const original=sourceFiles[fileIndex];
-      const file=new File([bytes],`signed-${document.docNumber?.replace("/","-")||document.id}-${fileIndex+1}.pdf`,{type:"application/pdf"});
+      const file=new File([bytes],signedPdfFileName(original?.name,`เอกสาร-${fileIndex+1}`),{type:"application/pdf"});
       const next=[...allSigned,file];
       if(fileIndex<sourceFiles.length-1){setAllSigned(next);setFileIndex(i=>i+1);}
       else await onSubmit(next);

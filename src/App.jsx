@@ -349,13 +349,20 @@ const Toast = ({ message, type = "info", onClose }) => {
   );
 };
 
+const LOGIN_USERNAME_STORAGE_KEY="bhs-edoc-remembered-username-v1";
+function readRememberedUsername(){
+  try{return window.localStorage.getItem(LOGIN_USERNAME_STORAGE_KEY)||"";}
+  catch{return "";}
+}
+
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [activeProfile, setActiveProfile] = useState(null);
   const [dbUsers, setDbUsers] = useState([]);
   const [systemSettings, setSystemSettings] = useState(null);
   
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(readRememberedUsername);
+  const [rememberUsername,setRememberUsername] = useState(()=>Boolean(readRememberedUsername()));
   const [password, setPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -466,6 +473,10 @@ export default function App() {
             console.warn("Automatic signing session unavailable; manual PDF selection remains available.");
           } finally {clearTimeout(timeout);}
         }
+        try{
+          if(rememberUsername)window.localStorage.setItem(LOGIN_USERNAME_STORAGE_KEY,username.trim());
+          else window.localStorage.removeItem(LOGIN_USERNAME_STORAGE_KEY);
+        }catch{/* Browsers with restricted local storage can still log in normally. */}
         setActiveProfile(user);
         writeAuditLog(user, "เข้าสู่ระบบ", "AUTH", user.id, "เข้าสู่ระบบสำเร็จ");
         if (userPassword !== "123456") showToast(`เข้าสู่ระบบสำเร็จ: ${user.name}`, "success");
@@ -479,7 +490,7 @@ export default function App() {
       writeAuditLog(activeProfile, "ออกจากระบบ", "AUTH", activeProfile.id, "ออกจากระบบสำเร็จ");
     }
     setActiveProfile(null);
-    setUsername("");
+    setUsername(rememberUsername?readRememberedUsername():"");
     setPassword("");
     setShowLoginPassword(false);
   };
@@ -602,6 +613,19 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#405774]">
+                <input
+                  type="checkbox"
+                  checked={rememberUsername}
+                  onChange={(e)=>{
+                    const checked=e.target.checked;
+                    setRememberUsername(checked);
+                    if(!checked)try{window.localStorage.removeItem(LOGIN_USERNAME_STORAGE_KEY);}catch{}
+                  }}
+                  className="h-4 w-4 rounded border-[#ADC4E0] accent-[#1555A5]"
+                />
+                จดจำชื่อผู้ใช้บนอุปกรณ์นี้
+              </label>
               <button
                 type="submit"
                 disabled={loading || dbUsers.length === 0}
