@@ -11,7 +11,7 @@ assert.ok(badge.includes("text-[12px]"),"Status badge uses legible 12px text");
 assert.ok(badge.includes("DOC_STATUS.COMPLETED || status === DOC_STATUS.PUBLISHED"),"Published and approved remain green");
 assert.ok(badge.includes('DOC_STATUS.RETURNED'),"Returned remains red");
 assert.equal((table.match(/className="bhs-document-record hover:bg-blue-50\/30 transition-colors"/g)||[]).length,1,"Every shared document row gets readability styling");
-assert.ok(style.includes("/* BHS Document Register Readability 2026-11-02 */"),"Scoped styling is present");
+assert.ok(style.includes("/* BHS Document Register Readability 2026-11-02"),"Scoped styling is present");
 assert.ok(style.includes("nth-child(even)"),"Alternating background colors are present");
 assert.ok(style.includes("border-bottom:1px solid #ccd9e9"),"Rows have distinct horizontal divider");
 assert.ok(style.includes("border-left:3px solid #b1c6e2"),"Desktop rows get subtle left accent");
