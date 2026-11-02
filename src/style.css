@@ -337,6 +337,35 @@
   .bhs-new-today-badge {animation:none;}
 }
 
+/* Ensure long Thai subjects/PDF names never steal the actions/status column.
+   On desktop/tablet, the status/actions column always gets 30% of the table.
+   Mobile retains the stacked full-width card layout defined below. */
+@media (min-width:721px){
+  .bhs-luxury-main .bhs-doc-table{
+    table-layout:fixed;
+    width:100%;
+    max-width:100%;
+  }
+  .bhs-luxury-main .bhs-doc-table thead th:first-child,
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:first-child{
+    width:70%;
+    min-width:0;
+  }
+  .bhs-luxury-main .bhs-doc-table thead th:last-child,
+  .bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td:last-child{
+    width:30%;
+    min-width:0;
+  }
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td a{
+  overflow-wrap:anywhere;
+}
+.bhs-luxury-main .bhs-doc-table tbody tr.bhs-document-record>td a .truncate{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
 /* BHS Document Register Readability 2026-11-02
    Shared by incoming letters, published orders, circulars and the owner's list.
    Presentation only; no impact on document state or signing. */
