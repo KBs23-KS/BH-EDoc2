@@ -1,5 +1,5 @@
 import {doc,runTransaction,arrayUnion,getDoc,writeBatch} from "firebase/firestore";
-import {audienceSnapshot,canHeadAct,isFinalDoc,routeMessage,assignmentKey,headGroups} from "./routing";
+import {audienceSnapshot,canHeadAct,isFinalDoc,isRoutingEligibleDoc,routeMessage,assignmentKey,headGroups} from "./routing";
 import {recipientsOf} from "./workflow";
 export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,user,users,settings,showToast}) {
  const audit=(name,id,detail)=>({action:name,userId:user.id,userName:user.name,role:user.role,targetType:"DOCUMENT",targetId:id,detail,timestamp:Date.now()});
@@ -13,7 +13,7 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
    if(!all&&!groups.length&&!userIds.length)throw new Error("กรุณาเลือกกลุ่มหรือครูผู้รับ");
    return guarded(()=>runTransaction(db,async tx=>{
      const ref=item(d.id),snap=await tx.get(ref);
-     if(!snap.exists()||snap.data().isDeleted||!isFinalDoc(snap.data()))throw new Error("เอกสารยังไม่เผยแพร่หรือถูกลบ");
+     if(!snap.exists()||!isRoutingEligibleDoc(snap.data()))throw new Error("เกษียณและมอบหมายต่อได้เฉพาะหนังสือเข้าที่อนุมัติแล้ว");
      const fresh=snap.data();
      const allowed=[...(settings.adminDepts||[]),...(settings.subjectAreas||[])];
      if(groups.some(g=>!allowed.includes(g)))throw new Error("กลุ่มผู้รับไม่ถูกต้อง");
@@ -37,7 +37,7 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
    if(userIds.some(id=>!active.some(u=>u.id===id&&(!subject||u.subjectArea===group))))throw new Error("เลือกผู้รับนอกขอบเขต");
    return guarded(()=>runTransaction(db,async tx=>{
      const ref=item(d.id),snap=await tx.get(ref);
-     if(!snap.exists()||snap.data().isDeleted||!isFinalDoc(snap.data()))throw new Error("เอกสารไม่พร้อมดำเนินการ");
+     if(!snap.exists()||!isRoutingEligibleDoc(snap.data()))throw new Error("เกษียณต่อได้เฉพาะหนังสือเข้าที่อนุมัติแล้ว");
      const fresh=snap.data();
      const routed=new Set([fresh.assignedTo,...(fresh.routingEntries||[]).flatMap(e=>e.groups||[])]);
      if(!routed.has(group))throw new Error("หนังสือไม่ได้ส่งถึงกลุ่มนี้");

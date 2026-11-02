@@ -59,7 +59,7 @@ import {
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
-import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp} from "./orderNumberPolicy";
+import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
@@ -240,6 +240,27 @@ const commitCheckedAction = async (user, item, updates, action, detail) => {
 const buddhistYear = (isoDate) => Number(String(isoDate || "").slice(0, 4)) + 543;
 const getNumberYear = (value) => Number(String(value || "").split("/")[1]);
 const uniqueId = (prefix = "ITEM") => `${prefix}-${crypto.randomUUID()}`;
+
+/** Serialize incoming-number writes per year; edits, registrations and restores share this lock. */
+async function withIncomingNumberLock({number,date,exceptId="",apply}) {
+  const year=incomingDocumentYear(date);
+  if(!String(number||"").trim())throw new Error("กรุณาระบุเลขรับหนังสือเข้า");
+  if(!year||year<2500||year>2999)throw new Error("วันที่หนังสือเข้าไม่ถูกต้อง");
+  const counterRef=getDocumentRef(COUNTERS_PATH,`INCOMING-${year}`);
+  const [before,docs]=await Promise.all([getDocFromServer(counterRef),getDocsFromServer(getCollectionRef(DOCS_PATH))]);
+  const duplicate=incomingNumberConflict(docs.docs.map(entry=>({id:entry.id,...entry.data()})),number,date,exceptId);
+  if(duplicate)throw new Error(`เลขรับ ${number} ซ้ำกับหนังสือเข้าในปี ${year} กรุณาเลือกเลขใหม่`);
+  return runTransaction(db,async tx=>{
+    const live=await tx.get(counterRef);
+    if(registerCounterStamp(live.exists()?live.data():null)!==
+       registerCounterStamp(before.exists()?before.data():null))
+      throw new Error("ทะเบียนหนังสือเข้ามีการเปลี่ยนแปลงระหว่างตรวจสอบ กรุณาลองบันทึกอีกครั้ง");
+    const result=await apply(tx);
+    const now=Date.now(),revision=(Number(live.exists()?live.data().revision:0)||0)+1;
+    tx.set(counterRef,{kind:"INCOMING",year,revision,updatedAt:now},{merge:true});
+    return result;
+  });
+}
 
 // The number cursor is admin-controlled. Only VISIBLE records block a number.
 // Read active records from the server and serialize all new writes through the yearly counter.
@@ -2362,11 +2383,28 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   
   const handleRestore = async (docId) => {
     try {
-      if(documents.find(d=>d.id===docId)?.trialArchived)
+      if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้นที่กู้คืนจากถังขยะได้");
+      const item=documents.find(d=>d.id===docId);
+      if(item?.trialArchived)
         throw new Error("รายการทดลองต้องกู้คืนที่เมนูเลขคำสั่งโรงเรียน เพื่อให้เลขและคำสั่งตรงกัน");
-      await updateDoc(getDocumentRef(DOCS_PATH, docId), { isDeleted: false });
-      writeAuditLog(currentUser, "กู้คืนเอกสาร", "DOCUMENT", docId, "กู้คืนเอกสารจากถังขยะ");
-      showToast("กู้คืนเอกสารสำเร็จ", "success");
+      if(item?.type==="หนังสือเข้า"){
+        await withIncomingNumberLock({number:item.docNumber,date:item.date,exceptId:docId,
+          apply:async tx=>{
+            const ref=getDocumentRef(DOCS_PATH,docId),snapshot=await tx.get(ref);
+            if(!snapshot.exists()||!snapshot.data().isDeleted||snapshot.data().type!=="หนังสือเข้า")
+              throw new Error("ข้อมูลในถังขยะเปลี่ยนไป กรุณาเปิดใหม่");
+            if(snapshot.data().docNumber!==item.docNumber||snapshot.data().date!==item.date)
+              throw new Error("เลขรับหรือวันที่เปลี่ยน กรุณาเปิดใหม่");
+            const now=Date.now();
+            tx.update(ref,{isDeleted:false,deletedAt:null,deletedBy:null,
+              history:arrayUnion({action:"กู้คืนหนังสือเข้า",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp:now,detail:item.docNumber||"-"})});
+            tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"กู้คืนเอกสาร","DOCUMENT",docId,`กู้คืนหนังสือเข้า เลขรับ ${item.docNumber||"-"}`));
+          }
+        });
+      }else{
+        await commitDocumentWithAudit(currentUser,docId,{isDeleted:false,deletedAt:null,deletedBy:null},"กู้คืนเอกสาร","กู้คืนเอกสารจากถังขยะ");
+      }
+      showToast("กู้คืนเอกสารสำเร็จ","success");
     } catch(err) { showToast(err.message, "error"); }
   };
 
@@ -2750,19 +2788,28 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const executeDeleteDoc = async () => {
-    if(!docToDelete) return;
+    if(!docToDelete)return;
     try {
-      await commitDocumentWithAudit(currentUser, docToDelete, {
-        isDeleted: true, deletedAt: Date.now(), deletedBy: currentUser.id
-      }, "ลบ/ซ่อนเอกสาร", "ย้ายเอกสารลงถังขยะ");
-      showToast("ย้ายเอกสารลงถังขยะแล้ว", "success");
-    } catch(err) {
-      showToast("ลบไม่สำเร็จ: " + err.message, "error");
-    }
-    setDocToDelete(null);
+      await runTransaction(db,async tx=>{
+        const ref=getDocumentRef(DOCS_PATH,docToDelete),snapshot=await tx.get(ref);
+        if(!snapshot.exists())throw new Error("ไม่พบเอกสาร");
+        const fresh=snapshot.data();
+        if(!canManageDocument(currentUser,fresh))throw new Error("ไม่มีสิทธิ์ลบเอกสารประเภทนี้");
+        if(fresh.isDeleted)throw new Error("เอกสารถูกย้ายลงถังขยะไปแล้ว");
+        const now=Date.now(),detail=`ย้ายลงถังขยะ: ${fresh.type} เลขรับ/เลขที่ ${fresh.docNumber||"-"} เรื่อง ${fresh.subject||"-"}`;
+        tx.update(ref,{
+          isDeleted:true,deletedAt:now,deletedBy:currentUser.id,
+          history:arrayUnion({action:"ย้ายลงถังขยะ",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp:now,detail})
+        });
+        tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"ลบ/ซ่อนเอกสาร","DOCUMENT",docToDelete,detail));
+      });
+      showToast("ย้ายเอกสารลงถังขยะแล้ว","success");
+      setDocToDelete(null);
+    }catch(err){showToast("ลบไม่สำเร็จ: "+err.message,"error");}
   };
 
   const openEditDocModal = (docObj) => {
+    if(!canManageDocument(currentUser,docObj))return showToast("ไม่มีสิทธิ์แก้ไขเอกสารประเภทนี้","error");
     setEditForm({ 
        subject: docObj.subject || "", 
        docNumber: docObj.docNumber || "",
@@ -2775,26 +2822,58 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleSaveEditDoc = async () => {
-    if(docToEdit?.type==="คำสั่งโรงเรียน"&&docToEdit?.reservationId&&editForm.docNumber!==docToEdit.docNumber)
+    if(!docToEdit||!canManageDocument(currentUser,docToEdit))
+      return showToast("ไม่มีสิทธิ์แก้ไขเอกสารประเภทนี้","error");
+    if(currentUser.role==="clerk"&&editForm.type!=="หนังสือเข้า")
+      return showToast("ธุรการแก้ไขได้เฉพาะหนังสือเข้า","error");
+    if(docToEdit.type==="คำสั่งโรงเรียน"&&docToEdit.reservationId&&editForm.docNumber!==docToEdit.docNumber)
       return showToast("แก้เลขคำสั่งที่มีทะเบียนเชื่อมจากเมนูเลขคำสั่งโรงเรียนเท่านั้น","error");
-    if(!editForm.subject || !editForm.from || !editForm.date) return showToast("กรุณากรอกข้อมูลให้ครบถ้วน", "error");
+    if(!editForm.subject.trim()||!editForm.from.trim()||!editForm.date)
+      return showToast("กรุณากรอกข้อมูลให้ครบถ้วน","error");
+    if(editForm.type==="หนังสือเข้า"&&!editForm.docNumber.trim())
+      return showToast("กรุณาระบุเลขรับหนังสือเข้า","error");
     setIsSavingEdit(true);
     try {
-      await updateDoc(getDocumentRef(DOCS_PATH, docToEdit.id), { 
-        subject: editForm.subject, 
-        docNumber: editForm.docNumber,
-        date: editForm.date, 
-        urgency: editForm.urgency,
-        from: editForm.from, 
-        type: editForm.type,
-        history: arrayUnion({ action: "ผู้ดูแลระบบแก้ไขข้อมูล", by: currentUser.id, byName: currentUser.name, role: ROLES[currentUser.role.toUpperCase()]?.name, timestamp: Date.now(), detail: "-" })
-      });
-      writeAuditLog(currentUser, "แก้ไขเอกสาร", "DOCUMENT", docToEdit.id, `แก้ไขเรื่อง: ${editForm.subject}`);
-      showToast("แก้ไขข้อมูลเอกสารสำเร็จ", "success");
+      const changes={
+        subject:editForm.subject.trim(),
+        docNumber:editForm.type==="หนังสือเข้า"?editForm.docNumber.trim():editForm.docNumber,
+        date:editForm.date,
+        urgency:editForm.urgency,
+        from:editForm.from.trim(),
+        type:editForm.type
+      };
+      if(editForm.type==="หนังสือเข้า"){
+        await withIncomingNumberLock({
+          number:changes.docNumber,date:changes.date,exceptId:docToEdit.id,
+          apply:async tx=>{
+            const ref=getDocumentRef(DOCS_PATH,docToEdit.id),snapshot=await tx.get(ref);
+            if(!snapshot.exists())throw new Error("ไม่พบเอกสาร");
+            const fresh=snapshot.data();
+            if(fresh.isDeleted||!canManageDocument(currentUser,fresh))
+              throw new Error("เอกสารถูกลบหรือไม่มีสิทธิ์แก้ไข");
+            if(fresh.type!==docToEdit.type||fresh.docNumber!==docToEdit.docNumber||
+               fresh.date!==docToEdit.date||fresh.subject!==docToEdit.subject)
+              throw new Error("ข้อมูลเอกสารถูกเปลี่ยนโดยผู้ใช้อื่น กรุณาปิดหน้าต่างแล้วเปิดใหม่");
+            const changed=Object.entries(changes).filter(([key,value])=>String(fresh[key]??"")!==String(value??""))
+              .map(([key,value])=>`${key}: ${fresh[key]??"-"} → ${value||"-"}`);
+            const detail=changed.join("; ")||"ยืนยันข้อมูลเดิม";
+            const timestamp=Date.now();
+            tx.update(ref,{...changes,history:arrayUnion({action:"แก้ไขข้อมูลหนังสือเข้า",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp,detail})});
+            tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"แก้ไขหนังสือเข้า","DOCUMENT",docToEdit.id,detail));
+          }
+        });
+      } else {
+        if(currentUser.role!=="admin")throw new Error("ไม่มีสิทธิ์แก้ไขเอกสารประเภทนี้");
+        const batch=writeBatch(db);
+        batch.update(getDocumentRef(DOCS_PATH,docToEdit.id),{
+          ...changes,history:arrayUnion({action:"ผู้ดูแลระบบแก้ไขข้อมูล",by:currentUser.id,byName:currentUser.name,role:currentUser.role,timestamp:Date.now(),detail:"แก้ไขเรื่อง "+changes.subject})
+        });
+        batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"แก้ไขเอกสาร","DOCUMENT",docToEdit.id,"แก้ไขเรื่อง "+changes.subject));
+        await batch.commit();
+      }
+      showToast("แก้ไขข้อมูลเอกสารสำเร็จ","success");
       setDocToEdit(null);
-    } catch(err) {
-      showToast("แก้ไขไม่สำเร็จ: " + err.message, "error");
-    }
+    }catch(err){showToast("แก้ไขไม่สำเร็จ: "+err.message,"error");}
     setIsSavingEdit(false);
   };
 
@@ -3003,7 +3082,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                        {docObj.extraAttachments.map((f,i)=><a key={i} href={f.url} target="_blank" rel="noreferrer" className="block text-blue-600 underline text-xs">{f.name} — {f.addedByName||''}</a>)}
                     </div>}
                     {([DOC_STATUS.PUBLISHED,DOC_STATUS.COMPLETED].includes(docObj.status)) && (currentUser.role==="admin" || docObj.createdBy===currentUser.id) && <button className="text-xs text-blue-700 border rounded p-2 mt-2" onClick={()=>setExtraDoc(docObj)}>+ เพิ่มไฟล์ประกอบหลังอนุมัติ</button>}
-                    {currentUser.role === "admin" && (
+                    {canManageDocument(currentUser,docObj) && (
                       <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2 justify-end">
                         <button onClick={() => openEditDocModal(docObj)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-colors flex items-center border border-blue-200">
                           <Edit size={12} className="mr-1" /> แก้ไข
@@ -3170,7 +3249,9 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
            <div className="bg-white p-5 sm:p-6 rounded-xl shadow-xl w-full max-w-[95%] sm:max-w-sm text-center animate-fade-in">
              <AlertCircle size={40} className="mx-auto text-yellow-500 mb-3 sm:mb-4 sm:w-12 sm:h-12" />
              <h3 className="text-base sm:text-lg font-bold mb-2">ย้ายลงถังขยะ?</h3>
-             <p className="text-xs sm:text-sm text-gray-500 mb-5 sm:mb-6">เอกสารนี้จะถูกซ่อนจากระบบ แต่สามารถกู้คืนได้ในเมนูถังขยะ</p>
+             <p className="text-xs sm:text-sm text-gray-500 mb-3">เอกสารนี้จะถูกซ่อนจากระบบ แต่แอดมินสามารถกู้คืนได้ในเมนูถังขยะ</p>
+             {documents.some(d=>d.id===docToDelete&&[DOC_STATUS.PUBLISHED,DOC_STATUS.COMPLETED].includes(d.status))&&
+               <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2 mb-4">หนังสือนี้ผ่านการอนุมัติ/เผยแพร่แล้ว การย้ายลงถังขยะจะทำให้ครูไม่เห็นรายการในหน้าปกติ แต่เก็บประวัติไว้</p>}
              <div className="flex gap-2 sm:gap-3">
                <button onClick={() => setDocToDelete(null)} className="flex-1 px-3 sm:px-4 py-2 bg-gray-100 text-xs sm:text-sm font-bold rounded hover:bg-gray-200 transition-colors">ยกเลิก</button>
                <button onClick={executeDeleteDoc} className="flex-1 px-3 sm:px-4 py-2 bg-yellow-600 text-white text-xs sm:text-sm font-bold rounded hover:bg-yellow-700 transition-colors">ย้ายลงถังขยะ</button>
@@ -3219,7 +3300,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
 
               <div>
                 <label className="block text-xs sm:text-sm font-bold mb-1.5 text-gray-700">ประเภทเอกสาร</label>
-                <select className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm" value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
+                <select disabled={currentUser.role==="clerk"} className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm disabled:opacity-60" value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
                   <option value="หนังสือเข้า">หนังสือเข้า</option>
                   <option value="คำสั่งโรงเรียน">คำสั่งโรงเรียน</option>
                   <option value="หนังสือเวียนแจ้งรับทราบ">หนังสือเวียนแจ้งรับทราบ</option>
@@ -3271,6 +3352,12 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
     if (isSubmitting)return;
     if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
+    if (docType==="หนังสือเข้า"&&!["admin","clerk"].includes(currentUser.role))
+      return showToast("เฉพาะเจ้าหน้าที่ธุรการหรือแอดมินที่ลงทะเบียนหนังสือเข้าได้","error");
+    if (docType==="หนังสือเข้า"&&!String(form.docNumber||"").trim())
+      return showToast("กรุณาระบุเลขรับหนังสือเข้า","error");
+    if (docType==="หนังสือเข้า"&&incomingNumberConflict(documents,form.docNumber,form.date))
+      return showToast("เลขรับหนังสือเข้าซ้ำกับรายการที่มีอยู่ กรุณาตรวจสอบก่อนบันทึก","error");
     if (docType === "คำสั่งโรงเรียน" && !chosenReservation) return showToast("กรุณาเลือกเลขคำสั่งที่จองไว้ก่อน", "error");
     if (isSinglePdfDocument(docType) && (rawFiles.length !== 1 || !isPdfUpload(rawFiles[0])))
       return showToast("คำสั่งและหนังสือเวียนต้องแนบ PDF เพียง 1 ไฟล์เพื่อเสนอ ผอ. ลงนาม", "error");
@@ -3295,7 +3382,7 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
       
       const newDoc = {
         subject: form.subject, 
-        docNumber: docType === "คำสั่งโรงเรียน" ? chosenReservation.orderNumber : docType === "หนังสือเข้า" ? form.docNumber : "",
+        docNumber: docType === "คำสั่งโรงเรียน" ? chosenReservation.orderNumber : docType === "หนังสือเข้า" ? form.docNumber.trim() : "",
         reservationId: docType === "คำสั่งโรงเรียน" ? chosenReservation.id : null,
         date: form.date, 
         urgency: docType === "หนังสือเข้า" ? form.urgency : "ปกติ",
@@ -3328,6 +3415,13 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
           tx.set(getDocumentRef(DOCS_PATH, newDocId), newDoc);
           tx.update(resRef, { status: "linked", linkedDocumentId: newDocId, linkedAt: Date.now() });
           tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"สร้างเอกสาร","DOCUMENT",newDocId,`${newDoc.docNumber}: ${form.subject}`));
+        });
+      } else if (docType === "หนังสือเข้า") {
+        await withIncomingNumberLock({number:newDoc.docNumber,date:newDoc.date,
+          apply:async tx=>{
+            tx.set(getDocumentRef(DOCS_PATH,newDocId),newDoc);
+            tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"ลงทะเบียนหนังสือเข้า","DOCUMENT",newDocId,`เลขรับ ${newDoc.docNumber}: ${newDoc.subject}`));
+          }
         });
       } else {
         const batch = writeBatch(db);

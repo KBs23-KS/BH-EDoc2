@@ -15,7 +15,7 @@ assert.equal(canHeadAct(users[2],settings,"บริหารงานบุค�
 assert.equal(canHeadAct(users[2],settings,"คณิตศาสตร์"),true);
 assert.deepEqual(expandAudience({groups:["บริหารงานบุคคล","คณิตศาสตร์"]},users).map(u=>u.id),["a","b","c","d"]);
 assert.deepEqual(audienceSnapshot({groups:["คณิตศาสตร์"],users:["c","a"]},users).map(x=>x.id),["a","c","d"]);
-const doc={id:"doc-1",status:"อนุมัติ/สั่งการแล้ว",subject:"เรื่องทดสอบ",assignedTo:"หลายกลุ่ม",
+const doc={id:"doc-1",type:"หนังสือเข้า",status:"อนุมัติ/สั่งการแล้ว",subject:"เรื่องทดสอบ",assignedTo:"หลายกลุ่ม",
  recipientsSnapshot:audienceSnapshot({groups:["บริหารงานบุคคล","คณิตศาสตร์"]},users),
  routingEntries:[{id:"director-1",kind:"director",groups:["บริหารงานบุคคล","คณิตศาสตร์"],userIds:["d"],message:"โปรดดำเนินการ",at:100}],
  headActions:[],assignmentAcknowledged:[]};
@@ -47,3 +47,12 @@ assert.equal(pendingHeadGroups(multigroupDoc,users[0],settings).length,1,"group 
 assert.equal(pendingHeadGroups(multigroupDoc,users[2],settings).length,1,"subject head must find multi-group routed documents");
 assert.equal(canViewRouted(newHead,multigroupDoc,users,successorSettings),true,"newly appointed group head sees multi-group documents");
 console.log("BHS routing, multigroup dashboard and head-transfer rules: passed");
+
+const signedOrder={...doc,id:"order-1",type:"คำสั่งโรงเรียน",status:"เผยแพร่แล้ว"};
+const signedCircular={...doc,id:"circular-1",type:"หนังสือเวียนแจ้งรับทราบ",status:"เผยแพร่แล้ว"};
+for(const signed of [signedOrder,signedCircular]){
+ assert.equal(pendingHeadGroups(signed,users[0],settings).length,0,"signed orders/circulars must not need further routing");
+ assert.equal(pendingAssignmentEvents(signed,users[3]).length,0,"signed orders/circulars have no follow-up assignments");
+ assert.equal(routingAlerts([signed],users[0],settings).length,0,"signed orders/circulars cannot create routing alerts");
+}
+console.log("Signed orders/circulars finish at director approval; only incoming documents continue");
