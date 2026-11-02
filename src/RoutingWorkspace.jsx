@@ -1,5 +1,5 @@
 import React,{useMemo,useState} from "react";
-import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc} from "./routing";
+import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc,isRoutingEligibleDoc} from "./routing";
 import {canReadDoc,recipientsOf} from "./workflow";
 
 // A two-stage selector avoids dumping every group and teacher at once.
@@ -146,7 +146,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   const [busy,setBusy]=useState(false);
   const [confirm,setConfirm]=useState(false);
   const [supersedes,setSupersedes]=useState("");
-  const routed=documents.filter(d=>isFinalDoc(d));
+  const routed=documents.filter(isRoutingEligibleDoc);
   const headPending=routed.flatMap(d=>pendingHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind})));
   const headAvailable=routed.flatMap(d=>managed.filter(h=>routingGroups(d).includes(h.group)).map(h=>({doc:d,group:h.group,kind:h.kind})))
     .filter(x=>{const done=(x.doc.headActions||[]).filter(e=>e.group===x.group).at(-1);return !done||(done.userIds||[]).length>0});
@@ -159,7 +159,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   const directorAssignable=(doc?.routingEntries||[]).filter(e=>(e.userIds||[]).length&&!(doc.routingEntries||[]).some(n=>n.supersedes===e.id));
   const candidates=dbUsers.filter(u=>["teacher","clerk"].includes(u.role)&&u.status!=="inactive"&&(canDirector||kind==="admin"||u.subjectArea===group));
   async function save(){
-    if(!doc)return;
+    if(!doc||!isRoutingEligibleDoc(doc))return;
     if(canDirector&&!all&&!groups.length&&!ids.length)return;
     if(!canDirector&&!group)return;
     if(!confirm){setConfirm(true);return;}
@@ -172,7 +172,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   }
   return <div className="space-y-5 max-w-5xl mx-auto">
     <header className="bhs-modern-page-title"><div><p className="text-xs uppercase tracking-widest text-blue-500 font-bold">BHS / ROUTING</p><h2 className="text-2xl font-bold text-slate-800">เกษียณและมอบหมายหนังสือ</h2><p className="text-sm text-slate-500 mt-1">การมอบหมายงานไม่ทำให้สมาชิกเดิมเสียสิทธิ์ดูหนังสือ</p></div><span className="bhs-modern-counter">{canDirector?routed.length:headPending.length} รายการ</span></header>
-    {!canDirector&&!headAvailable.length&&<div className="bhs-modern-panel p-8 text-center text-slate-500">ไม่มีหนังสือรอเกษียณต่อหรือเปลี่ยนผู้รับมอบหมายในกลุ่มของคุณ</div>}
+    {!display.length&&<div className="bhs-modern-panel p-8 text-center text-slate-500">ไม่มีหนังสือเข้ารอเกษียณต่อหรือเปลี่ยนผู้รับมอบหมาย</div>}
     {!!display.length&&<div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-4">
       <section className="bhs-modern-panel overflow-hidden"><div className="p-4 border-b font-semibold">เลือกหนังสือ</div><div className="max-h-[560px] overflow-y-auto divide-y">{display.map(d=><button key={d.id} onClick={()=>{setSelectedDoc(d.id);setConfirm(false);setIds([]);setGroups([]);setSupersedes("")}} className={"block w-full text-left p-4 hover:bg-blue-50 "+(doc?.id===d.id?"bg-blue-50":"")}><div className="text-xs font-bold text-blue-600">{d.docNumber||d.type}</div><div className="font-semibold text-sm text-slate-800 mt-1">{d.subject}</div><div className="text-xs text-slate-500 mt-2">{d.status}</div></button>)}</div></section>
       <section className="bhs-modern-panel p-4 md:p-5 space-y-4">
@@ -221,7 +221,7 @@ export function DocumentDetail({doc,allDocs=[],currentUser,dbUsers,systemSetting
       {target&&!acked&&isFinalDoc(doc)&&<button disabled={busy} onClick={()=>act(()=>onAcknowledge(doc))} className="bg-emerald-700 text-white rounded-xl px-4 py-2 text-sm font-bold">รับทราบหนังสือ</button>}
       {target&&!acked&&isFinalDoc(doc)&&nextUnread&&<button disabled={busy} onClick={()=>act(async()=>{await onAcknowledge(doc);onBack(nextUnread.id)})} className="bhs-modern-outline">รับทราบและเปิดหนังสือถัดไป →</button>}
       {assigned.map(e=><button key={e.id} disabled={busy} onClick={()=>act(()=>onAcknowledgeAssignment(doc,e))} className="bg-blue-700 text-white rounded-xl px-4 py-2 text-sm font-bold">รับทราบงานมอบหมาย · {e.kind==="director"?"จาก ผอ.":"จากหัวหน้า"}</button>)}
-      {(["director","admin"].includes(currentUser.role)||pendingHeadGroups(doc,currentUser,systemSettings).length>0)&&<button onClick={()=>onOpenRouting(doc.id)} className="bhs-modern-outline">เกษียณ / มอบหมายต่อ</button>}
+      {isRoutingEligibleDoc(doc)&&(["director","admin"].includes(currentUser.role)||pendingHeadGroups(doc,currentUser,systemSettings).length>0)&&<button onClick={()=>onOpenRouting(doc.id)} className="bhs-modern-outline">เกษียณ / มอบหมายต่อ</button>}
     </div>
     <div className="flex gap-1 border-b border-slate-200">{[["document","เอกสาร"],["timeline","Timeline"],["recipients","ผู้รับ/การรับทราบ"]].map(([id,label])=><button key={id} onClick={()=>setTab(id)} className={"px-4 py-3 text-sm font-semibold border-b-2 "+(tab===id?"border-blue-600 text-blue-700":"border-transparent text-slate-500")}>{label}</button>)}</div>
     {tab==="document"&&<div className="bhs-modern-panel p-4 space-y-3"><h3 className="font-bold text-sm">ไฟล์ต้นฉบับและไฟล์ประกอบ</h3>{files.map((f,i)=><div key={i} className="space-y-2 border-b py-2"><a href={f.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700 underline">{f.name||"ไฟล์แนบ "+(i+1)}</a>{(f.name||"").toLowerCase().endsWith(".pdf")&&<iframe title={f.name||"PDF"} src={f.driveId?"https://drive.google.com/file/d/"+encodeURIComponent(f.driveId)+"/preview":f.url} className="w-full min-h-[360px] border rounded-xl" loading="lazy"/>}</div>)}{!files.length&&<p className="text-sm text-slate-500">ไม่มีไฟล์แนบ</p>}</div>}
