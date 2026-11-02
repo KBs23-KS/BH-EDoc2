@@ -490,17 +490,18 @@ export default function App() {
     if(!dbUsersReady)return;
     let disposed=false;
     const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),6500);
     (async()=>{
       try{
         const res=await fetch("/api/app-session",{method:"GET",credentials:"same-origin",signal:controller.signal});
         if(!disposed&&res.ok){
           const data=await res.json();
-          if(dbUsers.some(u=>u.id===data.userId&&u.status!=="inactive"))setResumedUserId(data.userId);
+          if(data?.userId)setResumedUserId(data.userId);
         }
       }catch(err){if(!disposed)console.warn("App session restoration unavailable:",err?.message);}
-      finally{if(!disposed)setSessionChecking(false);}
+      finally{clearTimeout(timeout);if(!disposed)setSessionChecking(false);}
     })();
-    return()=>{disposed=true;controller.abort();};
+    return()=>{disposed=true;clearTimeout(timeout);controller.abort();};
   },[dbUsersReady]);
 
   const loggedInProfile=dbUsers.find(u=>(activeProfile?.id||resumedUserId)===u.id&&u.status!=="inactive")||null;
@@ -517,16 +518,19 @@ export default function App() {
         if (user.status === "inactive") return showToast("บัญชีนี้ถูกระงับการใช้งาน", "error");
         const userPassword = user.password || "123456";
         if (password !== userPassword) return showToast("รหัสผ่านไม่ถูกต้อง", "error");
+        const appSessionAbort=new AbortController();
+        const appSessionTimeout=setTimeout(()=>appSessionAbort.abort(),6500);
         try{
           const res=await fetch("/api/app-session",{
             method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
-            body:JSON.stringify({username:username.trim(),password,remember:rememberLogin})
+            body:JSON.stringify({username:username.trim(),password,remember:rememberLogin}),
+            signal:appSessionAbort.signal
           });
           if(!res.ok)throw new Error("ไม่สามารถตั้งค่าเซสชัน");
         }catch(err){
           console.warn("Persistent login unavailable:",err?.message);
           showToast("เข้าสู่ระบบได้ แต่ยังไม่สามารถจดจำการเข้าสู่ระบบหลังรีเฟรชได้","error");
-        }
+        }finally{clearTimeout(appSessionTimeout);}
         if (["director","admin"].includes(user.role)) {
           const controller=new AbortController();
           const timeout=setTimeout(()=>controller.abort(),6000);
