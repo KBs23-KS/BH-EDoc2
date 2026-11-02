@@ -25,4 +25,10 @@ for(const tag of ["function IncomingView(","function OrdersView(","function Circ
 for(const key of ["onClick={() => handleAcknowledge(docObj.id)}","setHistoryModalDoc(docObj)","setVersionsDoc(docObj)"]){
   assert.ok(table.includes(key),"Existing document actions remain "+key);
 }
-console.log("Three register views, status badge colors and desktop/mobile separators PASS");
+assert.ok(table.includes('className="mb-3 flex w-full min-w-0 items-center justify-center text-center"'),"Status badge stays centered in the status column");
+assert.ok(table.includes('className="mt-3 flex w-full min-w-0 flex-wrap items-center justify-center gap-2 border-t border-gray-100 pt-3"'),"Edit/delete group centers and wraps on narrow viewports");
+assert.ok(table.includes('inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-blue-200'),"Edit button must stay fully visible when narrow");
+assert.ok(table.includes('inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-red-200'),"Delete button must stay fully visible when narrow");
+assert.ok(table.includes("openEditDocModal(docObj)"),"Edit behavior preserved");
+assert.ok(table.includes("setDocToDelete(docObj.id)"),"Delete behavior preserved");
+console.log("Three register views, status badges and centered actions across viewport widths PASS");

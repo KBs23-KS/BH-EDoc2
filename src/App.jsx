@@ -3087,7 +3087,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                   </td>
                   
                   <td className="px-4 md:px-5 py-4 align-top text-[11px] md:text-xs w-1/2">
-                    <div className="mb-3"><StatusBadge status={docObj.status} /></div>
+                    <div className="mb-3 flex w-full min-w-0 items-center justify-center text-center"><StatusBadge status={docObj.status} /></div>
                     <div className="space-y-2">
                       {docObj.assignedTo && <div className="bg-yellow-50 border border-yellow-100 p-2 rounded"><span className="font-bold text-yellow-800">แจ้ง/มอบหมาย:</span> <span className="text-yellow-700 break-words">{docObj.assignedTo}</span></div>}
                       {docObj.directorCommand && <div className="bg-green-50 border border-green-100 p-2 rounded"><span className="font-bold text-green-800">ผอ.:</span> <span className="text-green-700 break-words">{docObj.directorCommand}</span></div>}
@@ -3129,11 +3129,11 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                     </div>}
                     {([DOC_STATUS.PUBLISHED,DOC_STATUS.COMPLETED].includes(docObj.status)) && (currentUser.role==="admin" || docObj.createdBy===currentUser.id) && <button className="text-xs text-blue-700 border rounded p-2 mt-2" onClick={()=>setExtraDoc(docObj)}>+ เพิ่มไฟล์ประกอบหลังอนุมัติ</button>}
                     {canManageDocument(currentUser,docObj) && (
-                      <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2 justify-end">
-                        <button onClick={() => openEditDocModal(docObj)} className="text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-colors flex items-center border border-blue-200">
+                      <div className="mt-3 flex w-full min-w-0 flex-wrap items-center justify-center gap-2 border-t border-gray-100 pt-3">
+                        <button onClick={() => openEditDocModal(docObj)} className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-[10px] font-bold text-blue-600 transition-colors hover:bg-blue-100 hover:text-blue-800 md:text-[11px]">
                           <Edit size={12} className="mr-1" /> แก้ไข
                         </button>
-                        <button onClick={() => setDocToDelete(docObj.id)} className="text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-colors flex items-center border border-red-200">
+                        <button onClick={() => setDocToDelete(docObj.id)} className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[10px] font-bold text-red-600 transition-colors hover:bg-red-100 hover:text-red-800 md:text-[11px]">
                           <Trash2 size={12} className="mr-1" /> ลบ
                         </button>
                       </div>
