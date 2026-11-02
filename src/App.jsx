@@ -391,11 +391,15 @@ function readRememberedUsername(){
 export default function App() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [activeProfile, setActiveProfile] = useState(null);
+  const [resumedUserId,setResumedUserId] = useState(null);
+  const [sessionChecking,setSessionChecking] = useState(true);
+  const [dbUsersReady,setDbUsersReady] = useState(false);
   const [dbUsers, setDbUsers] = useState([]);
   const [systemSettings, setSystemSettings] = useState(null);
   
   const [username, setUsername] = useState(readRememberedUsername);
   const [rememberUsername,setRememberUsername] = useState(()=>Boolean(readRememberedUsername()));
+  const [rememberLogin,setRememberLogin] = useState(false);
   const [password, setPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -475,9 +479,31 @@ export default function App() {
     if (!firebaseUser) return;
     const unsub = onSnapshot(getCollectionRef(USERS_PATH), (snapshot) => {
       setDbUsers(snapshot.docs.map((d) => d.data()));
-    }, (error) => console.error("Fetch Users Error:", error));
+      setDbUsersReady(true);
+    }, (error) => {console.error("Fetch Users Error:",error);setDbUsersReady(true);});
     return () => unsub();
   }, [firebaseUser]);
+
+  // Restore only an authenticated identity from a server-verified HttpOnly session cookie.
+  // The signing cookie remains separate; this identity cannot sign a PDF.
+  useEffect(()=>{
+    if(!dbUsersReady)return;
+    let disposed=false;
+    const controller=new AbortController();
+    (async()=>{
+      try{
+        const res=await fetch("/api/app-session",{method:"GET",credentials:"same-origin",signal:controller.signal});
+        if(!disposed&&res.ok){
+          const data=await res.json();
+          if(dbUsers.some(u=>u.id===data.userId&&u.status!=="inactive"))setResumedUserId(data.userId);
+        }
+      }catch(err){if(!disposed)console.warn("App session restoration unavailable:",err?.message);}
+      finally{if(!disposed)setSessionChecking(false);}
+    })();
+    return()=>{disposed=true;controller.abort();};
+  },[dbUsersReady]);
+
+  const loggedInProfile=dbUsers.find(u=>(activeProfile?.id||resumedUserId)===u.id&&u.status!=="inactive")||null;
 
   const handleLogin = (e) => {
     e.preventDefault();
@@ -491,6 +517,16 @@ export default function App() {
         if (user.status === "inactive") return showToast("บัญชีนี้ถูกระงับการใช้งาน", "error");
         const userPassword = user.password || "123456";
         if (password !== userPassword) return showToast("รหัสผ่านไม่ถูกต้อง", "error");
+        try{
+          const res=await fetch("/api/app-session",{
+            method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+            body:JSON.stringify({username:username.trim(),password,remember:rememberLogin})
+          });
+          if(!res.ok)throw new Error("ไม่สามารถตั้งค่าเซสชัน");
+        }catch(err){
+          console.warn("Persistent login unavailable:",err?.message);
+          showToast("เข้าสู่ระบบได้ แต่ยังไม่สามารถจดจำการเข้าสู่ระบบหลังรีเฟรชได้","error");
+        }
         if (["director","admin"].includes(user.role)) {
           const controller=new AbortController();
           const timeout=setTimeout(()=>controller.abort(),6000);
@@ -510,6 +546,7 @@ export default function App() {
           if(rememberUsername)window.localStorage.setItem(LOGIN_USERNAME_STORAGE_KEY,username.trim());
           else window.localStorage.removeItem(LOGIN_USERNAME_STORAGE_KEY);
         }catch{/* Browsers with restricted local storage can still log in normally. */}
+        setResumedUserId(null);
         setActiveProfile(user);
         writeAuditLog(user, "เข้าสู่ระบบ", "AUTH", user.id, "เข้าสู่ระบบสำเร็จ");
         if (userPassword !== "123456") showToast(`เข้าสู่ระบบสำเร็จ: ${user.name}`, "success");
@@ -518,11 +555,15 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    void fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}).catch(()=>{});
-    if (activeProfile) {
-      writeAuditLog(activeProfile, "ออกจากระบบ", "AUTH", activeProfile.id, "ออกจากระบบสำเร็จ");
+    void Promise.allSettled([
+      fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}),
+      fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"})
+    ]);
+    if (loggedInProfile) {
+      writeAuditLog(loggedInProfile, "ออกจากระบบ", "AUTH", loggedInProfile.id, "ออกจากระบบสำเร็จ");
     }
     setActiveProfile(null);
+    setResumedUserId(null);
     setUsername(rememberUsername?readRememberedUsername():"");
     setPassword("");
     setShowLoginPassword(false);
@@ -555,7 +596,7 @@ export default function App() {
     );
   }
 
-  if (isInitializing || !systemSettings) {
+  if (isInitializing || !systemSettings || sessionChecking) {
     return (
       <div className="min-h-screen flex flex-col gap-4 items-center justify-center bg-slate-50">
         <Loader2 className="animate-spin text-[#003366]" size={40} />
@@ -564,7 +605,7 @@ export default function App() {
     );
   }
 
-  if (!activeProfile) {
+  if (!loggedInProfile) {
     return (
       <div className="relative isolate min-h-[100svh] overflow-hidden bg-[#FBFDFF] px-4 py-8 sm:py-10 flex items-center justify-center">
         {toastMsg && <Toast message={toastMsg.msg} type={toastMsg.type} onClose={() => setToastMsg(null)} />}
@@ -659,6 +700,11 @@ export default function App() {
                 />
                 จดจำชื่อผู้ใช้บนอุปกรณ์นี้
               </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-[#405774]">
+                <input type="checkbox" checked={rememberLogin} onChange={e=>setRememberLogin(e.target.checked)}
+                  className="h-4 w-4 rounded border-[#ADC4E0] accent-[#1555A5]"/>
+                จดจำการเข้าสู่ระบบบนอุปกรณ์นี้ (สูงสุด 7 วัน)
+              </label>
               <button
                 type="submit"
                 disabled={loading || dbUsers.length === 0}
@@ -687,7 +733,7 @@ export default function App() {
       {toastMsg && <Toast message={toastMsg.msg} type={toastMsg.type} onClose={() => setToastMsg(null)} />}
       <MainLayout
         firebaseUser={firebaseUser}
-        currentUser={activeProfile}
+        currentUser={loggedInProfile}
         dbUsers={dbUsers}
         systemSettings={systemSettings}
         onLogout={handleLogout}
