@@ -5,6 +5,7 @@
 import {createHmac,randomBytes,timingSafeEqual} from "node:crypto";
 import {getApps,initializeApp,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
+import {findUniqueUsernameAccount} from "../shared/username.js";
 
 const COOKIE="bhs_signing_session";
 const COLLECTION="artifacts/bhs-edoc-app/public/data";
@@ -39,9 +40,14 @@ function adminDb(){
 export function userRef(id){return adminDb().doc(COLLECTION+"/bhs_users/"+id);}
 export function documentRef(id){return adminDb().doc(COLLECTION+"/bhs_documents/"+id);}
 export async function findByUsername(username){
-  const q=await adminDb().collection(COLLECTION+"/bhs_users").where("username","==",username).limit(2).get();
-  if(q.size!==1)return null;
-  return {id:q.docs[0].id,...q.docs[0].data()};
+  // Existing Firestore usernames have mixed-case storage and no normalized index.
+  // Check all school accounts so a lowercase login matches the original profile;
+  // if two legacy accounts differ only in case, reject rather than select either.
+  const users=await adminDb().collection(COLLECTION+"/bhs_users").get();
+  return findUniqueUsernameAccount(
+    users.docs.map(doc=>({id:doc.id,...doc.data()})),
+    username
+  );
 }
 function sign(payload){
   return createHmac("sha256",process.env.BHS_SIGNING_SESSION_SECRET).update(payload).digest("base64url");
