@@ -72,6 +72,8 @@ import OrgHeads from "./OrgHeads";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
+import PushNotificationControl,{unregisterPushOnLogout} from "./PushNotificationControl";
+import {dispatchDocumentPush} from "./documentPush";
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -238,6 +240,9 @@ const commitCheckedAction = async (user, item, updates, action, detail) => {
     tx.update(ref,updates);
     tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(user,action,"DOCUMENT",item.id,detail));
   });
+  const pushEvent={"ส่งกลับแก้ไข":"returned","เสนอผู้อำนวยการ":"forwarded",
+    "อนุมัติและเผยแพร่":"published","แก้ไขและส่งเรื่องใหม่":"resubmitted"}[action];
+  if(pushEvent)dispatchDocumentPush(item.id,pushEvent);
 };
 const buddhistYear = (isoDate) => Number(String(isoDate || "").slice(0, 4)) + 543;
 const getNumberYear = (value) => Number(String(value || "").split("/")[1]);
@@ -560,7 +565,9 @@ export default function App() {
     }, 500);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Stop delivering to this particular device before clearing the login cookie.
+    await unregisterPushOnLogout(app);
     void Promise.allSettled([
       fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}),
       fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"})
@@ -1039,6 +1046,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                        {notifications.length > 0 && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold">{notifications.length} รายการ</span>}
                     </div>
                   </div>
+                  <PushNotificationControl app={app} currentUser={currentUser} showToast={showToast} />
                   <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"],["history","ย้อนหลัง"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
                   <div className="px-3 py-2 border-b"><input aria-label="ค้นหาการแจ้งเตือน" placeholder="ค้นหาชื่อเรื่องหรือข้อความแจ้งเตือน..." value={notifQuery} onChange={e=>setNotifQuery(e.target.value)} className="w-full border px-3 py-2 text-xs rounded-lg"/></div>
                   <div className="max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
@@ -3488,6 +3496,7 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
         batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"สร้างเอกสาร","DOCUMENT",newDocId,`${docType}: ${form.subject}`));
         await batch.commit();
       }
+      dispatchDocumentPush(newDocId,"created");
       try{localStorage.removeItem(draftKey)}catch{}
       if (docType === "คำสั่งโรงเรียน") {
         setCreatedSummary({ number: newDoc.docNumber || "ไม่มีเลข", subject: newDoc.subject, status: "รอรองผู้อำนวยการ", id:newDocId });
