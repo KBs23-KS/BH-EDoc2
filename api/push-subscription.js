@@ -27,7 +27,7 @@ export function decryptPushToken(value){
 
 export function tokenId(token){return createHash("sha256").update(token).digest("hex");}
 export function isFcmToken(value){
-  return typeof value==="string"&&value.length>=50&&value.length<=4096&&/^[a-zA-Z0-9:_\-.]+$/.test(value);
+  return typeof value==="string"&&value.length>=50&&value.length<=4096&&/^[a-zA-Z0-9_./:+=~\-]+$/.test(value);
 }
 export async function authenticatedProfile(req){
   const session=readAppSession(req);
