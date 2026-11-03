@@ -72,6 +72,7 @@ import OrgHeads from "./OrgHeads";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
+import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -509,12 +510,12 @@ export default function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     setLoading(true);
-    const user = dbUsers.find(u => u.username === username.trim());
+    const user = findUniqueUsernameAccount(dbUsers, username);
     // Legacy login remains usable if the optional secure signing service is
     // not configured yet. Only director/admin get a short-lived signing cookie.
     setTimeout(async () => {
       try {
-        if (!user) return showToast("ไม่พบชื่อผู้ใช้งานนี้", "error");
+        if (!user) return showToast("ไม่พบชื่อผู้ใช้งานนี้ หรือมีชื่อผู้ใช้ซ้ำกัน โปรดติดต่อผู้ดูแลระบบ", "error");
         if (user.status === "inactive") return showToast("บัญชีนี้ถูกระงับการใช้งาน", "error");
         const userPassword = user.password || "123456";
         if (password !== userPassword) return showToast("รหัสผ่านไม่ถูกต้อง", "error");
@@ -4003,9 +4004,9 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   };
 
   const handleSaveUser = async () => {
-    if (!formData.name || !formData.username) return showToast("กรอกข้อมูลให้ครบถ้วน", "error");
+    if (!formData.name.trim() || !normalizeUsername(formData.username)) return showToast("กรอกข้อมูลให้ครบถ้วน", "error");
 
-    const isDuplicate = dbUsers.some(u => u.username === formData.username.trim() && u.id !== formData.id);
+    const isDuplicate = usernameTakenByAnother(dbUsers, formData.username, formData.id);
     if (isDuplicate) {
       return showToast("Username นี้มีผู้ใช้งานแล้ว กรุณาระบุชื่ออื่น", "error");
     }
