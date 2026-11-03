@@ -54,6 +54,22 @@ export function assignedEvents(doc,user) {
   return events.filter(e=>!superseded.has(e.id)&&(e.userIds||[]).includes(user.id));
 }
 export function assignmentKey(entry,userId){return String(entry.id)+"::"+String(userId);}
+/** Keep acknowledged assignments visible for history, even when later reassigned.
+ * Only recipients whose own assignment acknowledgement is recorded are included.
+ */
+export function acknowledgedAssignmentEvents(doc,user) {
+  if(!isRoutingEligibleDoc(doc)||!user?.id)return [];
+  const done=new Set(doc?.assignmentAcknowledged||[]);
+  return [...(doc?.routingEntries||[]),...(doc?.headActions||[])]
+    .filter(e=>(e.userIds||[]).includes(user.id)&&done.has(assignmentKey(e,user.id)))
+    .sort((a,b)=>(b.at||0)-(a.at||0));
+}
+/** Broadcasting shares approved correspondence with all active teachers.
+ * No assignment is created; recipients acknowledge the letter normally.
+ */
+export function broadcastTeacherIds(dbUsers) {
+  return (dbUsers||[]).filter(u=>activeUser(u)&&u.role==="teacher").map(u=>u.id);
+}
 export function pendingAssignmentEvents(doc,user) {
   if(!isRoutingEligibleDoc(doc))return [];
   const done=doc?.assignmentAcknowledged||[];
