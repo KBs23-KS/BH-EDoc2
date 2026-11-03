@@ -67,6 +67,7 @@ import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortU
 import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routingHistory,canViewRouted,isFinalDoc,audienceSnapshot,routeMessage} from "./routing";
 import {makeRoutingActions} from "./routingActions";
 import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace";
+import AssignmentsWorkspace from "./AssignmentsWorkspace";
 import {shouldShowRoleMenu} from "./menuVisibility.js";
 import OrgHeads from "./OrgHeads";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
@@ -1102,7 +1103,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           {activeMenu === "export_register" && <ExportRegisters documents={activeDocs} orderReservations={orderReservations} outgoingReservations={outgoingReservations} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast}/>}
           {activeMenu==="document_detail" && <DocumentDetail doc={openedDoc} allDocs={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onAcknowledge={ackDocument} onAcknowledgeAssignment={ackAssignment} onOpenRouting={()=>{setFocusDocId(openedDoc?.id||null);setActiveMenu("routing");}} onBack={id=>id?openDocument(id):setActiveMenu("dashboard")}/>}
           {activeMenu==="routing" && <RoutingWorkspace focusDocId={focusDocId} documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onRoute={routeDocument} onHeadAction={headAction} onOpen={openDocument}/>}
-          {activeMenu==="assignments" && <section className="bhs-modern-panel p-5 space-y-3"><h2 className="text-xl font-bold">งานที่ได้รับมอบหมาย</h2>{activeDocs.filter(d=>pendingAssignmentEvents(d,currentUser).length).map(d=><button key={d.id} onClick={()=>openDocument(d.id)} className="w-full text-left border p-4 rounded-xl hover:bg-blue-50 text-sm"><b>{d.subject}</b><div className="text-xs text-blue-700 mt-1">รอรับทราบงาน {pendingAssignmentEvents(d,currentUser).length} รายการ · เปิดหนังสือและข้อเกษียณ</div></button>)}{assignmentCount===0&&<p className="text-slate-500 text-sm">ไม่มีงานมอบหมายที่ยังไม่รับทราบ</p>}</section>}
+          {activeMenu==="assignments" && <AssignmentsWorkspace documents={activeDocs} currentUser={currentUser} onOpen={openDocument}/>}
           {activeMenu === "tasks" && <TasksView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "incoming" && <IncomingView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
           {activeMenu === "orders" && <OrdersView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
