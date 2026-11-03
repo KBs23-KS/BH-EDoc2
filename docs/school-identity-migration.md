@@ -46,3 +46,19 @@ Teachers keep the SAME school URL, username, password and roles. No Firebase sig
 - Firebase Admin custom tokens: https://firebase.google.com/docs/auth/admin/create-custom-tokens
 - Firebase Security Rules use OR across overlapping matches: https://firebase.google.com/docs/rules
 - Firestore role-based authorization: https://firebase.google.com/docs/rules/basics
+
+## Current next-stage code (PREPARATION — NO REAL PASSWORD DATA MOVED)
+- api/_passwordSecurity.js contains salted, memory-hard scrypt hashing and verification for preserving existing passwords during a future authorized migration.
+- shared/schoolProfile.js is an explicit allowlist: teachers' names, role, group and status are the only regular roster fields; even administrators never receive passwords or secret hashes. Administrators may see usernames to administer accounts.
+- api/school-directory.js is a server-verified, password-free directory endpoint. It is disabled by default and always blocked on Production for this stage; using it requires BHS_ENABLE_SECURE_DIRECTORY_PREVIEW=true in an isolated test environment.
+- api/auth-identity.js is additionally blocked on Production even if a preview test flag is set by mistake.
+- NO documents were written to Firestore; NO password hashes were stored; existing passwords, login screens, sign-in sessions and permissions are unchanged.
+
+### Critical: do not store even hashed passwords in the currently public Firestore database
+Its currently published blanket allow rule lets any Firebase-authenticated client read all collections, **including newly created top-level collections**. A separate collection name does NOT make a vault private. Do not write password hashes, credential verifiers, salts or secrets anywhere in this database until the all-matches rule has been replaced and verified in an isolated deployment, or a separately secured credentials datastore has been chosen.
+
+### Next integration checkpoints
+- Securely isolate credential storage; prepare a one-time admin migration that reads old plaintext only server-side and tests every account. No manual teacher action is needed.
+- Change login and account administration to use the protected server endpoints, and remove pre-login public Firestore reads.
+- After browser access to plaintext is gone, write strict Firestore Rules for every menu and test each school role. Then remove plaintext passwords in a controlled transaction with a verified backup and rollback procedure.
+- Do not merge this PR as a completed security migration. It is intentionally a staged, disabled-by-default foundation.
