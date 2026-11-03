@@ -401,6 +401,7 @@ export default function App() {
   
   const [username, setUsername] = useState(readRememberedUsername);
   const [rememberUsername,setRememberUsername] = useState(()=>Boolean(readRememberedUsername()));
+  const [rememberLogin,setRememberLogin] = useState(true);
   const [password, setPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -524,7 +525,7 @@ export default function App() {
         try{
           const res=await fetch("/api/app-session",{
             method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
-            body:JSON.stringify({username:username.trim(),password,remember:true}),
+            body:JSON.stringify({username:username.trim(),password,remember:rememberLogin}),
             signal:appSessionAbort.signal
           });
           if(!res.ok)throw new Error("ไม่สามารถตั้งค่าเซสชัน");
@@ -704,6 +705,13 @@ export default function App() {
                   className="h-4 w-4 rounded border-[#ADC4E0] accent-[#1555A5]"
                 />
                 จดจำชื่อผู้ใช้บนอุปกรณ์นี้
+              </label>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-[#405774]">
+                <input type="checkbox" checked={rememberLogin} onChange={e=>setRememberLogin(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-[#ADC4E0] accent-[#1555A5]" />
+                <span>เข้าสู่ระบบค้างไว้บนอุปกรณ์ส่วนตัว
+                  <span className="block text-xs text-gray-500">เปิดครั้งถัดไปได้โดยไม่กรอกรหัสผ่านใหม่ ขณะใช้งานจะต่ออายุอัตโนมัติ (ไม่ควรเลือกบนเครื่องสาธารณะ)</span>
+                </span>
               </label>
               <button
                 type="submit"
