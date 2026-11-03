@@ -1,0 +1,83 @@
+// ISOLATED TEST ONLY — NEVER deploy to production Firebase bhs-edoc-2.
+// Only Firebase Custom Auth with bhsSecurityTest claim + an ACTIVE test
+// profile grants access. No anonymous access; no legacy BHS collections.
+// Run in a Firebase Emulator first; then deploy ONLY to test project after
+// separate explicit authorization. There must be no wildcard allow elsewhere.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function schoolIdentity() {
+      return request.auth != null
+        && request.auth.token.bhsSecurityTest == true
+        && request.auth.uid.matches('^TEST_[A-Z0-9_]{1,80}$');
+    }
+    function profilePath() {
+      return /databases/$(database)/documents/bhs_security_test_profiles/$(request.auth.uid);
+    }
+    function active() {
+      return schoolIdentity() && exists(profilePath())
+        && get(profilePath()).data.status == 'active';
+    }
+    function role(name) {
+      return active() && get(profilePath()).data.role == name;
+    }
+    function canReadDocument(data) {
+      return active() && (role('admin') || role('director')
+        || (data.readerUids is list && request.auth.uid in data.readerUids));
+    }
+
+    // Password hashes, identity indexes, and rate limits are server-only.
+    match /bhs_security_test_credentials/{id} {
+      allow read, write: if false;
+    }
+    match /bhs_security_test_login_limits/{id} {
+      allow read, write: if false;
+    }
+
+    match /bhs_security_test_profiles/{uid} {
+      allow get: if active() && (request.auth.uid == uid || role('admin'));
+      allow list: if role('admin');
+      allow create, update, delete: if false;
+    }
+
+    match /bhs_security_test_documents/{documentId} {
+      allow get, list: if canReadDocument(resource.data);
+      allow create: if (role('clerk') || role('admin'))
+        && request.resource.data.keys().hasOnly(
+          ['title','status','createdBy','readerUids','createdAt'])
+        && request.resource.data.keys().hasAll(
+          ['title','status','createdBy','readerUids','createdAt'])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 240
+        && request.resource.data.status == 'draft'
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.readerUids is list
+        && request.resource.data.readerUids.size() <= 80
+        && request.resource.data.createdAt == request.time;
+      allow update: if role('admin')
+        || (role('director') &&
+            resource.data.status == 'pending-director' &&
+            request.resource.data.status == 'approved' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow delete: if role('admin');
+
+      match /receipts/{uid} {
+        allow get: if active() && (request.auth.uid == uid || role('admin') || role('director'));
+        allow list: if role('admin') || role('director');
+        allow create: if active() && request.auth.uid == uid
+          && exists(/databases/$(database)/documents/bhs_security_test_documents/$(documentId))
+          && canReadDocument(get(/databases/$(database)/documents/bhs_security_test_documents/$(documentId)).data)
+          && request.resource.data.keys().hasOnly(['uid','acknowledgedAt'])
+          && request.resource.data.keys().hasAll(['uid','acknowledgedAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.acknowledgedAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+
+    // Deny everything else, including original school records and /users.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
