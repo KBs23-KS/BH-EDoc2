@@ -43,7 +43,8 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
      if(!routed.has(group))throw new Error("หนังสือไม่ได้ส่งถึงกลุ่มนี้");
      const old=[...(fresh.headActions||[])].reverse().find(e=>e.group===group);
      if(old&&!reassign)throw new Error("หัวหน้ากลุ่มนี้ดำเนินการแล้ว");
-     if(reassign&&(!old||!(old.userIds||[]).length))throw new Error("ไม่มีงานมอบหมายเดิมให้เปลี่ยน");
+     // A head who only acknowledged a book may assign teachers later from the completed tab.
+     if(reassign&&!old)throw new Error("ไม่พบรายการเกษียณเดิมที่จะแก้ไข");
      if(reassign&&!userIds.length)throw new Error("กรุณาเลือกครูผู้รับมอบหมายใหม่");
      const event={...routeMessage("head",user,d),group,userIds,message,...(old?{supersedes:old.id}:{})};
      tx.update(ref,{headActions:[...(fresh.headActions||[]),event],
