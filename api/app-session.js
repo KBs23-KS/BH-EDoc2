@@ -1,7 +1,7 @@
 import {
   fail,appSessionReady,forbidCrossSite,findByUsername,matchesLegacyPassword,
   makeAppSession,readAppSession,appSessionFingerprint,setAppSessionCookie,clearAppSessionCookie,
-  userRef,setupResponse
+  userRef,setupResponse,APP_RENEWAL_THRESHOLD_MS
 } from "./_signatureServer.js";
 
 /**
@@ -27,6 +27,10 @@ export default async function handler(req,res){
         clearAppSessionCookie(res);
         return fail(res,401,"บัญชีหรือรหัสผ่านมีการเปลี่ยนแปลง กรุณาเข้าสู่ระบบอีกครั้ง");
       }
+      // Keep a trusted personal device signed in while used; never renew a shared-device session.
+      if(session.remember&&req.headers["x-bhs-app-active"]==="1"&&session.exp-Date.now()<APP_RENEWAL_THRESHOLD_MS){
+        setAppSessionCookie(res,makeAppSession(session.userId,session.credentialTag,true),true);
+      }
       return res.status(200).json({success:true,userId:session.userId});
     }
     const {username,password,remember=false}=req.body||{};
@@ -36,7 +40,7 @@ export default async function handler(req,res){
     const user=await findByUsername(username.trim());
     if(!user||user.status==="inactive"||!matchesLegacyPassword(password,user))
       return fail(res,401,"ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
-    setAppSessionCookie(res,makeAppSession(user.id,appSessionFingerprint(user)),remember);
+    setAppSessionCookie(res,makeAppSession(user.id,appSessionFingerprint(user),remember),remember);
     return res.status(200).json({success:true,userId:user.id});
   }catch(err){
     console.error("App session error:",err?.message);

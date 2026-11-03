@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && vite build",
-    "preview": "vite preview"
+    "build": "node tests/push-policy-test.mjs && node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && vite build",
+    "preview": "vite preview",
+    "test:push": "node tests/push-policy-test.mjs"
   },
   "dependencies": {
     "firebase": "^12.1.0",

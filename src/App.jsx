@@ -72,6 +72,8 @@ import OrgHeads from "./OrgHeads";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
+import PushNotificationControl,{unregisterPushOnLogout} from "./PushNotificationControl";
+import {dispatchDocumentPush} from "./documentPush";
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -238,6 +240,9 @@ const commitCheckedAction = async (user, item, updates, action, detail) => {
     tx.update(ref,updates);
     tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(user,action,"DOCUMENT",item.id,detail));
   });
+  const pushEvent={"ส่งกลับแก้ไข":"returned","เสนอผู้อำนวยการ":"forwarded",
+    "อนุมัติและเผยแพร่":"published","แก้ไขและส่งเรื่องใหม่":"resubmitted"}[action];
+  if(pushEvent)dispatchDocumentPush(item.id,pushEvent);
 };
 const buddhistYear = (isoDate) => Number(String(isoDate || "").slice(0, 4)) + 543;
 const getNumberYear = (value) => Number(String(value || "").split("/")[1]);
@@ -401,6 +406,7 @@ export default function App() {
   
   const [username, setUsername] = useState(readRememberedUsername);
   const [rememberUsername,setRememberUsername] = useState(()=>Boolean(readRememberedUsername()));
+  const [rememberLogin,setRememberLogin] = useState(false);
   const [password, setPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -494,7 +500,7 @@ export default function App() {
     const timeout=setTimeout(()=>controller.abort(),6500);
     (async()=>{
       try{
-        const res=await fetch("/api/app-session",{method:"GET",credentials:"same-origin",signal:controller.signal});
+        const res=await fetch("/api/app-session",{method:"GET",credentials:"same-origin",headers:{"X-BHS-App-Active":"1"},signal:controller.signal});
         if(!disposed&&res.ok){
           const data=await res.json();
           if(data?.userId)setResumedUserId(data.userId);
@@ -524,7 +530,7 @@ export default function App() {
         try{
           const res=await fetch("/api/app-session",{
             method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
-            body:JSON.stringify({username:username.trim(),password,remember:true}),
+            body:JSON.stringify({username:username.trim(),password,remember:rememberLogin}),
             signal:appSessionAbort.signal
           });
           if(!res.ok)throw new Error("ไม่สามารถตั้งค่าเซสชัน");
@@ -559,8 +565,10 @@ export default function App() {
     }, 500);
   };
 
-  const handleLogout = () => {
-    void Promise.allSettled([
+  const handleLogout = async () => {
+    // Stop delivering to this particular device before clearing the login cookie.
+    await unregisterPushOnLogout(app);
+    await Promise.allSettled([
       fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}),
       fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"})
     ]);
@@ -705,6 +713,13 @@ export default function App() {
                 />
                 จดจำชื่อผู้ใช้บนอุปกรณ์นี้
               </label>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-[#405774]">
+                <input type="checkbox" checked={rememberLogin} onChange={e=>setRememberLogin(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-[#ADC4E0] accent-[#1555A5]" />
+                <span>เข้าสู่ระบบค้างไว้บนอุปกรณ์ส่วนตัว
+                  <span className="block text-xs text-gray-500">เปิดครั้งถัดไปได้โดยไม่กรอกรหัสผ่านใหม่ ขณะใช้งานจะต่ออายุอัตโนมัติ (ไม่ควรเลือกบนเครื่องสาธารณะ)</span>
+                </span>
+              </label>
               <button
                 type="submit"
                 disabled={loading || dbUsers.length === 0}
@@ -816,12 +831,6 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     const id=new URLSearchParams(window.location.search).get("doc");
     if(id&&activeDocs.some(d=>d.id===id))openDocument(id);
   },[documents.length,currentUser.id]);
-  useEffect(()=>{
-    if(!("setAppBadge" in navigator))return;
-    const n=activeDocs.filter(d=>isFinalDoc(d)&&canViewRouted(currentUser,d,dbUsers,systemSettings)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length
-      +activeDocs.reduce((sum,d)=>sum+pendingAssignmentEvents(d,currentUser).length+pendingHeadGroups(d,currentUser,systemSettings).length,0);
-    Promise.resolve(navigator.setAppBadge(n)).catch(()=>{});
-  },[documents,currentUser.id,dbUsers,systemSettings]);
   const openedDoc=activeDocs.find(d=>d.id===focusDocId);
   const documentAlerts=routingAlerts(activeDocs,currentUser,systemSettings);
   const assignmentCount=activeDocs.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
@@ -877,6 +886,14 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }));
   notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
+  // Match the icon count to the same account-scoped notification list as the bell.
+  const badgeCount=notifications.length;
+  useEffect(()=>{
+    if(!("setAppBadge" in navigator))return;
+    const update=badgeCount>0?navigator.setAppBadge(badgeCount):
+      ("clearAppBadge" in navigator?navigator.clearAppBadge():navigator.setAppBadge(0));
+    Promise.resolve(update).catch(()=>{});
+  },[badgeCount,currentUser.id]);
   const notificationHistory=[
     ...routingHistory(activeDocs,currentUser,systemSettings),
     ...activeDocs.filter(d=>isFinalDoc(d)&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)))
@@ -1031,6 +1048,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                        {notifications.length > 0 && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold">{notifications.length} รายการ</span>}
                     </div>
                   </div>
+                  <PushNotificationControl app={app} currentUser={currentUser} showToast={showToast} />
                   <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"],["history","ย้อนหลัง"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
                   <div className="px-3 py-2 border-b"><input aria-label="ค้นหาการแจ้งเตือน" placeholder="ค้นหาชื่อเรื่องหรือข้อความแจ้งเตือน..." value={notifQuery} onChange={e=>setNotifQuery(e.target.value)} className="w-full border px-3 py-2 text-xs rounded-lg"/></div>
                   <div className="max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
@@ -1101,7 +1119,13 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           }}/>}
           {activeMenu === "export_register" && <ExportRegisters documents={activeDocs} orderReservations={orderReservations} outgoingReservations={outgoingReservations} currentUser={currentUser} dbUsers={dbUsers} showToast={showToast}/>}
           {activeMenu==="document_detail" && <DocumentDetail doc={openedDoc} allDocs={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onAcknowledge={ackDocument} onAcknowledgeAssignment={ackAssignment} onOpenRouting={()=>{setFocusDocId(openedDoc?.id||null);setActiveMenu("routing");}} onBack={id=>id?openDocument(id):setActiveMenu("dashboard")}/>}
-          {activeMenu==="routing" && <RoutingWorkspace focusDocId={focusDocId} documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onRoute={routeDocument} onHeadAction={headAction} onOpen={openDocument}/>}
+          {activeMenu==="routing" && <RoutingWorkspace focusDocId={focusDocId} documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} onRoute={async (d,options)=>{
+            await routeDocument(d,options);
+            dispatchDocumentPush(d.id,"routed");
+          }} onHeadAction={async (d,options)=>{
+            await headAction(d,options);
+            if(options?.userIds?.length)dispatchDocumentPush(d.id,"head_routed");
+          }} onOpen={openDocument}/>}
           {activeMenu==="assignments" && <section className="bhs-modern-panel p-5 space-y-3"><h2 className="text-xl font-bold">งานที่ได้รับมอบหมาย</h2>{activeDocs.filter(d=>pendingAssignmentEvents(d,currentUser).length).map(d=><button key={d.id} onClick={()=>openDocument(d.id)} className="w-full text-left border p-4 rounded-xl hover:bg-blue-50 text-sm"><b>{d.subject}</b><div className="text-xs text-blue-700 mt-1">รอรับทราบงาน {pendingAssignmentEvents(d,currentUser).length} รายการ · เปิดหนังสือและข้อเกษียณ</div></button>)}{assignmentCount===0&&<p className="text-slate-500 text-sm">ไม่มีงานมอบหมายที่ยังไม่รับทราบ</p>}</section>}
           {activeMenu === "tasks" && <TasksView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} showToast={showToast} />}
           {activeMenu === "incoming" && <IncomingView documents={activeDocs} currentUser={currentUser} dbUsers={dbUsers} systemSettings={systemSettings} changeMenu={setActiveMenu} showToast={showToast} />}
@@ -3480,6 +3504,7 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
         batch.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"สร้างเอกสาร","DOCUMENT",newDocId,`${docType}: ${form.subject}`));
         await batch.commit();
       }
+      dispatchDocumentPush(newDocId,"created");
       try{localStorage.removeItem(draftKey)}catch{}
       if (docType === "คำสั่งโรงเรียน") {
         setCreatedSummary({ number: newDoc.docNumber || "ไม่มีเลข", subject: newDoc.subject, status: "รอรองผู้อำนวยการ", id:newDocId });
