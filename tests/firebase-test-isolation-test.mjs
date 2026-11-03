@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { useIsolatedTestSite, TEST_BRANCH, TEST_PROJECT_ID } from "../scripts/security-test-build-guard.mjs";
+import { useIsolatedTestSite, TEST_BRANCH, LOGIN_TEST_BRANCH, TEST_PROJECT_ID } from "../scripts/security-test-build-guard.mjs";
 import { verifyTestProject, firebaseConfig } from "../security-test/firebaseConfig.js";
 
 const local = {};
@@ -12,6 +12,9 @@ assert.throws(()=>useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"production",VERCEL
 assert.throws(()=>useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_REF:"main",BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID}), /Blocked/);
 assert.throws(()=>useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"production",VERCEL_GIT_COMMIT_REF:TEST_BRANCH,BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID}), /Blocked/);
 assert.equal(useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_REF:TEST_BRANCH,BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID}),true);
+assert.throws(()=>useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_REF:LOGIN_TEST_BRANCH}), /Blocked/);
+assert.throws(()=>useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"production",VERCEL_GIT_COMMIT_REF:LOGIN_TEST_BRANCH,BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID}), /Blocked/);
+assert.equal(useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_REF:LOGIN_TEST_BRANCH,BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID}),true);
 assert.equal(useIsolatedTestSite({VERCEL:"1",VERCEL_ENV:"production",VERCEL_GIT_COMMIT_REF:"main"}), false);
 
 assert.equal(verifyTestProject(firebaseConfig).projectId,TEST_PROJECT_ID);
