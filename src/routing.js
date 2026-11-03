@@ -45,6 +45,9 @@ export function headCompleted(doc,group) {
 export function pendingHeadGroups(doc,user,settings) {
   return isRoutingEligibleDoc(doc) ? headGroups(user,settings).filter(g=>routingGroups(doc).includes(g.group)&&!headCompleted(doc,g.group)) : [];
 }
+export function completedHeadGroups(doc,user,settings) {
+  return isRoutingEligibleDoc(doc) ? headGroups(user,settings).filter(g=>routingGroups(doc).includes(g.group)&&headCompleted(doc,g.group)) : [];
+}
 export function assignedEvents(doc,user) {
   const events=[...(doc?.routingEntries||[]),...(doc?.headActions||[])];
   const superseded=new Set(events.map(e=>e.supersedes).filter(Boolean));
