@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "node tests/auth-identity-preparation-test.mjs && node tests/credential-vault-preparation-test.mjs && node tests/firestore-transitional-rules-test.mjs && node tests/head-routing-tabs-test.mjs && node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && vite build",
+    "build": "node tests/auth-identity-preparation-test.mjs && node tests/credential-vault-preparation-test.mjs && node tests/firestore-transitional-rules-test.mjs && node tests/credential-migration-audit-test.mjs && node tests/head-routing-tabs-test.mjs && node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
