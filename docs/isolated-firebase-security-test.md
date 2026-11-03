@@ -78,3 +78,33 @@ The optional test-data seeder is scripts/seed-security-test-users.mjs, requires 
 The allowed branch list also includes `security/sandbox-login-firestore-20261103` for the stacked Draft PR #42. A Vercel build with `VERCEL_ENV=production` and `BHS_SECURITY_TEST_DEPLOY_TARGET=bhs-edoc-security-test` is always rejected. Preview builds of the synthetic login branch with no explicit target are rejected. No production deployment is authorized.
 
 **Operator requirement:** provision a separate Vercel project with automatic deployment disabled until its settings are verified. Before any test preview, the project must have the test target and test-only service account, and a branch-specific Preview scope. Never import or deploy `main` in a newly created test Vercel project.
+
+
+## Stage 3 — live isolated preview and Firebase Auth synthetic-only login
+
+Isolated Vercel project ID: `prj_LLGrwc1RXHkJCims2bcRNvdAr3lF` (team `bhsc`).
+The initial preview `https://bhs-edoc-security-test-m8vjgdhon-bhsc.vercel.app/` was verified HTTP 200 and served ONLY the standalone test page. `main` / live BHS App were not deployed.
+
+The synthetic test UI now supports **Firebase Authentication Email/Password** with seven fixed synthetic aliases. It does not require a Firebase Admin private key on Vercel. The server scrypt/Custom Token path remains separately staged and **disabled by default** for future production-migration design, not the browser's current test login. Login needs all of the following in the test Firebase project:
+
+1. Enable Email/Password **only in Firebase project `bhs-edoc-security-test`** under Authentication → Sign-in method. Never enable real signup or use real names/passwords for these tests.
+2. Publish `security/firestore-security-test.rules` **only to `bhs-edoc-security-test`** after inspection. These rules deny the production `/artifacts` tree outright, deny all browser reads of credentials and require test-only Firebase Custom Claims to access synthetic documents.
+3. Create synthetic Auth users (with `TEST_` UIDs), custom claim `bhsSecurityTest: true`, synthetic profiles, and fake documents. With authorized Google Cloud Shell credentials, run `scripts/seed-test-auth-adc.mjs` (strongly project-gated, uses Application Default Credentials, never downloads a service-account key). The randomly generated test passwords appear **only in the operator's Cloud Shell**. Never paste passwords into ChatGPT.
+4. Access the **Vercel preview URL** and type test username + the displayed fake password. The UI resolves only the seven fixed test usernames to reserved test email aliases. It cannot sign in with real school usernames.
+
+Suggested Google Cloud Shell workflow (performed **by an authenticated Firebase project administrator**, not by ChatGPT; check account and project first):
+
+```bash
+gcloud config set project bhs-edoc-security-test
+gcloud auth application-default login
+npx --yes firebase-tools@14 login --no-localhost
+git clone --single-branch --branch security/sandbox-login-firestore-20261103 https://github.com/KBs23-KS/BH-EDoc2.git
+cd BH-EDoc2
+npm install --no-audit --no-fund
+npx --yes firebase-tools@14 deploy --only firestore:rules --project bhs-edoc-security-test --config security/firebase-security-test.emulator.json
+GOOGLE_CLOUD_PROJECT=bhs-edoc-security-test BHS_SECURITY_TEST_SEED_CONFIRM=bhs-edoc-security-test node scripts/seed-test-auth-adc.mjs
+```
+
+**Warning**: Cloud Shell's user credential must have appropriate Firebase Auth and Firestore administrative permissions. Project rules deployment and seed run are irreversible side effects on the isolated **test** project (not production). If any step fails, stop and review rather than changing the live project. Google auth CLI and ADC are separate login flows.
+
+No actual test Firestore Rules or test users were deployed/created by ChatGPT, because Firebase management tools were unavailable from this chat. The browser preview needs to be redeployed after this patch and verified again.
