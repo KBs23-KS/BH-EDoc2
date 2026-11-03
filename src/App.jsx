@@ -831,12 +831,6 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     const id=new URLSearchParams(window.location.search).get("doc");
     if(id&&activeDocs.some(d=>d.id===id))openDocument(id);
   },[documents.length,currentUser.id]);
-  useEffect(()=>{
-    if(!("setAppBadge" in navigator))return;
-    const n=activeDocs.filter(d=>isFinalDoc(d)&&canViewRouted(currentUser,d,dbUsers,systemSettings)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length
-      +activeDocs.reduce((sum,d)=>sum+pendingAssignmentEvents(d,currentUser).length+pendingHeadGroups(d,currentUser,systemSettings).length,0);
-    Promise.resolve(navigator.setAppBadge(n)).catch(()=>{});
-  },[documents,currentUser.id,dbUsers,systemSettings]);
   const openedDoc=activeDocs.find(d=>d.id===focusDocId);
   const documentAlerts=routingAlerts(activeDocs,currentUser,systemSettings);
   const assignmentCount=activeDocs.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
@@ -892,6 +886,14 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }));
   notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
+  // Match the icon count to the same account-scoped notification list as the bell.
+  const badgeCount=notifications.length;
+  useEffect(()=>{
+    if(!("setAppBadge" in navigator))return;
+    const update=badgeCount>0?navigator.setAppBadge(badgeCount):
+      ("clearAppBadge" in navigator?navigator.clearAppBadge():navigator.setAppBadge(0));
+    Promise.resolve(update).catch(()=>{});
+  },[badgeCount,currentUser.id]);
   const notificationHistory=[
     ...routingHistory(activeDocs,currentUser,systemSettings),
     ...activeDocs.filter(d=>isFinalDoc(d)&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)))
