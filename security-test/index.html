@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>BHS Security Test — Isolated Firebase</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;color:#14283e;background:#f3f6fb}
+    body{margin:0;padding:32px 16px} main{max-width:720px;margin:0 auto;background:white;border:1px solid #dbe5f0;border-radius:18px;padding:28px;box-shadow:0 12px 40px #102b4410}
+    h1{font-size:1.55rem;margin:0 0 12px} h2{font-size:1rem;margin-top:24px} p{line-height:1.7} code{overflow-wrap:anywhere}
+    .tag{display:inline-block;padding:6px 11px;background:#eaf5ed;color:#145b32;border-radius:99px;font-weight:700;font-size:.83rem}
+    .muted{color:#566578} button{cursor:pointer;background:#173f72;color:white;border:0;border-radius:10px;padding:12px 17px;font-weight:700} button:disabled{opacity:.5}
+    .result{margin-top:12px;padding:14px;background:#eff4fa;border-radius:10px;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <main>
+    <span class="tag">TEST ONLY — ไม่ใช่ระบบสารบรรณจริง</span>
+    <h1>BHS E-Document — Firebase Security Test</h1>
+    <p>หน้านี้เป็นพื้นที่ทดสอบที่แยกจากเว็บไซต์โรงเรียน ไม่โหลดโค้ดแอปสารบรรณจริง ไม่เข้าสู่ระบบครู และไม่เขียนข้อมูลใด ๆ</p>
+    <h2>การเชื่อมต่อฐานข้อมูลทดลอง</h2>
+    <p>Project ID: <code id="project">กำลังตรวจสอบ...</code></p>
+    <p id="setup" class="muted" role="status">กำลังเริ่มการตรวจสอบ...</p>
+    <h2>การทดสอบกฎ Firestore เบื้องต้น</h2>
+    <p>ปุ่มนี้จะพยายามอ่านเอกสารจำลองที่ไม่มีข้อมูลจริงเพื่อยืนยันว่ากฎเริ่มต้นปฏิเสธผู้ใช้ที่ยังไม่เข้าสู่ระบบ ไม่มีการเขียนข้อมูล</p>
+    <button id="probe" type="button" disabled>ตรวจการปฏิเสธสิทธิ์อ่าน</button>
+    <div id="result" class="result" role="status">ยังไม่ได้ทดสอบ</div>
+    <p class="muted">การตรวจนี้ยังไม่ใช่การทดสอบสิทธิ์รายบทบาท หรือการยืนยันว่าระบบจริงปลอดภัย PR #39 ยังเป็น Draft</p>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
