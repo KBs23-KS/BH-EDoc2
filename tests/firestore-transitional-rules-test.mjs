@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const rules=readFileSync(new URL("../security/firestore-transitional.DRAFT.rules",import.meta.url),"utf8");
+assert.match(rules,/TRANSITIONAL SECURITY RULES/);
+assert.match(rules,/DO NOT PUBLISH TO PRODUCTION/);
+assert.match(rules,/match \/artifacts\/\{appId\}\/public\/data\/\{collectionName\}\/\{documentId\}/);
+assert.match(rules,/appId == 'bhs-edoc-app'/);
+assert.match(rules,/match \/\{document=\*\*\}\s*\{\s*allow read, write: if false;/);
+assert.match(rules,/top-level \/users collection/,"migration documentation warns about another collection");
+const cleaned=rules.replace(/\/\/[^\n]*/g,"");
+const wide=cleaned.match(/match \/\{document=\*\*\}\s*\{([^}]+)\}/);
+assert.ok(wide);
+assert.doesNotMatch(wide[1],/request\.auth\s*!=\s*null/,"never leave globally permissive wildcard");
+assert.doesNotMatch(cleaned,/allow\s+read,\s*write:\s*if\s+true/);
+console.log("Draft transition rules restrict paths and do not widen the wildcard");
