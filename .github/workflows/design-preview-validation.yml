@@ -64,3 +64,7 @@ jobs:
         run: node tests/signed-pdf-filename-and-remember-username-test.mjs
       - name: Vite production build
         run: npm run build
+      - name: Isolated Firebase test build (no deployment)
+        env:
+          BHS_SECURITY_TEST_DEPLOY_TARGET: bhs-edoc-security-test
+        run: npm run build
