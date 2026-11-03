@@ -28,7 +28,7 @@ export default async function handler(req,res){
         return fail(res,401,"บัญชีหรือรหัสผ่านมีการเปลี่ยนแปลง กรุณาเข้าสู่ระบบอีกครั้ง");
       }
       // Keep a trusted personal device signed in while used; never renew a shared-device session.
-      if(session.remember&&session.exp-Date.now()<APP_RENEWAL_THRESHOLD_MS){
+      if(session.remember&&req.headers["x-bhs-app-active"]==="1"&&session.exp-Date.now()<APP_RENEWAL_THRESHOLD_MS){
         setAppSessionCookie(res,makeAppSession(session.userId,session.credentialTag,true),true);
       }
       return res.status(200).json({success:true,userId:session.userId});
