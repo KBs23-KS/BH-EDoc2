@@ -406,7 +406,7 @@ export default function App() {
   
   const [username, setUsername] = useState(readRememberedUsername);
   const [rememberUsername,setRememberUsername] = useState(()=>Boolean(readRememberedUsername()));
-  const [rememberLogin,setRememberLogin] = useState(true);
+  const [rememberLogin,setRememberLogin] = useState(false);
   const [password, setPassword] = useState("");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -500,7 +500,7 @@ export default function App() {
     const timeout=setTimeout(()=>controller.abort(),6500);
     (async()=>{
       try{
-        const res=await fetch("/api/app-session",{method:"GET",credentials:"same-origin",signal:controller.signal});
+        const res=await fetch("/api/app-session",{method:"GET",credentials:"same-origin",headers:{"X-BHS-App-Active":"1"},signal:controller.signal});
         if(!disposed&&res.ok){
           const data=await res.json();
           if(data?.userId)setResumedUserId(data.userId);
@@ -568,7 +568,7 @@ export default function App() {
   const handleLogout = async () => {
     // Stop delivering to this particular device before clearing the login cookie.
     await unregisterPushOnLogout(app);
-    void Promise.allSettled([
+    await Promise.allSettled([
       fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}),
       fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"})
     ]);
