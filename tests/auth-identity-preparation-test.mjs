@@ -34,6 +34,11 @@ assert.equal(res.body?.success,false);
 assert.equal(res.headers["Cache-Control"],"no-store, private");
 
 process.env.BHS_ENABLE_CUSTOM_AUTH_PREVIEW="true";
+process.env.VERCEL_ENV="production";
+res=mockRes();
+await handler({method:"GET",headers:{}},res);
+assert.equal(res.statusCode,503,"preview identity endpoint is blocked on production");
+delete process.env.VERCEL_ENV;
 res=mockRes();
 await handler({method:"POST",headers:{}},res);
 assert.equal(res.statusCode,405,"custom token endpoint does not accept unthrottled credentials");
