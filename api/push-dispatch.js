@@ -5,7 +5,7 @@
 import {createHash} from "node:crypto";
 import {getMessaging} from "firebase-admin/messaging";
 import {fail,forbidCrossSite,documentRef,setupResponse} from "./_signatureServer.js";
-import {authenticatedProfile,serverDb,TOKEN_COLLECTION,EVENT_COLLECTION} from "./push-subscription.js";
+import {authenticatedProfile,serverDb,TOKEN_COLLECTION,EVENT_COLLECTION,decryptPushToken} from "./push-subscription.js";
 
 const FINAL_STATES=new Set(["อนุมัติ/สั่งการแล้ว","เผยแพร่แล้ว"]);
 const EVENTS={
@@ -80,14 +80,18 @@ export default async function handler(req,res){
     catch(err){if(isDuplicate(err))return res.status(200).json({success:true,duplicate:true});throw err;}
 
     const tokens=await db.collection(TOKEN_COLLECTION).get();
-    const endpoints=tokens.docs.filter(x=>targets.has(x.data().userId)&&typeof x.data().token==="string");
+    const endpoints=tokens.docs.filter(x=>targets.has(x.data().userId))
+      .flatMap(ref=>{
+        try{return [{ref:ref.ref,userId:ref.data().userId,token:decryptPushToken(ref.data().encryptedToken)}];}
+        catch{return [];}
+      });
     let delivered=0;
     // FCM multicast accepts up to 500 device tokens per request.
     for(let i=0;i<endpoints.length;i+=500){
       const part=endpoints.slice(i,i+500);
       const messages=part.map(x=>({
-        token:x.data().token,
-        data:{kind:event,userId:String(x.data().userId),docId,
+        token:x.token,
+        data:{kind:event,userId:String(x.userId),docId,
           title:"BHS E-Document",body:meta.message,url:"/?doc="+encodeURIComponent(docId),badge:"1"},
         webpush:{headers:{TTL:"86400",Urgency:"normal"}}
       }));
