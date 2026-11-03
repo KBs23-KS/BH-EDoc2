@@ -13,7 +13,9 @@ const EVENTS={
   resubmitted:{status:"รอรองผู้อำนวยการ",action:"แก้ไขและส่งเรื่องใหม่",message:"มีเอกสารฉบับแก้ไขรอพิจารณา"},
   forwarded:{status:"รอผู้อำนวยการ",action:"เสนอผู้อำนวยการ",message:"มีเอกสารรอลงนามหรืออนุมัติ"},
   returned:{status:"ส่งกลับแก้ไข",action:"ส่งกลับแก้ไข",message:"มีเอกสารที่ต้องแก้ไข"},
-  published:{action:"อนุมัติและเผยแพร่",message:"มีหนังสือใหม่ให้รับทราบ"}
+  published:{action:"อนุมัติและเผยแพร่",message:"มีหนังสือใหม่ให้รับทราบ"},
+  routed:{action:"ผอ. เกษียณหนังสือ",message:"มีหนังสือเข้าใหม่ที่เกี่ยวข้องกับคุณ"},
+  head_routed:{action:"หัวหน้าเกษียณต่อ",message:"มีงานใหม่ที่ได้รับมอบหมาย"}
 };
 
 function recipientIds(event,document,users){
@@ -24,14 +26,28 @@ function recipientIds(event,document,users){
     return active.filter(u=>["director","admin"].includes(u.role)).map(u=>u.id);
   if(event==="returned")
     return active.filter(u=>u.id===document.createdBy).map(u=>u.id);
+  if(event==="routed"){
+    const latest=(document.routingEntries||[]).at(-1)||{};
+    const explicit=new Set(latest.userIds||[]);
+    return active.filter(u=>["teacher","clerk"].includes(u.role)&&
+      (latest.all||explicit.has(u.id)||(latest.groups||[]).some(g=>u.adminDept===g||u.subjectArea===g))).map(u=>u.id);
+  }
+  if(event==="head_routed"){
+    const latest=(document.headActions||[]).at(-1)||{};
+    const selected=new Set(latest.userIds||[]);
+    return active.filter(u=>selected.has(u.id)).map(u=>u.id);
+  }
   const allowed=new Set((document.recipientsSnapshot||[]).map(x=>x.id));
   return active.filter(u=>allowed.has(u.id)).map(u=>u.id);
 }
 function eventMetadata(event,doc,actorId){
   const rule=EVENTS[event],history=Array.isArray(doc.history)?doc.history:[];
   const last=history[history.length-1];
-  if(!rule||!last||last.action!==rule.action||last.by!==actorId||doc.isDeleted)return null;
-  if(event==="published"?!FINAL_STATES.has(doc.status):doc.status!==rule.status)return null;
+  const acceptedAction=event==="head_routed"?
+    ["หัวหน้าเกษียณต่อ","หัวหน้าเปลี่ยนผู้รับมอบหมาย"].includes(last?.action):
+    last?.action===rule?.action;
+  if(!rule||!last||!acceptedAction||last.by!==actorId||doc.isDeleted)return null;
+  if(["published","routed","head_routed"].includes(event)?!FINAL_STATES.has(doc.status):doc.status!==rule.status)return null;
   if(event==="created"&&doc.createdBy!==actorId)return null;
   const stamp=Number(last.timestamp||0);
   if(!Number.isFinite(stamp)||stamp<=0)return null;
