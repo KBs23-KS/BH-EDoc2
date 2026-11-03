@@ -1,7 +1,8 @@
 import {initializeApp} from "firebase/app";
-import {getAuth,signInWithCustomToken,signOut,onAuthStateChanged} from "firebase/auth";
+import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged} from "firebase/auth";
 import {getFirestore,doc,getDoc} from "firebase/firestore";
 import {verifyTestProject} from "./firebaseConfig.js";
+import {syntheticUser,syntheticEmail} from "./syntheticUsers.js";
 
 const byId=id=>document.getElementById(id);
 const projectLabel=byId("project"),setup=byId("setup"),probe=byId("probe");
@@ -43,24 +44,28 @@ try{
     try{
       const username=byId("username").value.trim();
       const password=byId("password").value;
-      const response=await fetch("/api/security-test-login",{
-        method:"POST",credentials:"same-origin",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({username,password})
-      });
-      byId("password").value="";
-      if(!response.ok)throw new Error("LOGIN_FAILED_"+response.status);
-      const payload=await response.json();
-      if(!payload.customToken||!String(payload.uid||"").startsWith("TEST_"))
-        throw new Error("INVALID_TEST_TOKEN");
-      const signed=await signInWithCustomToken(auth,payload.customToken);
-      if(signed.user.uid!==payload.uid)throw new Error("INVALID_TEST_IDENTITY");
-      session.textContent="เข้าสู่ระบบทดสอบ: "+payload.profile.name+" ("+payload.profile.role+")";
+      const user=syntheticUser(username);
+      if(!user)throw new Error("UNKNOWN_SYNTHETIC_USER");
+      // Firebase Authentication handles password hashing and verification.
+      // Only synthetic demo accounts with a privileged custom claim may read test documents.
+      const credential=await signInWithEmailAndPassword(auth,syntheticEmail(username),password);
+      if(credential.user.uid!==user.uid)throw new Error("INVALID_SYNTHETIC_UID");
+      await credential.user.getIdToken(true);
+      const token=await credential.user.getIdTokenResult();
+      if(token.claims.bhsSecurityTest!==true)throw new Error("TEST_CLAIM_MISSING");
+      const profile=await getDoc(doc(db,"bhs_security_test_profiles",user.uid));
+      if(!profile.exists()||profile.data().status!=="active"||
+        profile.data().role!==user.role)throw new Error("TEST_PROFILE_NOT_ALLOWED");
+      session.textContent="เข้าสู่ระบบทดสอบ: "+profile.data().name+" ("+profile.data().role+")";
     }catch(error){
-      byId("password").value="";
-      session.textContent="ยังเข้าสู่ระบบไม่ได้: "+(error.message.startsWith("LOGIN_FAILED_")?
-        "API ยังไม่พร้อมหรือชื่อผู้ใช้/รหัสผ่านไม่ถูกต้อง": "ตรวจการตั้งค่าทดสอบ");
-    }finally{login.disabled=false;}
+      // A failed claim or profile check must not retain an unauthorized Firebase session.
+      if(auth.currentUser)await signOut(auth);
+      session.textContent="ยังเข้าสู่ระบบไม่ได้: "+
+        (error.message==="UNKNOWN_SYNTHETIC_USER"?"ใช้เฉพาะชื่อผู้ใช้บัญชีจำลอง":
+         error.code==="auth/operation-not-allowed"?"กรุณาเปิด Email/Password ใน Firebase ทดสอบก่อน":
+         error.code==="permission-denied"?"Firestore Rules ทดลองยังไม่พร้อม":
+         "ตรวจรหัสผ่านบัญชีจำลองและการตั้งค่า Firebase ทดลอง");
+    }finally{byId("password").value="";login.disabled=false;}
   });
   onAuthStateChanged(auth,user=>{
     const loggedIn=Boolean(user&&user.uid.startsWith("TEST_"));
