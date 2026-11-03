@@ -53,6 +53,7 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.readerUids is list
         && request.resource.data.readerUids.size() <= 80
+        && (role('admin') || request.resource.data.readerUids == [request.auth.uid])
         && request.resource.data.createdAt == request.time;
       allow update: if role('admin')
         || (role('director') &&
@@ -62,7 +63,10 @@ service cloud.firestore {
       allow delete: if role('admin');
 
       match /receipts/{uid} {
-        allow get: if active() && (request.auth.uid == uid || role('admin') || role('director'));
+        allow get: if active() && (role('admin') || role('director') ||
+          (request.auth.uid == uid &&
+           exists(/databases/$(database)/documents/bhs_security_test_documents/$(documentId)) &&
+           canReadDocument(get(/databases/$(database)/documents/bhs_security_test_documents/$(documentId)).data)));
         allow list: if role('admin') || role('director');
         allow create: if active() && request.auth.uid == uid
           && exists(/databases/$(database)/documents/bhs_security_test_documents/$(documentId))
