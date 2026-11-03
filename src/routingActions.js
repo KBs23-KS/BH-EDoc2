@@ -1,5 +1,5 @@
 import {doc,runTransaction,arrayUnion,getDoc,writeBatch} from "firebase/firestore";
-import {audienceSnapshot,canHeadAct,isFinalDoc,isRoutingEligibleDoc,routeMessage,assignmentKey,headGroups} from "./routing";
+import {audienceSnapshot,canHeadAct,isFinalDoc,isRoutingEligibleDoc,routeMessage,assignmentKey,headGroups,broadcastTeacherIds} from "./routing";
 import {recipientsOf} from "./workflow";
 export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,user,users,settings,showToast}) {
  const audit=(name,id,detail)=>({action:name,userId:user.id,userName:user.name,role:user.role,targetType:"DOCUMENT",targetId:id,detail,timestamp:Date.now()});
@@ -30,11 +30,15 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
      tx.set(auditRef(),audit("เกษียณหนังสือ",d.id,message||"เพิ่มผู้รับ"));
    }),"เกษียณหนังสือสำเร็จ");
  }
- async function headAction(d,{group,userIds=[],message="",reassign=false}){
+ async function headAction(d,{group,userIds=[],message="",reassign=false,broadcastAllTeachers=false}){
    if(!canHeadAct(user,settings,group))throw new Error("ไม่ใช่หัวหน้ากลุ่มที่ได้รับแต่งตั้ง");
    const subject=headGroups(user,settings).some(g=>g.group===group&&g.kind==="subject"&&!headGroups(user,settings).some(x=>x.group===group&&x.kind==="admin"));
    const active=users.filter(u=>u.status!=="inactive"&&["teacher","clerk"].includes(u.role));
+   if(typeof broadcastAllTeachers!=="boolean")throw new Error("รูปแบบการประชาสัมพันธ์ไม่ถูกต้อง");
+   if(broadcastAllTeachers&&userIds.length)throw new Error("ประชาสัมพันธ์ครูทุกคนไม่ใช่การมอบหมายงานรายบุคคล");
    if(userIds.some(id=>!active.some(u=>u.id===id&&(!subject||u.subjectArea===group))))throw new Error("เลือกผู้รับนอกขอบเขต");
+   const broadcastRecipients=broadcastAllTeachers?broadcastTeacherIds(users):[];
+   if(broadcastAllTeachers&&!broadcastRecipients.length)throw new Error("ไม่มีบัญชีครูที่เปิดใช้งานสำหรับประชาสัมพันธ์");
    return guarded(()=>runTransaction(db,async tx=>{
      const ref=item(d.id),snap=await tx.get(ref);
      if(!snap.exists()||!isRoutingEligibleDoc(snap.data()))throw new Error("เกษียณต่อได้เฉพาะหนังสือเข้าที่อนุมัติแล้ว");
@@ -45,14 +49,15 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
      if(old&&!reassign)throw new Error("หัวหน้ากลุ่มนี้ดำเนินการแล้ว");
      // A head who only acknowledged a book may assign teachers later from the completed tab.
      if(reassign&&!old)throw new Error("ไม่พบรายการเกษียณเดิมที่จะแก้ไข");
-     if(reassign&&!userIds.length)throw new Error("กรุณาเลือกครูผู้รับมอบหมายใหม่");
-     const event={...routeMessage("head",user,d),group,userIds,message,...(old?{supersedes:old.id}:{})};
+     if(reassign&&!userIds.length&&!broadcastAllTeachers)throw new Error("กรุณาเลือกครูผู้รับมอบหมายใหม่ หรือประชาสัมพันธ์ครูทุกคน");
+     const event={...routeMessage("head",user,d),group,userIds,message,broadcastAllTeachers,...(old?{supersedes:old.id}:{})};
+     const actionName=broadcastAllTeachers?"หัวหน้าประชาสัมพันธ์ครูทุกคน":reassign?"หัวหน้าเปลี่ยนผู้รับมอบหมาย":userIds.length?"หัวหน้าเกษียณต่อ":"หัวหน้ารับทราบ";
      tx.update(ref,{headActions:[...(fresh.headActions||[]),event],
-       recipientsSnapshot:audienceSnapshot({users:userIds},users,previousRecipients(fresh),user.id,event.at),
-       history:arrayUnion({action:reassign?"หัวหน้าเปลี่ยนผู้รับมอบหมาย":userIds.length?"หัวหน้าเกษียณต่อ":"หัวหน้ารับทราบ",by:user.id,byName:user.name,timestamp:event.at,detail:group+" "+message}),
+       recipientsSnapshot:audienceSnapshot({users:broadcastAllTeachers?broadcastRecipients:userIds},users,previousRecipients(fresh),user.id,event.at),
+       history:arrayUnion({action:actionName,by:user.id,byName:user.name,timestamp:event.at,detail:group+" "+message}),
        lastEventAt:event.at});
-     tx.set(auditRef(),audit(reassign?"หัวหน้าเปลี่ยนผู้รับมอบหมาย":userIds.length?"หัวหน้าเกษียณต่อ":"หัวหน้ารับทราบ",d.id,group));
-   }),reassign?"เปลี่ยนผู้รับมอบหมายแล้ว":userIds.length?"ส่งงานถึงครูแล้ว":"รับทราบและจบงานของหัวหน้าแล้ว");
+     tx.set(auditRef(),audit(actionName,d.id,group));
+   }),broadcastAllTeachers?"ประชาสัมพันธ์ถึงครูทุกคนสำเร็จ":reassign?"เปลี่ยนผู้รับมอบหมายแล้ว":userIds.length?"ส่งงานถึงครูแล้ว":"รับทราบและจบงานของหัวหน้าแล้ว");
  }
  async function acknowledge(d){
    return guarded(async()=>{
