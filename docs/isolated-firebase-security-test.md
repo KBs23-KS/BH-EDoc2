@@ -71,3 +71,10 @@ The optional test-data seeder is scripts/seed-security-test-users.mjs, requires 
 - Both normal and isolated Vite builds remain part of CI.
 
 **Not done**: deploy of test Firestore Rules, creating a new Vercel project, connecting to test Firebase Admin, seeding fake test credentials, manual browser sign-in, integrating PR #39 production login migrations, preserving actual teachers' passwords, authorization of all real document workflows or production access testing. These require separate gated steps.
+
+
+## Stage 2 build gate — 2026-11-03
+
+The allowed branch list also includes `security/sandbox-login-firestore-20261103` for the stacked Draft PR #42. A Vercel build with `VERCEL_ENV=production` and `BHS_SECURITY_TEST_DEPLOY_TARGET=bhs-edoc-security-test` is always rejected. Preview builds of the synthetic login branch with no explicit target are rejected. No production deployment is authorized.
+
+**Operator requirement:** provision a separate Vercel project with automatic deployment disabled until its settings are verified. Before any test preview, the project must have the test target and test-only service account, and a branch-specific Preview scope. Never import or deploy `main` in a newly created test Vercel project.
