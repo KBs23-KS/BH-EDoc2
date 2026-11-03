@@ -3,7 +3,31 @@ import {readFileSync} from "node:fs";
 import {testApiEnabled,testAdminCredentials,credentialLookupId,sameOriginPost,TEST_PROJECT_ID,TEST_BRANCH} from "../api/_securityTestServer.js";
 import {hashSchoolPassword,verifySchoolPassword} from "../api/_passwordSecurity.js";
 import loginHandler from "../api/security-test-login.js";
+import {SYNTHETIC_USERS,syntheticUser,syntheticEmail} from "../security-test/syntheticUsers.js";
+import {seedTargetApproved} from "../scripts/seed-test-auth-adc.mjs";
 
+assert.equal(SYNTHETIC_USERS.length,7);
+assert.equal(syntheticUser(" TEST_TEACHER ")?.uid,"TEST_TEACHER_001");
+assert.equal(syntheticUser("teacher1"),null);
+assert.equal(syntheticEmail("test_admin"),"test_admin@sandbox.bhs-edoc-security-test.example");
+assert.equal(syntheticEmail("admin"),null);
+assert.equal(seedTargetApproved({
+  GOOGLE_CLOUD_PROJECT:"bhs-edoc-security-test",
+  BHS_SECURITY_TEST_SEED_CONFIRM:"bhs-edoc-security-test"
+}),true);
+assert.equal(seedTargetApproved({
+  GOOGLE_CLOUD_PROJECT:"bhs-edoc-2",
+  BHS_SECURITY_TEST_SEED_CONFIRM:"bhs-edoc-security-test"
+}),false);
+assert.equal(seedTargetApproved({
+  GOOGLE_CLOUD_PROJECT:"bhs-edoc-security-test",
+  GCLOUD_PROJECT:"bhs-edoc-2",
+  BHS_SECURITY_TEST_SEED_CONFIRM:"bhs-edoc-security-test"
+}),false);
+assert.equal(seedTargetApproved({
+  VERCEL:"1",GOOGLE_CLOUD_PROJECT:"bhs-edoc-security-test",
+  BHS_SECURITY_TEST_SEED_CONFIRM:"bhs-edoc-security-test"
+}),false);
 const testEnv={
   VERCEL:"1",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_REF:TEST_BRANCH,
   BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID,BHS_SECURITY_TEST_API_ENABLED:"true"
@@ -44,7 +68,15 @@ assert.match(rules,/request.resource.data.diff\(resource.data\).affectedKeys\(\)
 assert.doesNotMatch(rules,/allow\s+read,\s*write:\s*if\s*true/);
 assert.doesNotMatch(rules,/request.auth\s*!=\s*null\s*;/,"no blanket auth access");
 const site=readFileSync(new URL("../security-test/main.js",import.meta.url),"utf8");
-assert.match(site,/signInWithCustomToken/);
+assert.match(site,/signInWithEmailAndPassword/);
+assert.match(site,/bhsSecurityTest/);
 assert.match(site,/signOut/);
 assert.doesNotMatch(site,/src\/App|signInAnonymously|bhs-edoc-2\.firebaseapp\.com/);
-console.log("Synthetic login isolation, scrypt verification and strict-rules source checks passed");
+
+const cloudSeeder=readFileSync(new URL("../scripts/seed-test-auth-adc.mjs",import.meta.url),"utf8");
+assert.match(cloudSeeder,/applicationDefault\(\)/);
+assert.match(cloudSeeder,/setCustomUserClaims/);
+assert.doesNotMatch(cloudSeeder,/bhs-edoc-2|BHS_FIREBASE_SERVICE_ACCOUNT_JSON|process\.env\.FIREBASE_PRIVATE_KEY/);
+assert.doesNotMatch(site,/security-test-login|signInAnonymously|\.\.\/src\/App/);
+
+console.log("Synthetic login, Firebase Auth fallback, seed safety and strict rules checks passed");
