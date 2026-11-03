@@ -28,7 +28,7 @@ const api=readFileSync(new URL("../api/app-session.js",import.meta.url),"utf8");
 assert.ok(app.includes('fetch("/api/app-session",{method:"GET"'),"refresh restores verified app session");
 assert.ok(app.includes("sessionChecking"),"login screen does not flicker before session check");
 assert.ok(app.includes("remember:rememberLogin"),"selected trusted-device option used in login request");
-assert.ok(app.includes("const [rememberLogin,setRememberLogin] = useState(true)"),"shared devices can avoid persistent cookies");
+assert.ok(app.includes("const [rememberLogin,setRememberLogin] = useState(false)"),"shared devices default to a nonpersistent login; personal devices can explicitly opt in");
 assert.ok(app.includes('fetch("/api/app-session",{method:"DELETE"'),"logout clears persistent session");
 assert.ok(api.includes('matchesLegacyPassword(password,user)'),"server independently validates password");
 assert.ok(editor.includes('onScroll={sourceBytes?trackVisiblePage:undefined}'),"scrolling updates current page");
