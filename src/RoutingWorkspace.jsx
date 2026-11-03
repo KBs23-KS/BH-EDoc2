@@ -1,5 +1,5 @@
 import React,{useMemo,useState} from "react";
-import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc,isRoutingEligibleDoc} from "./routing";
+import {headGroups,pendingHeadGroups,completedHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc,isRoutingEligibleDoc} from "./routing";
 import {canReadDoc,recipientsOf} from "./workflow";
 
 // A two-stage selector avoids dumping every group and teacher at once.
@@ -80,7 +80,7 @@ export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,s
     </div>}
   </div>;
 }
-function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,onChange}) {
+function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,onChange,reassign=false}) {
   const [mode,setMode]=useState("");
   const [chosenGroup,setChosenGroup]=useState("");
   const [chosenSubject,setChosenSubject]=useState("");
@@ -131,7 +131,7 @@ function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,o
       <p>{selected.map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")}</p>
       <p>เปลี่ยนกลุ่มเพื่อเลือกเพิ่มได้ รายชื่อเดิมไม่หาย</p>
     </div>}
-    {!selected.length&&<p className="text-xs text-slate-500">ถ้าไม่มีครูต้องมอบหมาย สามารถกดรับทราบในฐานะหัวหน้าได้เลย</p>}
+    {!selected.length&&<p className="text-xs text-slate-500">{reassign?"เลือกครูที่ต้องการมอบหมายอย่างน้อย 1 คนก่อนบันทึกการเปลี่ยนแปลง":"ถ้าไม่มีครูต้องมอบหมาย สามารถกดรับทราบในฐานะหัวหน้าได้เลย"}</p>}
   </div>;
 }
 export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,onRoute,onHeadAction,onOpen,focusDocId=null}) {
@@ -146,16 +146,27 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   const [busy,setBusy]=useState(false);
   const [confirm,setConfirm]=useState(false);
   const [supersedes,setSupersedes]=useState("");
+  const [headTab,setHeadTab]=useState("pending");
   const routed=documents.filter(isRoutingEligibleDoc);
-  const headPending=routed.flatMap(d=>pendingHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind})));
-  const headAvailable=routed.flatMap(d=>managed.filter(h=>routingGroups(d).includes(h.group)).map(h=>({doc:d,group:h.group,kind:h.kind})))
-    .filter(x=>{const done=(x.doc.headActions||[]).filter(e=>e.group===x.group).at(-1);return !done||(done.userIds||[]).length>0});
-  const display=canDirector?routed:headAvailable.map(x=>x.doc).filter((x,i,a)=>a.findIndex(k=>k.id===x.id)===i);
+  // Show a document under "pending" only when the current head has not handled this group.
+  // A head appointed to two groups can have the same document in both tabs, once per group.
+  const uniqueHeadRows=rows=>rows.filter((x,i,all)=>all.findIndex(y=>y.doc.id===x.doc.id&&y.group===x.group)===i);
+  const headPending=uniqueHeadRows(routed.flatMap(d=>pendingHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind}))));
+  const headDone=uniqueHeadRows(routed.flatMap(d=>completedHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind}))));
+  const activeHeadRows=headTab==="completed"?headDone:headPending;
+  const display=canDirector?routed:activeHeadRows.map(x=>x.doc).filter((x,i,a)=>a.findIndex(k=>k.id===x.id)===i);
   const doc=display.find(d=>d.id===selectedDoc)||display[0];
-  const myGroup=headAvailable.filter(x=>x.doc.id===doc?.id);
+  const myGroup=activeHeadRows.filter(x=>x.doc.id===doc?.id);
   const group=activeGroup&&myGroup.some(x=>x.group===activeGroup)?activeGroup:myGroup[0]?.group;
   const kind=myGroup.find(x=>x.group===group)?.kind;
   const completed=(doc?.headActions||[]).filter(e=>e.group===group).at(-1);
+  useEffect(()=>{
+    if(canDirector)return;
+    // Reuse the current recipients as a starting point when editing a completed action.
+    // Selection remains user-controlled after this initial switch.
+    setIds(headTab==="completed"?(completed?.userIds||[]):[]);
+    setConfirm(false);
+  },[canDirector,headTab,doc?.id,group]);
   const directorAssignable=(doc?.routingEntries||[]).filter(e=>(e.userIds||[]).length&&!(doc.routingEntries||[]).some(n=>n.supersedes===e.id));
   const candidates=dbUsers.filter(u=>["teacher","clerk"].includes(u.role)&&u.status!=="inactive"&&(canDirector||kind==="admin"||u.subjectArea===group));
   async function save(){
@@ -167,14 +178,27 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
     try{
       if(canDirector)await onRoute(doc,{groups,userIds:ids,all,message,supersedes});
       else await onHeadAction(doc,{group,userIds:ids,message,reassign:!!completed});
-      setSelectedDoc("");setGroups([]);setIds([]);setMessage("");setConfirm(false);setAll(false);setSupersedes("");
+      setSelectedDoc("");setActiveGroup("");setGroups([]);setIds([]);setMessage("");setConfirm(false);setAll(false);setSupersedes("");
     }finally{setBusy(false);}
   }
+  function switchHeadTab(tab){
+    setHeadTab(tab);setSelectedDoc("");setActiveGroup("");setIds([]);setMessage("");setConfirm(false);
+  }
   return <div className="space-y-5 max-w-5xl mx-auto">
-    <header className="bhs-modern-page-title"><div><p className="text-xs uppercase tracking-widest text-blue-500 font-bold">BHS / ROUTING</p><h2 className="text-2xl font-bold text-slate-800">เกษียณและมอบหมายหนังสือ</h2><p className="text-sm text-slate-500 mt-1">การมอบหมายงานไม่ทำให้สมาชิกเดิมเสียสิทธิ์ดูหนังสือ</p></div><span className="bhs-modern-counter">{canDirector?routed.length:headPending.length} รายการ</span></header>
-    {!display.length&&<div className="bhs-modern-panel p-8 text-center text-slate-500">ไม่มีหนังสือเข้ารอเกษียณต่อหรือเปลี่ยนผู้รับมอบหมาย</div>}
+    <header className="bhs-modern-page-title"><div><p className="text-xs uppercase tracking-widest text-blue-500 font-bold">BHS / ROUTING</p><h2 className="text-2xl font-bold text-slate-800">เกษียณและมอบหมายหนังสือ</h2><p className="text-sm text-slate-500 mt-1">หนังสือที่ดำเนินการแล้วจะย้ายไปแท็บเกษียณแล้ว เพื่อดูย้อนหลังและเปลี่ยนผู้รับมอบหมายได้</p></div><span className="bhs-modern-counter">{canDirector?routed.length:headPending.length} รายการรอดำเนินการ</span></header>
+    {!canDirector&&<div role="tablist" aria-label="สถานะการเกษียณของหัวหน้า" className="flex flex-wrap gap-2">
+      <button type="button" role="tab" aria-selected={headTab==="pending"} onClick={()=>switchHeadTab("pending")}
+        className={`rounded-xl border px-4 py-2.5 text-sm font-bold ${headTab==="pending"?"bg-[#003366] text-white border-[#003366]":"bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
+        รอเกษียณต่อ ({headPending.length})
+      </button>
+      <button type="button" role="tab" aria-selected={headTab==="completed"} onClick={()=>switchHeadTab("completed")}
+        className={`rounded-xl border px-4 py-2.5 text-sm font-bold ${headTab==="completed"?"bg-[#003366] text-white border-[#003366]":"bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
+        เกษียณแล้ว ({headDone.length})
+      </button>
+    </div>}
+    {!display.length&&<div className="bhs-modern-panel p-8 text-center text-slate-500">{canDirector?"ไม่มีหนังสือเข้าที่สามารถเกษียณต่อได้":headTab==="pending"?"ไม่มีหนังสือรอเกษียณต่อแล้ว":"ยังไม่มีหนังสือที่เกษียณแล้ว"}</div>}
     {!!display.length&&<div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-4">
-      <section className="bhs-modern-panel overflow-hidden"><div className="p-4 border-b font-semibold">เลือกหนังสือ</div><div className="max-h-[560px] overflow-y-auto divide-y">{display.map(d=><button key={d.id} onClick={()=>{setSelectedDoc(d.id);setConfirm(false);setIds([]);setGroups([]);setSupersedes("")}} className={"block w-full text-left p-4 hover:bg-blue-50 "+(doc?.id===d.id?"bg-blue-50":"")}><div className="text-xs font-bold text-blue-600">{d.docNumber||d.type}</div><div className="font-semibold text-sm text-slate-800 mt-1">{d.subject}</div><div className="text-xs text-slate-500 mt-2">{d.status}</div></button>)}</div></section>
+      <section className="bhs-modern-panel overflow-hidden"><div className="p-4 border-b font-semibold">{canDirector?"เลือกหนังสือ":headTab==="pending"?"หนังสือที่รอเกษียณ":"หนังสือที่เกษียณแล้ว"}</div><div className="max-h-[560px] overflow-y-auto divide-y">{display.map(d=><button key={d.id} onClick={()=>{setSelectedDoc(d.id);setActiveGroup("");setConfirm(false);setIds([]);setGroups([]);setMessage("");setSupersedes("")}} className={"block w-full text-left p-4 hover:bg-blue-50 "+(doc?.id===d.id?"bg-blue-50":"")}><div className="text-xs font-bold text-blue-600">{d.docNumber||d.type}</div><div className="font-semibold text-sm text-slate-800 mt-1">{d.subject}</div><div className="text-xs text-slate-500 mt-2">{d.status}</div>{!canDirector&&<div className="text-xs text-slate-500 mt-1">กลุ่ม: {activeHeadRows.filter(x=>x.doc.id===d.id).map(x=>x.group).join(", ")}</div>}</button>)}</div></section>
       <section className="bhs-modern-panel p-4 md:p-5 space-y-4">
         <div><h3 className="font-bold text-lg text-slate-800">{doc?.subject}</h3><button className="text-xs text-blue-600 underline mt-1" onClick={()=>onOpen(doc.id)}>เปิดดูเอกสารและข้อเกษียณ</button></div>
         {!canDirector&&<div><label className="text-xs font-bold text-slate-600">เกษียณในฐานะหัวหน้ากลุ่ม</label><select value={group||""} onChange={e=>{setActiveGroup(e.target.value);setIds([]);setConfirm(false)}} className="w-full p-3 border rounded-xl mt-1 text-sm">{myGroup.map(x=><option key={x.group} value={x.group}>{x.group}</option>)}</select></div>}
@@ -184,12 +208,17 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
             {directorAssignable.map(e=><option key={e.id} value={e.id}>แทนรายการ {new Date(e.at||0).toLocaleString("th-TH")} — {(e.userIds||[]).map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")}</option>)}
           </select>
         </label>}
-        {completed&&<p className="text-xs text-amber-700 bg-amber-50 rounded-lg p-3">หัวหน้าเกษียณไปแล้ว คุณสามารถเปลี่ยนรายชื่อผู้รับมอบหมาย โดยจะเก็บประวัติเดิมไว้</p>}
-        {canDirector?<RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={setGroups} userIds={ids} setUserIds={setIds} allowAll all={all} setAll={setAll}/>:<HeadRecipientPicker key={group} users={candidates} kind={kind} group={group} dbUsers={dbUsers} systemSettings={systemSettings} selected={ids} onChange={setIds}/>}
+        {completed&&<div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
+          <p className="font-bold">เกษียณแล้ว {completed.at?new Date(completed.at).toLocaleString("th-TH"):""}</p>
+          <p>ข้อเกษียณล่าสุด: {completed.message||"รับทราบแล้ว"}</p>
+          <p>ผู้รับมอบหมายล่าสุด: {(completed.userIds||[]).map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")||"ไม่มี (หัวหน้ารับทราบเอง)"}</p>
+          <p>สามารถแก้รายชื่อผู้รับมอบหมายได้ โดยระบบจะเก็บประวัติการเปลี่ยนแปลงไว้</p>
+        </div>}
+        {canDirector?<RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={setGroups} userIds={ids} setUserIds={setIds} allowAll all={all} setAll={setAll}/>:<HeadRecipientPicker key={String(doc?.id)+":"+group+":"+headTab} users={candidates} kind={kind} group={group} dbUsers={dbUsers} systemSettings={systemSettings} selected={ids} onChange={setIds} reassign={!!completed}/>}
         <label className="block space-y-1"><span className="font-semibold text-sm text-slate-700">ข้อเกษียณ / ข้อสั่งการ</span><textarea value={message} onChange={e=>setMessage(e.target.value)} rows={3} className="w-full p-3 border rounded-xl text-sm" placeholder="บันทึกข้อสั่งการตามหนังสือ..."/></label>
         {!canDirector&&!completed&&!ids.length&&<p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">ไม่เลือกครู = หัวหน้ากดรับทราบและจบงานส่วนของตน</p>}
         {confirm&&<div className="border border-amber-200 bg-amber-50 p-3 rounded-xl text-sm"><b>ตรวจสอบก่อนยืนยัน</b><p>ถึงกลุ่ม: {canDirector?(all?"ทุกคน":groups.join(", ")||"—"):group}</p><p>ถึงครู: {ids.map(id=>dbUsers.find(u=>u.id===id)?.name).join(", ")||"ไม่มอบหมายรายบุคคล"}</p><p>ข้อสั่งการ: {message||"—"}</p></div>}
-        <button disabled={busy} onClick={save} className="bg-blue-700 hover:bg-blue-800 text-white rounded-xl w-full py-3 text-sm font-bold disabled:opacity-50">{busy?"กำลังบันทึก...":confirm?"ยืนยันและบันทึก":completed||supersedes?"ตรวจสอบการเปลี่ยนผู้รับ":"ตรวจสอบก่อนเกษียณ"}</button>
+        <button disabled={busy||(!canDirector&&!!completed&&!ids.length)} onClick={save} className="bg-blue-700 hover:bg-blue-800 text-white rounded-xl w-full py-3 text-sm font-bold disabled:opacity-50">{busy?"กำลังบันทึก...":confirm?"ยืนยันและบันทึก":completed||supersedes?"ตรวจสอบการเปลี่ยนผู้รับ":"ตรวจสอบก่อนเกษียณ"}</button>
       </section>
     </div>}
   </div>;
