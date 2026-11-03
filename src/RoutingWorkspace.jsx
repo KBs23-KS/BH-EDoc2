@@ -80,8 +80,8 @@ export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,s
     </div>}
   </div>;
 }
-function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,onChange,reassign=false}) {
-  const [mode,setMode]=useState("");
+function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,onChange,reassign=false,broadcastAllTeachers=false,onBroadcastChange=()=>{}}) {
+  const [mode,setMode]=useState(broadcastAllTeachers?"broadcast":"");
   const [chosenGroup,setChosenGroup]=useState("");
   const [chosenSubject,setChosenSubject]=useState("");
   const [search,setSearch]=useState("");
@@ -96,13 +96,24 @@ function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,o
     <label className="block text-sm font-semibold text-slate-700" htmlFor="head-route-mode">
       ขั้นที่ 1 เลือกวิธีค้นหาครูที่จะเกษียณต่อ
     </label>
-    <select id="head-route-mode" value={mode} onChange={e=>{setMode(e.target.value);setChosenGroup("");setChosenSubject("");setSearch("");}}
+    <select id="head-route-mode" value={mode} onChange={e=>{
+      const next=e.target.value;
+      setMode(next);setChosenGroup("");setChosenSubject("");setSearch("");
+      onBroadcastChange(next==="broadcast");
+      if(next==="broadcast")onChange([]);
+    }}
       className="w-full p-3 border bg-white rounded-xl text-sm">
       <option value="">-- กดเลือกก่อน จึงแสดงรายชื่อครูให้ติ๊ก --</option>
+      <option value="broadcast">ประชาสัมพันธ์ครูทุกคน</option>
       {admin
         ? <><option value="admin">กลุ่มบริหารงาน</option><option value="subject">กลุ่มสาระการเรียนรู้</option><option value="both">ทั้งกลุ่มบริหารงานและกลุ่มสาระ</option><option value="person">เจาะจงครูรายบุคคล</option></>
         : <><option value="own">ครูในกลุ่มสาระ {group}</option><option value="person">เจาะจงครูในกลุ่มสาระของตน</option></>}
     </select>
+    {mode==="broadcast"&&<div className="border border-blue-200 bg-blue-50 rounded-xl p-3 text-sm text-blue-900 space-y-2">
+      <p className="font-bold">ประชาสัมพันธ์ถึงครูทุกคนที่บัญชีเปิดใช้งาน</p>
+      <p>เพิ่มครูทุกคนเป็นผู้รับหนังสือเพื่ออ่านและกดรับทราบ โดยไม่สร้างงานมอบหมายรายบุคคล และไม่ส่งให้บัญชีที่ปิดใช้งาน</p>
+      <p className="text-amber-800 font-semibold">โปรดตรวจว่าเอกสารไม่มีข้อมูลที่ต้องจำกัดเฉพาะกลุ่ม ก่อนยืนยัน</p>
+    </div>}
     {admin&&(mode==="admin"||mode==="subject")&&<label className="block space-y-1">
       <span className="block text-sm font-semibold text-slate-700">ขั้นที่ 2 เลือก{mode==="admin"?"กลุ่มบริหารงาน":"กลุ่มสาระ"}ที่จะค้นหารายชื่อ</span>
       <select value={chosenGroup} onChange={e=>{setChosenGroup(e.target.value);setSearch("");}}
@@ -131,7 +142,7 @@ function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,o
       <p>{selected.map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")}</p>
       <p>เปลี่ยนกลุ่มเพื่อเลือกเพิ่มได้ รายชื่อเดิมไม่หาย</p>
     </div>}
-    {!selected.length&&<p className="text-xs text-slate-500">{reassign?"เลือกครูที่ต้องการมอบหมายอย่างน้อย 1 คนก่อนบันทึกการเปลี่ยนแปลง":"ถ้าไม่มีครูต้องมอบหมาย สามารถกดรับทราบในฐานะหัวหน้าได้เลย"}</p>}
+    {!selected.length&&mode!=="broadcast"&&<p className="text-xs text-slate-500">{reassign?"เลือกครูที่ต้องการมอบหมายอย่างน้อย 1 คนก่อนบันทึกการเปลี่ยนแปลง":"ถ้าไม่มีครูต้องมอบหมาย สามารถกดรับทราบในฐานะหัวหน้าได้เลย"}</p>}
   </div>;
 }
 export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,onRoute,onHeadAction,onOpen,focusDocId=null}) {
@@ -141,6 +152,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   const [activeGroup,setActiveGroup]=useState("");
   const [groups,setGroups]=useState([]);
   const [ids,setIds]=useState([]);
+  const [broadcastAllTeachers,setBroadcastAllTeachers]=useState(false);
   const [all,setAll]=useState(false);
   const [message,setMessage]=useState("");
   const [busy,setBusy]=useState(false);
@@ -165,6 +177,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
     // Reuse the current recipients as a starting point when editing a completed action.
     // Selection remains user-controlled after this initial switch.
     setIds(headTab==="completed"?(completed?.userIds||[]):[]);
+    setBroadcastAllTeachers(headTab==="completed"&&completed?.broadcastAllTeachers===true);
     setConfirm(false);
   },[canDirector,headTab,doc?.id,group]);
   const directorAssignable=(doc?.routingEntries||[]).filter(e=>(e.userIds||[]).length&&!(doc.routingEntries||[]).some(n=>n.supersedes===e.id));
@@ -177,12 +190,12 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
     setBusy(true);
     try{
       if(canDirector)await onRoute(doc,{groups,userIds:ids,all,message,supersedes});
-      else await onHeadAction(doc,{group,userIds:ids,message,reassign:!!completed});
-      setSelectedDoc("");setActiveGroup("");setGroups([]);setIds([]);setMessage("");setConfirm(false);setAll(false);setSupersedes("");
+      else await onHeadAction(doc,{group,userIds:broadcastAllTeachers?[]:ids,message,reassign:!!completed,broadcastAllTeachers});
+      setSelectedDoc("");setActiveGroup("");setGroups([]);setIds([]);setBroadcastAllTeachers(false);setMessage("");setConfirm(false);setAll(false);setSupersedes("");
     }finally{setBusy(false);}
   }
   function switchHeadTab(tab){
-    setHeadTab(tab);setSelectedDoc("");setActiveGroup("");setIds([]);setMessage("");setConfirm(false);
+    setHeadTab(tab);setSelectedDoc("");setActiveGroup("");setIds([]);setBroadcastAllTeachers(false);setMessage("");setConfirm(false);
   }
   return <div className="space-y-5 max-w-5xl mx-auto">
     <header className="bhs-modern-page-title"><div><p className="text-xs uppercase tracking-widest text-blue-500 font-bold">BHS / ROUTING</p><h2 className="text-2xl font-bold text-slate-800">เกษียณและมอบหมายหนังสือ</h2><p className="text-sm text-slate-500 mt-1">หนังสือที่ดำเนินการแล้วจะย้ายไปแท็บเกษียณแล้ว เพื่อดูย้อนหลังและเปลี่ยนผู้รับมอบหมายได้</p></div><span className="bhs-modern-counter">{canDirector?routed.length:headPending.length} รายการรอดำเนินการ</span></header>
@@ -198,10 +211,10 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
     </div>}
     {!display.length&&<div className="bhs-modern-panel p-8 text-center text-slate-500">{canDirector?"ไม่มีหนังสือเข้าที่สามารถเกษียณต่อได้":headTab==="pending"?"ไม่มีหนังสือรอเกษียณต่อแล้ว":"ยังไม่มีหนังสือที่เกษียณแล้ว"}</div>}
     {!!display.length&&<div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-4">
-      <section className="bhs-modern-panel overflow-hidden"><div className="p-4 border-b font-semibold">{canDirector?"เลือกหนังสือ":headTab==="pending"?"หนังสือที่รอเกษียณ":"หนังสือที่เกษียณแล้ว"}</div><div className="max-h-[560px] overflow-y-auto divide-y">{display.map(d=><button key={d.id} onClick={()=>{setSelectedDoc(d.id);setActiveGroup("");setConfirm(false);setIds([]);setGroups([]);setMessage("");setSupersedes("")}} className={"block w-full text-left p-4 hover:bg-blue-50 "+(doc?.id===d.id?"bg-blue-50":"")}><div className="text-xs font-bold text-blue-600">{d.docNumber||d.type}</div><div className="font-semibold text-sm text-slate-800 mt-1">{d.subject}</div><div className="text-xs text-slate-500 mt-2">{d.status}</div>{!canDirector&&<div className="text-xs text-slate-500 mt-1">กลุ่ม: {activeHeadRows.filter(x=>x.doc.id===d.id).map(x=>x.group).join(", ")}</div>}</button>)}</div></section>
+      <section className="bhs-modern-panel overflow-hidden"><div className="p-4 border-b font-semibold">{canDirector?"เลือกหนังสือ":headTab==="pending"?"หนังสือที่รอเกษียณ":"หนังสือที่เกษียณแล้ว"}</div><div className="max-h-[560px] overflow-y-auto divide-y">{display.map(d=><button key={d.id} onClick={()=>{setSelectedDoc(d.id);setActiveGroup("");setConfirm(false);setIds([]);setBroadcastAllTeachers(false);setGroups([]);setMessage("");setSupersedes("")}} className={"block w-full text-left p-4 hover:bg-blue-50 "+(doc?.id===d.id?"bg-blue-50":"")}><div className="text-xs font-bold text-blue-600">{d.docNumber||d.type}</div><div className="font-semibold text-sm text-slate-800 mt-1">{d.subject}</div><div className="text-xs text-slate-500 mt-2">{d.status}</div>{!canDirector&&<div className="text-xs text-slate-500 mt-1">กลุ่ม: {activeHeadRows.filter(x=>x.doc.id===d.id).map(x=>x.group).join(", ")}</div>}</button>)}</div></section>
       <section className="bhs-modern-panel p-4 md:p-5 space-y-4">
         <div><h3 className="font-bold text-lg text-slate-800">{doc?.subject}</h3><button className="text-xs text-blue-600 underline mt-1" onClick={()=>onOpen(doc.id)}>เปิดดูเอกสารและข้อเกษียณ</button></div>
-        {!canDirector&&<div><label className="text-xs font-bold text-slate-600">เกษียณในฐานะหัวหน้ากลุ่ม</label><select value={group||""} onChange={e=>{setActiveGroup(e.target.value);setIds([]);setConfirm(false)}} className="w-full p-3 border rounded-xl mt-1 text-sm">{myGroup.map(x=><option key={x.group} value={x.group}>{x.group}</option>)}</select></div>}
+        {!canDirector&&<div><label className="text-xs font-bold text-slate-600">เกษียณในฐานะหัวหน้ากลุ่ม</label><select value={group||""} onChange={e=>{setActiveGroup(e.target.value);setIds([]);setBroadcastAllTeachers(false);setConfirm(false)}} className="w-full p-3 border rounded-xl mt-1 text-sm">{myGroup.map(x=><option key={x.group} value={x.group}>{x.group}</option>)}</select></div>}
         {canDirector&&directorAssignable.length>0&&<label className="text-xs text-slate-600 block">เปลี่ยนผู้รับมอบหมายเดิม (ไม่บังคับ)
           <select value={supersedes} onChange={e=>setSupersedes(e.target.value)} className="w-full border bg-white rounded-xl p-3 mt-1 text-sm">
             <option value="">เกษียณ / มอบหมายใหม่ (ไม่แทนรายการเดิม)</option>
@@ -211,14 +224,15 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
         {completed&&<div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
           <p className="font-bold">เกษียณแล้ว {completed.at?new Date(completed.at).toLocaleString("th-TH"):""}</p>
           <p>ข้อเกษียณล่าสุด: {completed.message||"รับทราบแล้ว"}</p>
-          <p>ผู้รับมอบหมายล่าสุด: {(completed.userIds||[]).map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")||"ไม่มี (หัวหน้ารับทราบเอง)"}</p>
+          <p>ผู้รับมอบหมายล่าสุด: {completed.broadcastAllTeachers?"ประชาสัมพันธ์ครูทุกคน (ไม่ใช่งานมอบหมาย)":(completed.userIds||[]).map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")||"ไม่มี (หัวหน้ารับทราบเอง)"}</p>
+          {completed.broadcastAllTeachers&&<p>การเปลี่ยนรายชื่อภายหลังจะไม่เรียกคืนสิทธิ์อ่านจากครูที่ได้รับหนังสือไปแล้ว</p>}
           <p>สามารถแก้รายชื่อผู้รับมอบหมายได้ โดยระบบจะเก็บประวัติการเปลี่ยนแปลงไว้</p>
         </div>}
-        {canDirector?<RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={setGroups} userIds={ids} setUserIds={setIds} allowAll all={all} setAll={setAll}/>:<HeadRecipientPicker key={String(doc?.id)+":"+group+":"+headTab} users={candidates} kind={kind} group={group} dbUsers={dbUsers} systemSettings={systemSettings} selected={ids} onChange={setIds} reassign={!!completed}/>}
+        {canDirector?<RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={setGroups} userIds={ids} setUserIds={setIds} allowAll all={all} setAll={setAll}/>:<HeadRecipientPicker key={String(doc?.id)+":"+group+":"+headTab} users={broadcastAllTeachers?dbUsers.filter(u=>u.role==="teacher"&&u.status!=="inactive"):candidates} kind={kind} group={group} dbUsers={dbUsers} systemSettings={systemSettings} selected={ids} onChange={setIds} reassign={!!completed} broadcastAllTeachers={broadcastAllTeachers} onBroadcastChange={setBroadcastAllTeachers}/>}
         <label className="block space-y-1"><span className="font-semibold text-sm text-slate-700">ข้อเกษียณ / ข้อสั่งการ</span><textarea value={message} onChange={e=>setMessage(e.target.value)} rows={3} className="w-full p-3 border rounded-xl text-sm" placeholder="บันทึกข้อสั่งการตามหนังสือ..."/></label>
-        {!canDirector&&!completed&&!ids.length&&<p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">ไม่เลือกครู = หัวหน้ากดรับทราบและจบงานส่วนของตน</p>}
-        {confirm&&<div className="border border-amber-200 bg-amber-50 p-3 rounded-xl text-sm"><b>ตรวจสอบก่อนยืนยัน</b><p>ถึงกลุ่ม: {canDirector?(all?"ทุกคน":groups.join(", ")||"—"):group}</p><p>ถึงครู: {ids.map(id=>dbUsers.find(u=>u.id===id)?.name).join(", ")||"ไม่มอบหมายรายบุคคล"}</p><p>ข้อสั่งการ: {message||"—"}</p></div>}
-        <button disabled={busy||(!canDirector&&!!completed&&!ids.length)} onClick={save} className="bg-blue-700 hover:bg-blue-800 text-white rounded-xl w-full py-3 text-sm font-bold disabled:opacity-50">{busy?"กำลังบันทึก...":confirm?"ยืนยันและบันทึก":completed||supersedes?"ตรวจสอบการเปลี่ยนผู้รับ":"ตรวจสอบก่อนเกษียณ"}</button>
+        {!canDirector&&!completed&&!ids.length&&!broadcastAllTeachers&&<p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">ไม่เลือกครู = หัวหน้ากดรับทราบและจบงานส่วนของตน</p>}
+        {confirm&&<div className="border border-amber-200 bg-amber-50 p-3 rounded-xl text-sm"><b>ตรวจสอบก่อนยืนยัน</b><p>ถึงกลุ่ม: {canDirector?(all?"ทุกคน":groups.join(", ")||"—"):group}</p><p>ถึงครู: {broadcastAllTeachers?"ประชาสัมพันธ์ถึงครูทุกคนที่เปิดใช้งาน (ไม่มีงานมอบหมาย)":ids.map(id=>dbUsers.find(u=>u.id===id)?.name).join(", ")||"ไม่มอบหมายรายบุคคล"}</p><p>ข้อสั่งการ: {message||"—"}</p></div>}
+        <button disabled={busy||(!canDirector&&!!completed&&!ids.length&&!broadcastAllTeachers)} onClick={save} className="bg-blue-700 hover:bg-blue-800 text-white rounded-xl w-full py-3 text-sm font-bold disabled:opacity-50">{busy?"กำลังบันทึก...":confirm?"ยืนยันและบันทึก":completed||supersedes?"ตรวจสอบการเปลี่ยนผู้รับ":"ตรวจสอบก่อนเกษียณ"}</button>
       </section>
     </div>}
   </div>;
@@ -235,7 +249,7 @@ export function DocumentDetail({doc,allDocs=[],currentUser,dbUsers,systemSetting
   const visible=allDocs.filter(d=>canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers));
   const idx=visible.findIndex(d=>d.id===doc.id);
   const nextUnread=visible.slice(idx+1).find(d=>isFinalDoc(d)&&recipientsOf(d,dbUsers).some(r=>r.id===currentUser.id)&&!(d.acknowledgedBy||[]).includes(currentUser.id));
-  const entries=[...(doc.history||[]).map(h=>({id:h.timestamp||h.time,actor:h.byName||h.role||"ระบบ",desc:h.action+(h.detail&&h.detail!=="-"?" — "+h.detail:""),date:h.timestamp||h.time})),...(doc.routingEntries||[]).map(e=>({id:e.id,actor:e.byName||"ผู้อำนวยการ",desc:"เกษียณ: "+(e.message||"แจ้งเพื่อทราบ"),date:e.at})),...(doc.headActions||[]).map(e=>({id:e.id,actor:e.byName||"หัวหน้ากลุ่ม",desc:e.group+" — "+(e.userIds?.length?"มอบหมายให้ "+e.userIds.length+" คน":"รับทราบ")+" "+(e.message||""),date:e.at}))].sort((a,b)=>(b.date||0)-(a.date||0));
+  const entries=[...(doc.history||[]).map(h=>({id:h.timestamp||h.time,actor:h.byName||h.role||"ระบบ",desc:h.action+(h.detail&&h.detail!=="-"?" — "+h.detail:""),date:h.timestamp||h.time})),...(doc.routingEntries||[]).map(e=>({id:e.id,actor:e.byName||"ผู้อำนวยการ",desc:"เกษียณ: "+(e.message||"แจ้งเพื่อทราบ"),date:e.at})),...(doc.headActions||[]).map(e=>({id:e.id,actor:e.byName||"หัวหน้ากลุ่ม",desc:e.group+" — "+(e.broadcastAllTeachers?"ประชาสัมพันธ์ครูทุกคน":e.userIds?.length?"มอบหมายให้ "+e.userIds.length+" คน":"รับทราบ")+" "+(e.message||""),date:e.at}))].sort((a,b)=>(b.date||0)-(a.date||0));
   const latestDirective=[...(doc.routingEntries||[]),...(doc.headActions||[])].sort((a,b)=>(b.at||0)-(a.at||0))[0];
   const last=latestDirective?{actor:latestDirective.byName||"ผู้เกษียณ",desc:latestDirective.message||"แจ้งเพื่อทราบ",date:latestDirective.at}:entries[0];
   const files=[...(doc.signedFiles?.length?doc.signedFiles:doc.files||[]),...(doc.extraAttachments||[])];
@@ -253,7 +267,9 @@ export function DocumentDetail({doc,allDocs=[],currentUser,dbUsers,systemSetting
       {isRoutingEligibleDoc(doc)&&(["director","admin"].includes(currentUser.role)||pendingHeadGroups(doc,currentUser,systemSettings).length>0)&&<button onClick={()=>onOpenRouting(doc.id)} className="bhs-modern-outline">เกษียณ / มอบหมายต่อ</button>}
     </div>
     <div className="flex gap-1 border-b border-slate-200">{[["document","เอกสาร"],["timeline","Timeline"],["recipients","ผู้รับ/การรับทราบ"]].map(([id,label])=><button key={id} onClick={()=>setTab(id)} className={"px-4 py-3 text-sm font-semibold border-b-2 "+(tab===id?"border-blue-600 text-blue-700":"border-transparent text-slate-500")}>{label}</button>)}</div>
-    {tab==="document"&&<div className="bhs-modern-panel p-4 space-y-3"><h3 className="font-bold text-sm">ไฟล์ต้นฉบับและไฟล์ประกอบ</h3>{files.map((f,i)=><div key={i} className="space-y-2 border-b py-2"><a href={f.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700 underline">{f.name||"ไฟล์แนบ "+(i+1)}</a>{(f.name||"").toLowerCase().endsWith(".pdf")&&<iframe title={f.name||"PDF"} src={f.driveId?"https://drive.google.com/file/d/"+encodeURIComponent(f.driveId)+"/preview":f.url} className="w-full min-h-[360px] border rounded-xl" loading="lazy"/>}</div>)}{!files.length&&<p className="text-sm text-slate-500">ไม่มีไฟล์แนบ</p>}</div>}
+    {tab==="document"&&<div className="bhs-modern-panel p-4 space-y-3"><h3 className="font-bold text-sm">ไฟล์ต้นฉบับและไฟล์ประกอบ</h3>{files.map((f,i)=><div key={i} className="space-y-2 border-b py-2"><a href={f.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-700 underline">{f.name||"ไฟล์แนบ "+(i+1)}</a>{(f.name||"").toLowerCase().endsWith(".pdf")&&<div className="w-full max-w-[794px] aspect-[210/297] min-h-[500px] sm:min-h-[800px] overflow-hidden rounded-xl border border-slate-200 bg-slate-50 mx-auto">
+          <iframe title={f.name||"PDF"} src={f.driveId?"https://drive.google.com/file/d/"+encodeURIComponent(f.driveId)+"/preview":f.url} className="block w-full h-full" loading="lazy"/>
+        </div>}</div>)}{!files.length&&<p className="text-sm text-slate-500">ไม่มีไฟล์แนบ</p>}</div>}
     {tab==="timeline"&&<div className="bhs-modern-panel p-5 space-y-5">{entries.map((e,i)=><EventLine key={e.id||i} actor={e.actor} desc={e.desc} date={e.date}/>)}{!entries.length&&<p className="text-sm text-slate-500">ยังไม่มีประวัติ</p>}</div>}
     {tab==="recipients"&&<div className="bhs-modern-panel p-5 space-y-2"><p className="text-sm text-slate-600">ผู้รับ {recipients.length} คน · รับทราบแล้ว {recipients.filter(r=>(doc.acknowledgedBy||[]).includes(r.id)).length} คน</p>{recipients.map(r=><div key={r.id} className="text-sm flex justify-between border-b py-2 gap-2"><span>{r.name}</span><span className={(doc.acknowledgedBy||[]).includes(r.id)?"text-emerald-700":"text-amber-700"}>{(doc.acknowledgedBy||[]).includes(r.id)?"รับทราบแล้ว":"ยังไม่รับทราบ"}</span></div>)}</div>}
   </div>;
