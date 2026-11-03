@@ -2,7 +2,19 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { useIsolatedTestSite, TEST_BRANCH, LOGIN_TEST_BRANCH, TEST_PROJECT_ID } from "../scripts/security-test-build-guard.mjs";
 import { verifyTestProject, firebaseConfig } from "../security-test/firebaseConfig.js";
+import {approvedSecurityPreview, EXPECTED_TEST_VERCEL_PROJECT} from "../scripts/security-only-build.mjs";
 
+const env={
+  VERCEL:"1",VERCEL_ENV:"preview",VERCEL_GIT_COMMIT_REF:LOGIN_TEST_BRANCH,
+  BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID,
+  BHS_SECURITY_TEST_VERCEL_PROJECT_ID:EXPECTED_TEST_VERCEL_PROJECT
+};
+assert.equal(approvedSecurityPreview(env),true);
+assert.equal(approvedSecurityPreview({...env,VERCEL_ENV:"production"}),false);
+assert.equal(approvedSecurityPreview({...env,VERCEL_GIT_COMMIT_REF:"main"}),false);
+assert.equal(approvedSecurityPreview({...env,BHS_SECURITY_TEST_VERCEL_PROJECT_ID:"prj_actual_production"}),false);
+assert.equal(approvedSecurityPreview({...env,VERCEL_PROJECT_ID:"prj_actual_production"}),false);
+assert.equal(approvedSecurityPreview({}),false);
 const local = {};
 assert.equal(useIsolatedTestSite(local), false, "ordinary build keeps its normal entry");
 assert.equal(useIsolatedTestSite({BHS_SECURITY_TEST_DEPLOY_TARGET:TEST_PROJECT_ID}), true);
