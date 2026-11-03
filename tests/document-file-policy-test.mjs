@@ -23,7 +23,7 @@ assert.ok(extension.includes("preferredDocumentFile(d)"),"SearchCenter uses sign
 assert.ok(extension.includes('เปิด PDF ที่ ผอ. ลงนามแล้ว'),"signed file link is clearly named");
 assert.ok(extension.includes("signedPublicationMissing(d)"),"missing signed file explicitly warned");
 assert.ok(app.includes("remember:rememberLogin"),"login sends selected device persistence policy");
-assert.ok(app.includes("const [rememberLogin,setRememberLogin] = useState(true)"),"personal device can opt in or out of session persistence");
+assert.ok(app.includes("const [rememberLogin,setRememberLogin] = useState(false)"),"personal-device persistence requires explicit opt-in");
 assert.ok(app.includes('fetch("/api/app-session",{method:"GET"'),"refresh still validates browser session");
 assert.ok(app.includes('fetch("/api/app-session",{method:"DELETE"'),"explicit logout clears session");
 console.log("Signed document preview, legacy handling and personal-device login choice passed");
