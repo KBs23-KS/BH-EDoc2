@@ -66,3 +66,15 @@ Separate server secrets `BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON` and `BHS_TEST_S
 5. Draft PR #45 MUST remain unmerged, with feature flags OFF. No real Firestore Rules change, credentials migration, school deployment, or Drive write has been authorized/performed.
 
 **Status: source integration and automated tests only; NOT live and NOT production-ready.**
+
+## 4 Nov — credential-preserving migration implemented and emulator-tested
+
+The same Draft PR now includes `api/_schoolCredentialVault.js`, a private scrypt-hash credential vault adapter, and a **one-time, transactionally atomic** migration of synthetic accounts. Its guards demand all of these conditions: `VERCEL_ENV` not production; `BHS_SERVER_ISOLATED_PREVIEW=true`; `BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW=true`; `BHS_CREDENTIAL_VAULT_AUDITED=true`; exactly `FIRESTORE_EMULATOR_HOST=127.0.0.1:8099`; the explicit test project ID `bhs-edoc-security-test`; and a `TEST_...` UID at the exact BHS fixture user path. It cannot migrate any real teacher in its present form.
+
+- The existing username, role, group membership and password are preserved. Even one-character and Thai legacy passwords work, unlike a direct Firebase Authentication password migration that requires six or more characters.
+- The migration writes the salted hash + unique `credentialVersion` to server-only `bhs_private_credentials/{uid}` and deletes the legacy `password` field from the user profile **in the same transaction**. It rejects duplicate migrations and conflicting source updates; it logs no credentials.
+- `api/app-session.js` can verify against the vault when explicitly enabled. It refuses a misconfigured vault and does **not** fall back to plaintext/default-password verification for a migrated account. `appSessionFingerprint` keeps legacy cookie behavior before migration and uses the private credential revision after migration.
+- The test uses `security/firestore-credential-vault.emulator.rules` (deny-all browser permissions, no live deployment) with `security/firebase-credential-vault.emulator.json` on port 8099. It creates four **fake** accounts and runs the **actual** BHS login API with their unchanged usernames/passwords, checking incorrect passwords, 7-day cookies, revoked old sessions, private hash storage and denied client reads.
+- CI run `41781233562` passed four fake accounts including a short password, the legacy default, and a Thai password; the complete web regression suite and Vite build passed.
+
+**CRITICAL: No school account has been migrated yet.** The currently published school Firestore Rules and existing backups may still expose plaintext passwords. The test-only migration is deliberately prohibited outside the local emulator. The real credential cutover requires a separate safe production migration procedure that first protects **all** old account records, confirms real user roster/backup compatibility, and enables server-only account editing. Never turn on flags or publish these temporary rules on `bhs-edoc-2` just to see if it works.
