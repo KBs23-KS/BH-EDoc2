@@ -82,5 +82,7 @@ jobs:
         run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-pdf-upload-emulator.mjs"
       - name: Secure upload route / private GAS security regression (offline)
         run: node tests/secure-upload-bridge-static-test.mjs
+      - name: School incoming PDF form retry regression (offline)
+        run: node tests/secure-incoming-upload-client-test.mjs
       - name: Vite production build
         run: npm run build
