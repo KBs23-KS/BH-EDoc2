@@ -7,6 +7,7 @@ import {generateKeyPairSync} from "node:crypto";
 import {initializeApp,deleteApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import secureUsersHandler from "../api/secure-users.js";
+import secureAuditHandler from "../api/secure-audit.js";
 import {
   migrateSyntheticUserCredential,verifyPrivateSchoolPassword,
   VAULT_COLLECTION,assertCredentialVaultBoundary
@@ -22,7 +23,8 @@ if(process.env.FIRESTORE_EMULATOR_HOST!==HOST)
 const OLD_KEYS=[
   "VERCEL_ENV","BHS_SERVER_ISOLATED_PREVIEW","BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW",
   "BHS_CREDENTIAL_VAULT_AUDITED","BHS_ENABLE_SECURE_USERS_PREVIEW",
-  "BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON","BHS_TEST_SESSION_SECRET"
+  "BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON","BHS_TEST_SESSION_SECRET",
+  "BHS_ENABLE_SECURE_AUDIT_PREVIEW"
 ];
 const old=Object.fromEntries(OLD_KEYS.map(k=>[k,process.env[k]]));
 const {privateKey}=generateKeyPairSync("rsa",{
@@ -36,6 +38,7 @@ Object.assign(process.env,{
   BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW:"true",
   BHS_CREDENTIAL_VAULT_AUDITED:"true",
   BHS_ENABLE_SECURE_USERS_PREVIEW:"true",
+  BHS_ENABLE_SECURE_AUDIT_PREVIEW:"true",
   BHS_TEST_SESSION_SECRET:"FAKE_TEST_SESSION_SECRET_".repeat(4),
   BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({
     project_id:PROJECT,
@@ -191,6 +194,30 @@ try{
   denied(cross,403);
   assert.equal((await users.doc(teacherId).get()).exists,true);
   assert.ok((await audits.get()).size>=6,"successful operations must write audit logs");
+
+  // Secure Audit Log is server-only and admin-only. Even if a legacy log
+  // accidentally contains a secret field, it must never reach the browser.
+  await audits.doc("TEST_LOG_SECRET").set({
+    action:"ทดสอบห้ามแสดงข้อมูลลับ",timestamp:Date.now(),
+    userId:adminId,targetId:teacherId,password:"NEVER_SEND",
+    passwordHash:"NEVER_SEND",sessionToken:"NEVER_SEND"
+  });
+  const adminLog=res();
+  await secureAuditHandler({
+    method:"GET",headers:{host:"localhost",cookie:await session(adminId)}
+  },adminLog);
+  accepted(adminLog);
+  assert.ok(Array.isArray(adminLog.body.logs));
+  const secretLog=adminLog.body.logs.find(x=>x.id==="TEST_LOG_SECRET");
+  assert.ok(secretLog);
+  assert.equal("password" in secretLog,false);
+  assert.equal("passwordHash" in secretLog,false);
+  assert.equal("sessionToken" in secretLog,false);
+  const teacherLog=res();
+  await secureAuditHandler({
+    method:"GET",headers:{host:"localhost",cookie:await session(teacherId)}
+  },teacherLog);
+  denied(teacherLog,403);
 
   assert.throws(()=>assertCredentialVaultBoundary({
     projectId:"bhs-edoc-2",env
