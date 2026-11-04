@@ -860,7 +860,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const managedGroups=headGroups(currentUser,systemSettings);
   const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
     db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
-    user:currentUser,users:dbUsers,settings:systemSettings,showToast
+    user:currentUser,users:dbUsers,settings:systemSettings,showToast,
+    onNotification:notifyPushAfterSave
   });
   const openDocument=id=>{
     const d=activeDocs.find(x=>x.id===id);
