@@ -1,7 +1,7 @@
 name: BHS Design Preview Validation
 on:
   pull_request:
-    branches: [main, security/isolated-firebase-test-20261103]
+    branches: [main, security/isolated-firebase-test-20261103, security/sandbox-login-firestore-20261103]
   workflow_dispatch:
 jobs:
   validate:
@@ -74,3 +74,7 @@ jobs:
         run: npm run build
       - name: Firestore Rules Emulator — role/access matrix (no deployment)
         run: npx --yes firebase-tools@14 emulators:exec --project demo-bhs-security-only --config security/firebase-security-test.emulator.json --only firestore "node tests/firestore-security-test-emulator.mjs"
+      - name: BHS-shaped policy and role decision matrix (synthetic offline)
+        run: node tests/bhs-realistic-workflow-policy-test.mjs
+      - name: BHS-shaped Firestore Emulator - all roles and workflows (no deployment)
+        run: npx --yes firebase-tools@14 emulators:exec --project demo-bhs-realistic-only --config security/firebase-bhs-realistic.emulator.json --only firestore "node tests/firestore-bhs-realistic-emulator.mjs"
