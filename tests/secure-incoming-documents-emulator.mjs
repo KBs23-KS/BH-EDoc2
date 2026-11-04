@@ -134,6 +134,13 @@ try {
   pass(r);
   assert.equal((await docs.doc(firstId).get()).data().isDeleted,true);
   denied(await request(clerkId,"soft-delete",{},firstId),403);
+  denied(await request(clerkId,"restore",{},firstId),403);
+  r=await request(adminId,"restore",{},firstId);
+  pass(r);
+  assert.equal((await docs.doc(firstId).get()).data().isDeleted,false);
+  assert.equal((await docs.doc(firstId).get()).data().history.at(-1).action,"กู้คืนหนังสือเข้า");
+  r=await request(clerkId,"soft-delete",{},firstId);
+  pass(r);
 
   // Once a document is in the trash, its number may be reused per existing
   // BHS policy; old document remains in history (not hard-deleted).
@@ -141,6 +148,8 @@ try {
   pass(r);
   assert.notEqual(r.body.docId,firstId);
   assert.equal((await docs.doc(r.body.docId).get()).data().docNumber,"001/2569");
+  denied(await request(adminId,"restore",{},firstId),400);
+  assert.equal((await docs.doc(firstId).get()).data().isDeleted,true);
 
   const counter=await db.doc(path+"bhs_number_counters/INCOMING-2569").get();
   assert.equal(counter.exists,true);
