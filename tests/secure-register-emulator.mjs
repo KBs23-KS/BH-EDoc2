@@ -99,7 +99,7 @@ try{
   // An inactive account cannot reserve or cancel.
   denied(await command(uid.outside,"ORDER","create",fields()),401);
   denied(await command(uid.teacher,"ORDER","edit",fields(),first),403);
-  denied(await command(uid.teacher,"OUT","cancel",{},firstOutgoing),403);
+  denied(await command(uid.clerk,"OUT","cancel",{},firstOutgoing),403);
   denied(await command(uid.admin,"ORDER","edit",{
     ...fields(),orderNumber:"999/2569"
   },second),400);
