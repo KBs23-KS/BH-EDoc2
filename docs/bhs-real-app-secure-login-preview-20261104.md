@@ -103,3 +103,23 @@ The same Draft PR now includes `api/_schoolCredentialVault.js`, a private scrypt
 
 **This is a tested source-code integration, not a complete or deployed security cutover.**
 The following remain mandatory: (1) audit published production Firestore Rules and all access paths; (2) controlled migration of every actual credential into a private store with verified rollback and no exposure through backups; (3) server migration of order/outgoing-register and remaining document actions; (4) actual trusted Google Drive/PDF upload/signing pipeline and revision history; (5) full staging tests for all menus and roles, including iPad, plus end-to-end recovery rehearsal. Never publish the Emulator deny-all Rules over the school database. Keeping the current production login unchanged is intentional until all release gates pass.
+
+## 4 Nov 2026 — order/outgoing registers and self-service password
+
+### Executable isolated code
+- api/_secureReservations.js and api/secure-register.js: server-side ORDER and OUT number allocation, atomic Firestore counters/audit, role and owner checks, per-year number restart, monotonic canceled-number handling, linked-document lock. These endpoints reject client-supplied PDF attachments and order-number overrides.
+- Actual OutgoingReservationsView and OrderReservationsView send normal create/edit/cancel operations through the isolated secure-register endpoint. Browser-only hard delete of a linked order is prevented in secure mode. Advanced admin number edits, bulk trial archives and linked order PDF editing are **not migrated** and must NOT be enabled for production yet.
+- api/_secureSelfPassword.js + api/secure-password.js: self-change needs the CURRENT password even with a seven-day app cookie, replaces only the intended account's salted hash and credentialVersion in one transaction, and records an audit event. src/App.jsx uses the endpoint in secure mode and reopens login after success; an unchanged password is never rewritten.
+- CI suite tests server APIs against the Firestore Emulator only: username/password preservation, admin management, order/outgoing sequential numbering, concurrent reservations, incoming documents, role checks, Audit Log privacy, self-password change/old-cookie revocation, plus all established BHS build regressions.
+
+### Hard limitations / launch blockers
+**Everything listed here is code on a Draft PR, feature flags OFF. No production or online preview activation.**
+1. Strict replacement Firestore Rules have not been enabled or evaluated against the live school data shape. The design-only transitional Rules remain INSECURE for school access and must not be published.
+2. A production-safe credential cutover must first secure all legacy user profiles and backup exports. Every actual teacher password stays UNCHANGED, but no real user has been migrated.
+3. Existing Google Drive/GAS direct file uploads and server verified PDF signing/storing are not yet migrated; orders, circulars and returned PDFs must not bypass signing. The preview intentionally blocks them.
+4. Advanced admin register editing, order/document hard deletion, document restore, settings changes, teacher reminder actions, and the legacy backup/restore UI still have client Firestore writes. A strict Rules cutover would break those paths. They require secure endpoints or explicit disabled/replacement UI with approved product behavior.
+5. The isolated server requires localhost:8099 Emulator and refuses use in online Vercel/real Firebase. There is no claim of deployment to the test site or production.
+6. Real school rollout requires an explicitly authorized staging/backup/rollback rehearsal covering all roles, iPad PDF signing, number integrity, existing user sessions, Firestore data, Drive files and every menu.
+
+### Final stop/go rule
+Do not merge, deploy, set experimental Vercel flags, publish Firestore Rules or migrate any school credentials merely because GitHub Actions is green. Green CI confirms **synthetic emulator checks and a build**, not a production-safe security cutover.
