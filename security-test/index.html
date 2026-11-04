@@ -11,22 +11,77 @@
     h1{font-size:1.55rem;margin:0 0 12px} h2{font-size:1rem;margin-top:24px} p{line-height:1.7} code{overflow-wrap:anywhere}
     .tag{display:inline-block;padding:6px 11px;background:#eaf5ed;color:#145b32;border-radius:99px;font-weight:700;font-size:.83rem}
     .muted{color:#566578} button{cursor:pointer;background:#173f72;color:white;border:0;border-radius:10px;padding:12px 17px;font-weight:700} button:disabled{opacity:.5}
+    input{display:block;width:100%;max-width:360px;box-sizing:border-box;padding:10px;margin:4px 0 12px;border:1px solid #9eafc1;border-radius:8px}
     .result{margin-top:12px;padding:14px;background:#eff4fa;border-radius:10px;white-space:pre-wrap}
+    .panel{margin-top:22px;border-top:1px solid #dbe5f0;padding-top:8px}
+    .workflow-steps{line-height:1.9;padding-left:26px}
+    .workflow-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 18px}
+    .secondary-button{background:#eaf1f9;color:#193e6d}
+    .workflow-actions button{min-height:42px}
+    .workflow-actions button:hover:not(:disabled){filter:brightness(.94)}
+    #flow-id{max-width:100%;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    #flow-status,#flow-result{overflow-wrap:anywhere;line-height:1.6}
+    [hidden]{display:none!important}
   </style>
 </head>
 <body>
   <main>
     <span class="tag">TEST ONLY — ไม่ใช่ระบบสารบรรณจริง</span>
     <h1>BHS E-Document — Firebase Security Test</h1>
-    <p>หน้านี้เป็นพื้นที่ทดสอบที่แยกจากเว็บไซต์โรงเรียน ไม่โหลดโค้ดแอปสารบรรณจริง ไม่เข้าสู่ระบบครู และไม่เขียนข้อมูลใด ๆ</p>
-    <h2>การเชื่อมต่อฐานข้อมูลทดลอง</h2>
+    <p>หน้านี้ใช้เฉพาะบัญชีจำลอง แยกจากเว็บไซต์โรงเรียนจริง ไม่โหลดโค้ดสารบรรณ ไม่เขียนข้อมูลครูและไม่อ่านฐานข้อมูลระบบจริง</p>
+    <h2>การเชื่อมต่อ Firebase ทดลอง</h2>
     <p>Project ID: <code id="project">กำลังตรวจสอบ...</code></p>
     <p id="setup" class="muted" role="status">กำลังเริ่มการตรวจสอบ...</p>
-    <h2>การทดสอบกฎ Firestore เบื้องต้น</h2>
-    <p>ปุ่มนี้จะพยายามอ่านเอกสารจำลองที่ไม่มีข้อมูลจริงเพื่อยืนยันว่ากฎเริ่มต้นปฏิเสธผู้ใช้ที่ยังไม่เข้าสู่ระบบ ไม่มีการเขียนข้อมูล</p>
-    <button id="probe" type="button" disabled>ตรวจการปฏิเสธสิทธิ์อ่าน</button>
-    <div id="result" class="result" role="status">ยังไม่ได้ทดสอบ</div>
-    <p class="muted">การตรวจนี้ยังไม่ใช่การทดสอบสิทธิ์รายบทบาท หรือการยืนยันว่าระบบจริงปลอดภัย PR #39 ยังเป็น Draft</p>
+    <section class="panel">
+      <h2>ทดสอบปฏิเสธการอ่านเมื่อยังไม่เข้าสู่ระบบ</h2>
+      <button id="probe" type="button" disabled>ตรวจการปฏิเสธสิทธิ์อ่าน</button>
+      <div id="result" class="result" role="status">ยังไม่ได้ทดสอบ</div>
+    </section>
+    <section class="panel">
+      <h2>ทดสอบเข้าสู่ระบบด้วยบัญชีจำลอง</h2>
+      <form id="login-form">
+        <label for="username">ชื่อผู้ใช้ทดสอบ</label>
+        <input id="username" name="username" autocomplete="username" required maxlength="120">
+        <label for="password">รหัสผ่านทดสอบ</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="128">
+        <button id="login" type="submit" disabled>เข้าสู่ระบบทดลอง</button>
+      </form>
+      <p id="session" class="muted" role="status">ยังไม่เข้าสู่ระบบ</p>
+      <button id="logout" type="button" hidden>ออกจากระบบทดสอบ</button>
+      <button id="read-sample" type="button" hidden>ทดสอบอ่านเอกสารจำลอง</button>
+      <div id="access-result" class="result" role="status">ทดสอบการอ่านหลังเข้าสู่ระบบได้เมื่อพร้อม</div>
+      <p class="muted">ใช้เฉพาะบัญชีจำลอง test_admin, test_director, test_deputy, test_clerk, test_head_admin, test_head_subject หรือ test_teacher และรหัสทดสอบที่สร้างใน Firebase ทดลอง ไม่ใช้บัญชีครูจริง</p>
+    </section>
+    <section class="panel" id="workflow" hidden>
+      <h2>จำลองกระบวนการสารบรรณ 4 ขั้น (ข้อมูลทดสอบเท่านั้น)</h2>
+      <p class="muted">ใช้เฉพาะข้อมูลที่ขึ้นต้นด้วย <code>TEST_FLOW_</code> ไม่ใช่หนังสือจริง ไม่มีเลขทะเบียนหรือการลงนาม PDF</p>
+      <ol class="workflow-steps">
+        <li>เข้า <strong>test_clerk</strong> สร้างฉบับร่าง</li>
+        <li>ออกจากระบบแล้วเข้า <strong>test_admin</strong> เพื่อส่งรอ ผอ.</li>
+        <li>ออกจากระบบแล้วเข้า <strong>test_director</strong> เพื่ออนุมัติ</li>
+        <li>ออกจากระบบแล้วเข้า <strong>test_teacher</strong> เพื่อรับทราบ</li>
+      </ol>
+      <label for="flow-title">หัวข้อหนังสือจำลอง (ธุรการกรอก)</label>
+      <input id="flow-title" type="text" maxlength="240" value="หนังสือจำลองทดสอบการอนุมัติและรับทราบ">
+      <label for="flow-id">รหัสหนังสือจำลอง (คงอยู่เมื่อสลับบัญชีในเบราว์เซอร์เดิม)</label>
+      <input id="flow-id" type="text" autocomplete="off" placeholder="สร้างหนังสือก่อน หรือวางรหัส TEST_FLOW_..." spellcheck="false">
+      <div class="workflow-actions">
+        <button id="flow-copy" type="button" class="secondary-button">คัดลอกรหัสเอกสาร</button>
+        <button id="flow-refresh" type="button" class="secondary-button">ตรวจสถานะหนังสือ</button>
+      </div>
+      <h2>ดำเนินการตามบทบาท</h2>
+      <div class="workflow-actions">
+        <button id="flow-create" type="button" hidden>1. ธุรการสร้างหนังสือ</button>
+        <button id="flow-send" type="button" hidden>2. แอดมินส่งรอ ผอ.</button>
+        <button id="flow-approve" type="button" hidden>3. ผอ. อนุมัติ</button>
+        <button id="flow-ack" type="button" hidden>4. ครูรับทราบ</button>
+      </div>
+      <p class="muted">สถานะปัจจุบัน</p>
+      <div id="flow-status" class="result" role="status">กรุณาเริ่มจากธุรการสร้างหนังสือจำลอง</div>
+      <p class="muted">ผลการดำเนินการ</p>
+      <div id="flow-result" class="result" role="status" aria-live="polite">ยังไม่ได้ทำรายการ</div>
+      <p class="muted">หลังแต่ละขั้นให้กดออกจากระบบ แล้วเข้าสู่ระบบด้วยบัญชีจำลองของบทบาทถัดไป ห้ามใช้ชื่อผู้ใช้หรือเอกสารของโรงเรียนจริง</p>
+    </section>
   </main>
   <script type="module" src="./main.js"></script>
 </body>

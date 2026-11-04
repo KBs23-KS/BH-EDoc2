@@ -1,7 +1,7 @@
 name: BHS Design Preview Validation
 on:
   pull_request:
-    branches: [main]
+    branches: [main, security/isolated-firebase-test-20261103]
   workflow_dispatch:
 jobs:
   validate:
@@ -12,6 +12,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Install packages
         run: npm install --no-audit --no-fund
       - name: Numbering rules
@@ -68,3 +72,5 @@ jobs:
         env:
           BHS_SECURITY_TEST_DEPLOY_TARGET: bhs-edoc-security-test
         run: npm run build
+      - name: Firestore Rules Emulator — role/access matrix (no deployment)
+        run: npx --yes firebase-tools@14 emulators:exec --project demo-bhs-security-only --config security/firebase-security-test.emulator.json --only firestore "node tests/firestore-security-test-emulator.mjs"
