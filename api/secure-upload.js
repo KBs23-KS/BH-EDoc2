@@ -12,7 +12,7 @@ import {
 import {addSyntheticIncomingPdf} from "./_securePdfUpload.js";
 
 const LOCAL_TARGET="http://127.0.0.1:8101/upload";
-async function localPrivateUpload({base64,fileName,mimeType}){
+export async function localPrivateUpload({base64,fileName,mimeType}){
   if(process.env.BHS_TEST_GAS_UPLOAD_URL!==LOCAL_TARGET||
      typeof process.env.BHS_TEST_GAS_UPLOAD_SECRET!=="string"||
      process.env.BHS_TEST_GAS_UPLOAD_SECRET.length<32)
