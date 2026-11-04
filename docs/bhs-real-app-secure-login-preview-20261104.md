@@ -137,3 +137,20 @@ The same real-App Draft PR #45 covers additional previously direct-client admini
 - An additional server gate BHS_ENABLE_SECURE_ADMIN_PREVIEW=true is restricted to the exact localhost Firestore Emulator, synthetic TEST_ accounts and non-production environments. This code cannot be enabled in an online Vercel Preview.
 
 **Production launch still blocked** by trusted Google Drive/PDF upload/signing and returned-document revisions, safe handling of linked order deletion/archive and other direct browser writes, real-data credential migration with encrypted backup/rollback, final least-privilege Firestore Rules and all-role school acceptance testing. A Draft PR or green synthetic CI is NOT evidence of a complete security cutover.
+
+
+## 4 Nov 2026 — private PDF upload boundary added (Draft PR #45 only)
+
+The repository's **reference** Google Apps Script (gas/Code.gs) now has a new, authenticated upload action named secureUpload. It requires a separate BHS_UPLOAD_SECRET set in Script Properties, validates the actual file header, extension, MIME type and max 10 MB size, and NEVER calls setSharing(ANYONE_WITH_LINK) in that secure action. The previous unverified upload method (no action field) is now **disabled by default in the reference source**. A temporary BHS_ALLOW_LEGACY_UPLOAD=true property can explicitly restore that unsafe method, solely to help plan a separately approved staged cutover. Never consider that flag a security solution.
+
+**IMPORTANT:** The existing deployed Google Apps Script has NOT been edited. Do not overwrite the live Code.gs from this reference or turn off legacy upload on the live Apps Script yet: doing so now would disrupt school uploads. First implement and verify the authenticated server route in staging, along with folder access and user-facing file readers.
+
+A test-only, actual-app-shaped /api/secure-upload endpoint was also added. It:
+- Checks the signed BHS website session and current school role using server-side Firestore, validates a well-formed PDF using pdf-lib, enforces a 3 MB preview limit, rejects client-supplied Drive IDs/URLs/claims of signing, and assigns a fresh storage name.
+- Sends that PDF ONLY to a localhost fake GAS receiver at 127.0.0.1:8101 using a separate fake BHS_TEST_GAS_UPLOAD_SECRET and never to school Google Drive. The actual GAS endpoint and actual secret are never used in this environment.
+- Atomically updates the BHS-shaped incoming document's files, fileVersions, an upload receipt and an audit entry, only after rechecking current authorization and document status. A repeated uploadId returns the same receipt instead of creating an additional active attachment.
+- Permits only active clerks/admins to append a normal **unsigned incoming PDF** to a document still waiting for the deputy. Signed orders/circulars, returned revisions and director signatures are NOT accepted under this endpoint.
+- Is disabled unless VERCEL_ENV is non-production, BHS_SERVER_ISOLATED_PREVIEW=true, FIRESTORE_EMULATOR_HOST=127.0.0.1:8099, BHS_ENABLE_SECURE_UPLOAD_PREVIEW=true and the additional credential-vault test guards are all satisfied.
+- Has a regression suite tests/secure-pdf-upload-emulator.mjs with actual generated PDF bytes, an HTTP fake GAS receiver, synthetic user roles, fake service credentials and local Firestore Emulator. No real Firebase, Google Drive or user's accounts are touched.
+
+**Remaining blockers before real use:** a user-facing upload and retry UI, actual private Drive storage and ACL integration, per-file cleanup of orphaned failed uploads, reliable large-file handling, protected file downloads, actual signature cryptographic/provenance verification, returned document versioning, storage quota/cost and full production migration rehearsals. A simulated upload receipt is NOT a verified real Drive upload. No real school files have been moved.
