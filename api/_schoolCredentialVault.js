@@ -8,6 +8,7 @@
  * Importing this module does NOT connect to or modify Firebase.
  */
 import {randomBytes} from "node:crypto";
+import {FieldValue} from "firebase-admin/firestore";
 import {hashSchoolPassword,verifySchoolPassword,validExistingPassword}
   from "./_passwordSecurity.js";
 
@@ -40,8 +41,8 @@ export function existingLegacyPassword(record){
   if(!validExistingPassword(value))throw new Error("invalid_legacy_password");
   return value;
 }
-export async function verifyPrivateSchoolPassword({db,user,password,env=process.env}){
-  assertCredentialVaultBoundary({projectId:VAULT_TEST_PROJECT,env});
+export async function verifyPrivateSchoolPassword({db,projectId,user,password,env=process.env}){
+  assertCredentialVaultBoundary({projectId,env});
   if(!user||!TEST_UID.test(user.id||"")||
      typeof user.credentialVersion!=="string"||
      user.credentialVersion.length<24||
@@ -61,9 +62,9 @@ export async function verifyPrivateSchoolPassword({db,user,password,env=process.
  * are mandatory. No retries with silently changed credentials.
  */
 export async function migrateSyntheticUserCredential({
-  db,profileRef,uid,env=process.env
+  db,projectId,profileRef,uid,env=process.env
 }){
-  assertCredentialVaultBoundary({projectId:VAULT_TEST_PROJECT,env});
+  assertCredentialVaultBoundary({projectId,env});
   if(!TEST_UID.test(uid||""))throw new Error("synthetic_uid_required");
   const vaultRef=vaultDocument(db,uid);
   // Hash outside the transaction (which may retry). The only plaintext
@@ -90,9 +91,7 @@ export async function migrateSyntheticUserCredential({
       disabled:live.status==="inactive"
     });
     tx.update(profileRef,{
-      password:db.constructor.FieldValue?.delete?.() || 
-        /* Normal Firebase Admin callers always use injected delete sentinel. */
-        null,
+      password:FieldValue.delete(),
       credentialVersion
     });
   });
