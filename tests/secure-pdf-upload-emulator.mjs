@@ -4,7 +4,7 @@
  * No live GAS, Google Drive, school documents, or production Firebase.
  */
 import assert from "node:assert/strict";
-import {randomUUID,randomBytes,generateKeyPairSync} from "node:crypto";
+import {randomUUID,randomBytes,generateKeyPairSync,createHash} from "node:crypto";
 import {createServer} from "node:http";
 import {PDFDocument} from "pdf-lib";
 import {initializeApp,deleteApp} from "firebase-admin/app";
@@ -145,19 +145,49 @@ try{
   const receipt=await db.doc(ROOT+"bhs_secure_upload_receipts/"+uploadId).get();
   assert.equal(receipt.exists,true);
   assert.equal(receipt.data().docId,docId);
+  assert.equal(receipt.data().state,"complete");
   result=await invoke(clerk,input);
   allowed(result);
   assert.equal(result.body.duplicate,true);
   assert.equal(receiverCalls,1,"Idempotent replay must not call transport again");
   denied(await invoke(clerk,{...input,fileName:"another.pdf",
     base64:Buffer.from("%PDF-other").toString("base64")}),400);
+
+  // Reconcile an already stored file without making a second transport call
+  // (e.g. document changed after successful remote upload).
+  const storedId=randomUUID();
+  const storedDrive="TEST_DRIVE_"+randomBytes(12).toString("hex").toUpperCase();
+  await db.doc(ROOT+"bhs_secure_upload_receipts/"+storedId).set({
+    state:"stored",actorId:clerk,docId,
+    sha256:createHash("sha256").update(Buffer.from(encoded,"base64")).digest("hex"),
+    name:input.fileName,driveId:storedDrive,createdAt:Date.now()
+  });
+  result=await invoke(clerk,{...input,uploadId:storedId});
+  allowed(result);
+  assert.equal(result.body.driveId,storedDrive);
+  assert.equal(receiverCalls,1,"Stored receipt recovery must never upload twice");
+  assert.equal((await docs.doc(docId).get()).data().files.length,2);
+
+  // Concurrent retries with one UUID must not both upload to fake GAS.
+  const concurrentId=randomUUID();
+  const [parallelA,parallelB]=await Promise.all([
+    invoke(clerk,{...input,uploadId:concurrentId}),
+    invoke(clerk,{...input,uploadId:concurrentId})
+  ]);
+  assert.ok([parallelA,parallelB].some(x=>x.statusCode===200),
+    "One concurrent retry must succeed");
+  assert.ok([parallelA,parallelB].every(x=>[200,400].includes(x.statusCode)),
+    "Concurrent duplicate must succeed idempotently or report in-progress");
+  assert.equal(receiverCalls,2,"Concurrent duplicate must perform one transport upload");
+  assert.equal((await docs.doc(docId).get()).data().files.length,3);
+
   await docs.doc(docId).update({status:"รอผู้อำนวยการ"});
   denied(await invoke(clerk,{...input,uploadId:randomUUID()}),403);
-  assert.equal(receiverCalls,1);
-  assert.equal((await docs.doc(docId).get()).data().files.length,1);
-  assert.ok((await db.collection(ROOT+"bhs_audit_logs").get()).size>=1);
+  assert.equal(receiverCalls,2);
+  assert.equal((await docs.doc(docId).get()).data().files.length,3);
+  assert.ok((await db.collection(ROOT+"bhs_audit_logs").get()).size>=3);
   console.log("PASS: verified real PDF bytes, role-limited server upload,"+
-    " private fake GAS secret, atomic file receipt and replay safety");
+    " private fake GAS secret, concurrent replay guard and stored-file recovery");
 }finally{
   await new Promise(resolve=>localGas.close(resolve));
   await deleteApp(app);
