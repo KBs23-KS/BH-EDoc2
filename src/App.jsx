@@ -4307,6 +4307,7 @@ function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers })
         if(data?.success!==true)throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการตั้งค่า");
         window.dispatchEvent(new Event("bhs-secure-data-refresh"));
         showToast("บันทึกการตั้งค่าผ่านเซิร์ฟเวอร์แล้ว","success");
+        setIsSaving(false);
         return;
       }
       await setDoc(getDocumentRef(SETTINGS_PATH, 'system'), form);
