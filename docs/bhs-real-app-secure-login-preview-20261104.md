@@ -154,3 +154,15 @@ A test-only, actual-app-shaped /api/secure-upload endpoint was also added. It:
 - Has a regression suite tests/secure-pdf-upload-emulator.mjs with actual generated PDF bytes, an HTTP fake GAS receiver, synthetic user roles, fake service credentials and local Firestore Emulator. No real Firebase, Google Drive or user's accounts are touched.
 
 **Remaining blockers before real use:** a user-facing upload and retry UI, actual private Drive storage and ACL integration, per-file cleanup of orphaned failed uploads, reliable large-file handling, protected file downloads, actual signature cryptographic/provenance verification, returned document versioning, storage quota/cost and full production migration rehearsals. A simulated upload receipt is NOT a verified real Drive upload. No real school files have been moved.
+
+## 4 Nov — real incoming-PDF form integrated in isolated secure mode
+
+This iteration connects the existing BHS `FormDocument` incoming-document form with `/api/secure-upload` after the server has created the numbered incoming document. Only normal unsigned PDFs of up to 3 MiB per file (at most 10 per submission) are permitted in this synthetic preview. The UI does not send a signed order/circular, public GAS URL, arbitrary Drive ID or teacher password. PDF MIME can be empty on iPad; the server still validates the actual PDF structure, page count and SHA-256.
+
+The document ID is kept in session storage if an upload fails after the incoming register was created, so retrying the form will reuse the existing register entry and not consume a duplicate receipt number. A stable random upload UUID is kept per selected file; the retry sends the same key. The PDF bytes themselves are not stored in session storage.
+
+The API upload receipt now has three stages: `pending` (claimed by a transaction before contacting the fake transport), `stored` (the transport returned a verifiable synthetic file ID), and `complete` (the document, version, audit entry and receipt were committed together). A duplicate concurrent request with the same key cannot transmit twice. An interrupted transaction after the file is stored can finalize the stored receipt on a retry without contacting the transport again. Failed attempts are marked `failed` and require operator-led retry with a different key.
+
+The expanded Emulator regression covers a previously stored file and simultaneous duplicate submissions. A separate offline client regression checks same-UUID retries and iPad's missing MIME. These tests are in the GitHub Actions configuration, but **do not claim that the latest commit passed CI until an actual run is visible**.
+
+Residual risk: if a transport succeeds but its response is lost entirely, a file can remain orphaned; production rollout requires a server-side orphan reconciliation/cleanup task. The existing local test endpoint remains bound to `127.0.0.1`, not the school Google Drive, and no real PDF signature/Drive ACL changes have been made. This is NOT a production release.
