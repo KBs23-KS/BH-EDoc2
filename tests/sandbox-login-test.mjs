@@ -79,4 +79,19 @@ assert.match(cloudSeeder,/setCustomUserClaims/);
 assert.doesNotMatch(cloudSeeder,/bhs-edoc-2|BHS_FIREBASE_SERVICE_ACCOUNT_JSON|process\.env\.FIREBASE_PRIVATE_KEY/);
 assert.doesNotMatch(site,/security-test-login|signInAnonymously|\.\.\/src\/App/);
 
-console.log("Synthetic login, Firebase Auth fallback, seed safety and strict rules checks passed");
+const workflowHtml=readFileSync(new URL("../security-test/index.html",import.meta.url),"utf8");
+for(const id of ["workflow","flow-create","flow-send","flow-approve","flow-ack",
+                 "flow-id","flow-title","flow-status","flow-result"]){
+  assert.match(workflowHtml,new RegExp('id="'+id+'"'));
+}
+for(const handler of ["flowCreate.addEventListener","flowSend.addEventListener",
+                      "flowApprove.addEventListener","flowAcknowledge.addEventListener"]){
+  assert.ok(site.includes(handler),"missing action: "+handler);
+}
+assert.match(site,/TEST_FLOW_/);
+assert.match(site,/serverTimestamp\(\)/);
+assert.match(site,/bhsSecurityTest/);
+assert.match(rules,/data.status == 'approved'/);
+assert.match(rules,/data\.status == 'approved'/);
+assert.doesNotMatch(site,/bhs-edoc-app|src\/App|BHS_FIREBASE_SERVICE_ACCOUNT_JSON/);
+console.log("Synthetic login, Cloud Shell safety, four-step test UI and strict rules checks passed");
