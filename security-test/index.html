@@ -14,6 +14,13 @@
     input{display:block;width:100%;max-width:360px;box-sizing:border-box;padding:10px;margin:4px 0 12px;border:1px solid #9eafc1;border-radius:8px}
     .result{margin-top:12px;padding:14px;background:#eff4fa;border-radius:10px;white-space:pre-wrap}
     .panel{margin-top:22px;border-top:1px solid #dbe5f0;padding-top:8px}
+    .workflow-steps{line-height:1.9;padding-left:26px}
+    .workflow-actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 18px}
+    .secondary-button{background:#eaf1f9;color:#193e6d}
+    .workflow-actions button{min-height:42px}
+    .workflow-actions button:hover:not(:disabled){filter:brightness(.94)}
+    #flow-id{max-width:100%;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    #flow-status,#flow-result{overflow-wrap:anywhere;line-height:1.6}
     [hidden]{display:none!important}
   </style>
 </head>
@@ -44,6 +51,36 @@
       <button id="read-sample" type="button" hidden>ทดสอบอ่านเอกสารจำลอง</button>
       <div id="access-result" class="result" role="status">ทดสอบการอ่านหลังเข้าสู่ระบบได้เมื่อพร้อม</div>
       <p class="muted">ใช้เฉพาะบัญชีจำลอง test_admin, test_director, test_deputy, test_clerk, test_head_admin, test_head_subject หรือ test_teacher และรหัสทดสอบที่สร้างใน Firebase ทดลอง ไม่ใช้บัญชีครูจริง</p>
+    </section>
+    <section class="panel" id="workflow" hidden>
+      <h2>จำลองกระบวนการสารบรรณ 4 ขั้น (ข้อมูลทดสอบเท่านั้น)</h2>
+      <p class="muted">ใช้เฉพาะข้อมูลที่ขึ้นต้นด้วย <code>TEST_FLOW_</code> ไม่ใช่หนังสือจริง ไม่มีเลขทะเบียนหรือการลงนาม PDF</p>
+      <ol class="workflow-steps">
+        <li>เข้า <strong>test_clerk</strong> สร้างฉบับร่าง</li>
+        <li>ออกจากระบบแล้วเข้า <strong>test_admin</strong> เพื่อส่งรอ ผอ.</li>
+        <li>ออกจากระบบแล้วเข้า <strong>test_director</strong> เพื่ออนุมัติ</li>
+        <li>ออกจากระบบแล้วเข้า <strong>test_teacher</strong> เพื่อรับทราบ</li>
+      </ol>
+      <label for="flow-title">หัวข้อหนังสือจำลอง (ธุรการกรอก)</label>
+      <input id="flow-title" type="text" maxlength="240" value="หนังสือจำลองทดสอบการอนุมัติและรับทราบ">
+      <label for="flow-id">รหัสหนังสือจำลอง (คงอยู่เมื่อสลับบัญชีในเบราว์เซอร์เดิม)</label>
+      <input id="flow-id" type="text" autocomplete="off" placeholder="สร้างหนังสือก่อน หรือวางรหัส TEST_FLOW_..." spellcheck="false">
+      <div class="workflow-actions">
+        <button id="flow-copy" type="button" class="secondary-button">คัดลอกรหัสเอกสาร</button>
+        <button id="flow-refresh" type="button" class="secondary-button">ตรวจสถานะหนังสือ</button>
+      </div>
+      <h2>ดำเนินการตามบทบาท</h2>
+      <div class="workflow-actions">
+        <button id="flow-create" type="button" hidden>1. ธุรการสร้างหนังสือ</button>
+        <button id="flow-send" type="button" hidden>2. แอดมินส่งรอ ผอ.</button>
+        <button id="flow-approve" type="button" hidden>3. ผอ. อนุมัติ</button>
+        <button id="flow-ack" type="button" hidden>4. ครูรับทราบ</button>
+      </div>
+      <p class="muted">สถานะปัจจุบัน</p>
+      <div id="flow-status" class="result" role="status">กรุณาเริ่มจากธุรการสร้างหนังสือจำลอง</div>
+      <p class="muted">ผลการดำเนินการ</p>
+      <div id="flow-result" class="result" role="status" aria-live="polite">ยังไม่ได้ทำรายการ</div>
+      <p class="muted">หลังแต่ละขั้นให้กดออกจากระบบ แล้วเข้าสู่ระบบด้วยบัญชีจำลองของบทบาทถัดไป ห้ามใช้ชื่อผู้ใช้หรือเอกสารของโรงเรียนจริง</p>
     </section>
   </main>
   <script type="module" src="./main.js"></script>
