@@ -10,7 +10,7 @@
  * documents and testing least-privilege Firestore Rules.
  */
 import {
-  appSessionReady,appSessionFingerprint,forbidCrossSite,readAppSession,
+  appSessionReady,appSessionFingerprint,forbidCrossSite,readAppSession,isolatedSchoolPreview,
   userRef,serverAdminAuth,setupResponse,fail
 } from "./_signatureServer.js";
 import {canExchangeSchoolIdentity,schoolIdentityClaims} from "../shared/identityPolicy.js";
@@ -19,7 +19,7 @@ export default async function handler(req,res) {
   setupResponse(res);
   if(forbidCrossSite(req,res))return;
   if(req.method!=="GET")return fail(res,405,"ไม่รองรับวิธีเรียกนี้");
-  if(process.env.VERCEL_ENV==="production"||process.env.BHS_ENABLE_CUSTOM_AUTH_PREVIEW!=="true")
+  if(!isolatedSchoolPreview()||process.env.VERCEL_ENV==="production"||process.env.BHS_ENABLE_CUSTOM_AUTH_PREVIEW!=="true")
     return fail(res,503,"บริการยืนยันตัวตนใหม่ยังไม่เปิดใช้งาน");
   if(!appSessionReady())
     return fail(res,503,"บริการยืนยันตัวตนไม่พร้อม");
