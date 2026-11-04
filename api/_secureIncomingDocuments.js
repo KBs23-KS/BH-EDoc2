@@ -40,22 +40,27 @@ export async function manageSyntheticIncomingDocument({
 }){
   assertCredentialVaultBoundary({projectId,env});
   if(!UID.test(actorId||"")||
-     !["create","edit","soft-delete"].includes(action)||
+     !["create","edit","soft-delete","restore"].includes(action)||
      (action!=="create"&&!DOC_ID.test(docId||"")))
     throw problem(400,"invalid_test_document_request");
 
-  const details=action==="soft-delete"?null:inputFields(form);
+  const details=["soft-delete","restore"].includes(action)?null:inputFields(form);
   const id=action==="create"?"TEST_DOC_"+randomBytes(12).toString("hex").toUpperCase():docId;
   const result=await db.runTransaction(async tx=>{
     const users=db.collection(ROOT+"bhs_users");
     const docs=db.collection(ROOT+"bhs_documents");
     const audit=db.collection(ROOT+"bhs_audit_logs");
     const actorRef=users.doc(actorId),ref=docs.doc(id);
-    const counterRef=details?
-      db.doc(ROOT+"bhs_number_counters/INCOMING-"+details.year):null;
+    // Always read the record before computing the year-locked restore counter.
+    const documentSnap=await tx.get(ref);
+    const prior=documentSnap.exists?documentSnap.data():null;
+    const year=details?.year||(action==="restore"?
+      incomingDocumentYear(prior?.date):null);
+    const counterRef=year?
+      db.doc(ROOT+"bhs_number_counters/INCOMING-"+year):null;
     // All reads precede all writes, including the year-specific lock.
-    const [actorSnap,documentSnap,docsSnap,counterSnap]=await Promise.all([
-      tx.get(actorRef),tx.get(ref),tx.get(docs),
+    const [actorSnap,docsSnap,counterSnap]=await Promise.all([
+      tx.get(actorRef),tx.get(docs),
       counterRef?tx.get(counterRef):Promise.resolve(null)
     ]);
     const actor=actorSnap.exists?actorSnap.data():null;
@@ -65,11 +70,17 @@ export async function manageSyntheticIncomingDocument({
     const previous=documentSnap.exists?documentSnap.data():null;
     if(action==="create"&&previous)throw problem(409,"document_conflict");
     if(action!=="create"&&!previous)throw problem(404,"document_missing");
-    if(previous&&(previous.isDeleted||
-       (previous.type!=="หนังสือเข้า"&&actor.role!=="admin")))
+    if(action==="restore"){
+      if(actor.role!=="admin"||!previous.isDeleted||
+         previous.trialArchived||previous.type!=="หนังสือเข้า"||
+         year<2500||year>2999)throw problem(403,"cannot_restore_incoming");
+      if(incomingNumberConflict(
+        docsSnap.docs.map(d=>({id:d.id,...d.data()})),
+        previous.docNumber,previous.date,id))
+        throw problem(409,"restore_duplicate_number");
+    }else if(previous&&(previous.isDeleted||previous.type!=="หนังสือเข้า")){
       throw problem(403,"cannot_edit_document");
-    if(action==="edit"&&previous.type!=="หนังสือเข้า")
-      throw problem(403,"incoming_only");
+    }
     if(details){
       const current=docsSnap.docs.map(d=>({id:d.id,...d.data()}));
       if(incomingNumberConflict(current,details.docNumber,details.date,id))
@@ -77,7 +88,8 @@ export async function manageSyntheticIncomingDocument({
     }
     const now=Date.now();
     const message=action==="create"?"ลงทะเบียนหนังสือเข้า":
-      action==="edit"?"แก้ไขข้อมูลหนังสือเข้า":"ย้ายหนังสือเข้าลงถังขยะ";
+      action==="edit"?"แก้ไขข้อมูลหนังสือเข้า":
+      action==="restore"?"กู้คืนหนังสือเข้า":"ย้ายหนังสือเข้าลงถังขยะ";
     const history={
       action:message,by:actorId,byName:actor.name||"บัญชีจำลอง",
       role:actor.role,timestamp:now,detail:"การดำเนินการข้อมูลจำลอง"
@@ -100,6 +112,11 @@ export async function manageSyntheticIncomingDocument({
         urgency:details.urgency,from:details.from,lastEventAt:now,
         history:[...(previous.history||[]),history]
       });
+    }else if(action==="restore"){
+      tx.update(ref,{
+        isDeleted:false,deletedAt:null,deletedBy:null,lastEventAt:now,
+        history:[...(previous.history||[]),history]
+      });
     }else{
       tx.update(ref,{
         isDeleted:true,deletedAt:now,deletedBy:actorId,lastEventAt:now,
@@ -109,7 +126,7 @@ export async function manageSyntheticIncomingDocument({
     if(counterRef){
       const currentRevision=Number(counterSnap.data()?.revision||0);
       tx.set(counterRef,{
-        kind:"INCOMING",year:details.year,revision:currentRevision+1,
+        kind:"INCOMING",year,revision:currentRevision+1,
         updatedAt:now
       },{merge:true});
     }
