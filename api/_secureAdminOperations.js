@@ -111,10 +111,13 @@ function validateGroups(value){
 function validateHeads(heads,groups){
   return Boolean(heads)&&typeof heads==="object"&&!Array.isArray(heads)&&
     Object.keys(heads).length<=50&&Object.entries(heads).every(([group,entry])=>
-      groups.includes(group)&&entry&&typeof entry==="object"&&!Array.isArray(entry)&&
-      Object.keys(entry).every(k=>["primary","acting"].includes(k))&&
-      ["primary","acting"].every(k=>entry[k]===undefined||entry[k]===null||
-        (typeof entry[k]==="string"&&entry[k].length<=128))
+      groups.includes(group)&&(typeof entry==="string"?
+        entry.length<=128:
+        entry&&typeof entry==="object"&&!Array.isArray(entry)&&
+        Object.keys(entry).every(k=>["primary","acting"].includes(k))&&
+        ["primary","acting"].every(k=>entry[k]===undefined||entry[k]===null||
+          (typeof entry[k]==="string"&&entry[k].length<=128))
+      )
     );
 }
 export function validateSchoolSettings(value){
