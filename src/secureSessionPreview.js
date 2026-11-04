@@ -8,8 +8,18 @@
  * private password storage and server-side document commands are prerequisites
  * to production enablement. OFF unless explicitly opted in for Preview.
  */
-export const secureLoginPreviewEnabled=()=>
-  import.meta.env?.VITE_BHS_SECURE_LOGIN_PREVIEW==="true";
+// Fail CLOSED if someone enables the flag on a production Firebase config.
+// "Preview" alone is not isolation: Vercel previews can point to live data.
+export function validateSecurePreviewTarget({requested=false,target="",projectId=""}={}){
+  return requested===true&&target==="bhs-edoc-security-test"&&
+    projectId==="bhs-edoc-security-test";
+}
+export const secureLoginPreviewEnabled=(firebaseConfig={})=>
+  validateSecurePreviewTarget({
+    requested:import.meta.env?.VITE_BHS_SECURE_LOGIN_PREVIEW==="true",
+    target:import.meta.env?.VITE_BHS_SECURITY_TARGET,
+    projectId:firebaseConfig?.projectId
+  });
 
 async function sameOriginJson(fetcher,url,init={}){
   const ctrl=new AbortController();
