@@ -4,6 +4,9 @@
  * atomic removal of plaintext, one-time migration and fail-closed rules.
  */
 import assert from "node:assert/strict";
+import {generateKeyPairSync} from "node:crypto";
+import appSessionHandler from "../api/app-session.js";
+import {matchesLegacyPassword} from "../api/_signatureServer.js";
 import {initializeApp as initializeAdmin,deleteApp as deleteAdmin}
   from "firebase-admin/app";
 import {getFirestore as getAdminFirestore} from "firebase-admin/firestore";
@@ -119,6 +122,48 @@ try{
       db,profileRef:ref,uid:item.uid,projectId:PROJECT,env
     }),/account_already_migrated/);
   }
+  // End-to-end actual BHS POST /api/app-session against the local
+  // Firestore Emulator: same usernames and unchanged passwords.
+  const {privateKey}=generateKeyPairSync("rsa",{
+    modulusLength:2048,
+    publicKeyEncoding:{type:"spki",format:"pem"},
+    privateKeyEncoding:{type:"pkcs8",format:"pem"}
+  });
+  process.env.BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON=JSON.stringify({
+    project_id:PROJECT,client_email:"fake-ci-only@"+PROJECT+".iam.gserviceaccount.com",
+    private_key:privateKey
+  });
+  function response(){
+    return {headers:{},statusCode:200,body:null,
+      setHeader(key,value){this.headers[key]=value;return this;},
+      status(status){this.statusCode=status;return this;},
+      json(payload){this.body=payload;return this;}
+    };
+  }
+  for(const item of cases){
+    const expected=item.password||"123456";
+    const latest=(await db.doc(root+"/"+item.uid).get()).data();
+    assert.equal(matchesLegacyPassword(expected,latest),false,
+      "once migrated, no insecure plaintext/default fallback");
+    const req={method:"POST",headers:{host:"localhost"},
+      body:{username:item.username.toUpperCase(),password:expected,remember:true}
+    };
+    let res=response();
+    await appSessionHandler(req,res);
+    assert.equal(res.statusCode,200,"server login should preserve old credentials");
+    assert.equal(res.body.userId,item.uid);
+    assert.match(res.headers["Set-Cookie"],/HttpOnly; Secure; SameSite=Strict; Max-Age=604800/);
+    const cookie=res.headers["Set-Cookie"].split(";")[0];
+    res=response();
+    await appSessionHandler({method:"GET",headers:{host:"localhost",cookie}},res);
+    assert.equal(res.statusCode,200);
+    assert.equal(res.body.userId,item.uid);
+    res=response();
+    await appSessionHandler({method:"POST",headers:{host:"localhost"},
+      body:{username:item.username,password:"WRONG",remember:false}},res);
+    assert.equal(res.statusCode,401,"wrong passwords must never authenticate");
+  }
+
   // Check that a caller cannot try to migrate an unrelated/non-test profile.
   await assert.rejects(migrateSyntheticUserCredential({
     db,profileRef:db.doc(root+"/TEST_USER_TEACHER_001"),
