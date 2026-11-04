@@ -68,5 +68,7 @@ jobs:
         run: node tests/secure-server-feed-policy-test.mjs
       - name: Secure deputy/director workflow and signing safeguards (offline)
         run: node tests/secure-approval-policy-test.mjs
+      - name: Private credential vault migration in Firestore Emulator (no real Firebase writes)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/private-credential-vault-emulator.mjs"
       - name: Vite production build
         run: npm run build
