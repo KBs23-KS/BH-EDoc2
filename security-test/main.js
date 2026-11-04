@@ -233,6 +233,11 @@ try {
     const target=documentReference();
     const snap=await getDoc(target);
     if(!snap.exists())throw new Error("ไม่พบหนังสือจำลองนี้");
+    if(identity.uid===USER_UIDS.teacher && snap.data().status!=="approved"){
+      flowStatus.textContent="⚠️ ไม่ผ่าน: ครูอ่านหนังสือก่อนอนุมัติได้";
+      feedback("Firestore Rules ทดสอบยังไม่ปิดสิทธิ์อ่านระหว่างรออนุมัติ กรุณา Publish Rules รุ่นล่าสุดในโครงการ bhs-edoc-security-test");
+      return;
+    }
     flowStatus.textContent=(statusLabel[snap.data().status]||snap.data().status)+
       "\nหัวข้อ: "+snap.data().title;
     let note="✅ อ่านข้อมูลหนังสือจำลองได้ตามสิทธิ์";
