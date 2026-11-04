@@ -146,7 +146,7 @@ export const appSessionFingerprint = user =>
        // contains a password. A random version revokes old sessions safely.
        (typeof user?.credentialVersion==="string"&&user.credentialVersion.length>=24
          ?"vault:"+user.credentialVersion
-         :"legacy:"+String(user?.password||"123456"))+
+         :String(user?.password||"123456"))+
        ":"+String(user?.role||"")).slice(0,24);
 export function makeAppSession(userId,credentialTag){
   const body=Buffer.from(JSON.stringify({
