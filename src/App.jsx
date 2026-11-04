@@ -59,6 +59,8 @@ import {
   arrayUnion, runTransaction, getDocs, getDoc, getDocFromServer, getDocsFromServer, writeBatch, query, orderBy, limit, startAfter,
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
+import {uploadSecureIncomingFiles,validateSecureIncomingFiles}
+  from "./secureIncomingUpload.js";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
 import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
@@ -3780,6 +3782,13 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
   useEffect(()=>{try{localStorage.setItem(draftKey,JSON.stringify(form))}catch{}},[draftKey,form]);
   
   const [rawFiles, setRawFiles] = useState([]);
+  const securePendingKey=draftKey+"-secure-upload";
+  const [securePendingDocId,setSecurePendingDocId]=useState(()=>{
+    try{
+      const id=sessionStorage.getItem(securePendingKey)||"";
+      return /^TEST_DOC_[A-F0-9]{24}$/.test(id)?id:"";
+    }catch{return "";}
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const [selectedReservation, setSelectedReservation] = useState("");
@@ -3795,28 +3804,52 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
     if(SECURE_LOGIN_PREVIEW){
       if(docType!=="หนังสือเข้า")return showToast(
         "การสร้างคำสั่ง/เวียนต้องมี PDF ที่ตรวจสอบฝั่งเซิร์ฟเวอร์ก่อน","error");
-      if(rawFiles.length)return showToast(
-        "โหมดทดสอบยังไม่รองรับการส่งไฟล์จริง ให้ทดสอบเฉพาะทะเบียนหนังสือเข้า","error");
+      try{validateSecureIncomingFiles(rawFiles);}
+      catch(e){showToast(e.message,"error");return;}
       setIsSubmitting(true);
       try{
-        const response=await fetch("/api/secure-documents",{
-          method:"POST",credentials:"same-origin",cache:"no-store",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({action:"create",form:{
-            subject:form.subject,docNumber:form.docNumber,date:form.date,
-            urgency:form.urgency,from:form.from
-          }})
+        let docId=securePendingDocId;
+        if(!docId){
+          setUploadStatus("กำลังลงทะเบียนหนังสือเข้าจำลอง...");
+          const response=await fetch("/api/secure-documents",{
+            method:"POST",credentials:"same-origin",cache:"no-store",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({action:"create",form:{
+              subject:form.subject,docNumber:form.docNumber,date:form.date,
+              urgency:form.urgency,from:form.from
+            }})
+          });
+          if(!response.ok)throw new Error(
+            "ไม่สามารถลงทะเบียนได้ อาจมีเลขรับซ้ำหรือไม่มีสิทธิ์"
+          );
+          const result=await response.json();
+          if(result?.success!==true||!/^TEST_DOC_[A-F0-9]{24}$/.test(result.docId||""))
+            throw new Error("เซิร์ฟเวอร์ไม่ยืนยันทะเบียนหนังสือเข้า");
+          docId=result.docId;
+          // If the subsequent PDF upload fails, keep the document ID so a
+          // retry never registers a second incoming number.
+          sessionStorage.setItem(securePendingKey,docId);
+          setSecurePendingDocId(docId);
+        }
+        await uploadSecureIncomingFiles({
+          docId,files:rawFiles,storage:sessionStorage,
+          fetcher:fetch,encode:fileToBase64,
+          idFactory:()=>crypto.randomUUID(),onProgress:setUploadStatus
         });
-        if(!response.ok)throw new Error("ไม่สามารถลงทะเบียนได้ อาจมีเลขรับซ้ำหรือไม่มีสิทธิ์");
-        const result=await response.json();
-        if(result?.success!==true||!result.docId)
-          throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการลงทะเบียน");
-        try{localStorage.removeItem(draftKey)}catch{}
+        try{
+          localStorage.removeItem(draftKey);
+          sessionStorage.removeItem(securePendingKey);
+        }catch{}
+        setSecurePendingDocId("");
         window.dispatchEvent(new Event("bhs-secure-data-refresh"));
-        showToast("ลงทะเบียนหนังสือเข้าจำลองผ่านเซิร์ฟเวอร์สำเร็จ","success");
+        showToast("ลงทะเบียนและแนบ PDF ผ่านเซิร์ฟเวอร์ทดสอบสำเร็จ","success");
         changeMenu(backMenu);
-      }catch(e){showToast(e.message,"error")}
-      finally{setIsSubmitting(false);setUploadStatus("")}
+      }catch(e){
+        showToast("การดำเนินการยังไม่ครบ: "+e.message,"error");
+      }finally{
+        setIsSubmitting(false);
+        setUploadStatus("");
+      }
       return;
     }
     if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
@@ -3913,6 +3946,11 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
 
   return (
     <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden w-full">
+      {SECURE_LOGIN_PREVIEW&&securePendingDocId&&
+        <div className="m-4 p-3 border border-amber-300 rounded-lg bg-amber-50 text-amber-900 text-sm">
+          ทะเบียนหนังสือเข้าจำลองถูกบันทึกแล้ว กรุณาแนบ PDF ชุดเดิมแล้วกดบันทึกอีกครั้ง
+          ระบบจะใช้รายการเดิม ไม่สร้างเลขรับซ้ำ ({securePendingDocId})
+        </div>}
       {createdSummary && <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4">
         <div className="bg-white max-w-md w-full rounded-xl p-6 space-y-3 text-center">
           <CheckCircle className="mx-auto text-green-600" size={40}/>
