@@ -21,7 +21,7 @@ export default async function handler(req,res){
   const body=req.body;
   if(!body||typeof body!=="object"||Array.isArray(body)||
      JSON.stringify(body).length>8000||
-     !["create","edit","soft-delete"].includes(body.action)||
+     !["create","edit","soft-delete","restore"].includes(body.action)||
      (body.docId!==undefined&&typeof body.docId!=="string")||
      (body.form!==undefined&&(!body.form||typeof body.form!=="object"||
        Array.isArray(body.form))))
