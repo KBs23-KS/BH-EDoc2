@@ -4609,6 +4609,33 @@ function AuditLogView({ currentUser, showToast }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if(SECURE_LOGIN_PREVIEW){
+      let stopped=false;
+      const refresh=async()=>{
+        try{
+          const response=await fetch("/api/secure-audit",{
+            method:"GET",credentials:"same-origin",cache:"no-store",
+            headers:{"Accept":"application/json"}
+          });
+          if(!response.ok)throw new Error("secure_audit_unavailable");
+          const body=await response.json();
+          if(body?.success!==true||!Array.isArray(body.logs))
+            throw new Error("invalid_audit_feed");
+          if(!stopped){
+            setLogs(body.logs);
+            setLoading(false);
+          }
+        }catch{
+          if(!stopped){
+            setLoading(false);
+            showToast("Audit Log ผ่านเซิร์ฟเวอร์ทดสอบยังไม่พร้อม","error");
+          }
+        }
+      };
+      void refresh();
+      const timer=setInterval(refresh,30000);
+      return()=>{stopped=true;clearInterval(timer);};
+    }
     const unsub = onSnapshot(getCollectionRef(AUDIT_LOG_PATH), (snap) => {
       const data = snap.docs.map(d => ({id: d.id, ...d.data()}));
       data.sort((a,b) => b.timestamp - a.timestamp);
