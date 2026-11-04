@@ -8,6 +8,8 @@ import {
   secureLoginPreviewEnabled,verifySchoolSession,createSchoolSession,
   establishPrivateSchoolIdentity
 } from "../src/secureSessionPreview.js";
+import {isolatedSchoolPreview,appSessionReady,ready}
+  from "../api/_signatureServer.js";
 
 assert.equal(secureLoginPreviewEnabled(),false);
 const own={id:"TEST_TEACHER_001",name:"ครูจำลอง",role:"teacher",
@@ -97,4 +99,36 @@ assert.match(secure,/VITE_BHS_SECURE_LOGIN_PREVIEW/);
 assert.match(server,/VERCEL_ENV==="production"/);
 assert.match(directory,/VERCEL_ENV==="production"/);
 assert.doesNotMatch(secure,/signInAnonymously|getDocs\(|onSnapshot\(|passwordHash.*send/);
+// Every preview flag must fail closed if it would select the real school's
+// Firebase Admin credentials. These values are fake — no Firebase calls.
+const keys=["VERCEL_ENV","BHS_SERVER_ISOLATED_PREVIEW",
+  "BHS_ENABLE_CUSTOM_AUTH_PREVIEW","BHS_FIREBASE_SERVICE_ACCOUNT_JSON",
+  "BHS_SIGNING_SESSION_SECRET","BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON",
+  "BHS_TEST_SESSION_SECRET","BHS_BACKUP_SECRET"];
+const originals=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+try{
+  process.env.VERCEL_ENV="preview";
+  process.env.BHS_ENABLE_CUSTOM_AUTH_PREVIEW="true";
+  process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON="FAKE_DO_NOT_USE";
+  process.env.BHS_SIGNING_SESSION_SECRET="a".repeat(64);
+  process.env.BHS_BACKUP_SECRET="FAKE_DO_NOT_USE";
+  delete process.env.BHS_SERVER_ISOLATED_PREVIEW;
+  assert.equal(isolatedSchoolPreview(),false);
+  assert.equal(appSessionReady(),false);
+  assert.equal(ready(),false);
+  process.env.BHS_SERVER_ISOLATED_PREVIEW="true";
+  process.env.BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON="FAKE_TEST_ONLY";
+  process.env.BHS_TEST_SESSION_SECRET="b".repeat(64);
+  assert.equal(isolatedSchoolPreview(),true);
+  assert.equal(appSessionReady(),true);
+  assert.equal(ready(),false);
+  process.env.VERCEL_ENV="production";
+  assert.equal(isolatedSchoolPreview(),false);
+  assert.equal(appSessionReady(),false);
+}finally{
+  for(const k of keys){
+    if(originals[k]===undefined)delete process.env[k];
+    else process.env[k]=originals[k];
+  }
+}
 console.log("BHS real App preview-only server-auth integration checks passed (no Firebase connection)");
