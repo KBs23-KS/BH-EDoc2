@@ -28,7 +28,8 @@ export function fail(res,status,message){setupResponse(res);return res.status(st
 export const forbidCrossSite=(req,res)=>originMatches(req)?false:(fail(res,403,"คำขอไม่ได้มาจากเว็บไซต์โรงเรียน"),true);
 export function isolatedSchoolPreview(){
   return process.env.BHS_SERVER_ISOLATED_PREVIEW==="true"&&
-    process.env.VERCEL_ENV!=="production";
+    process.env.VERCEL_ENV!=="production"&&
+    process.env.FIRESTORE_EMULATOR_HOST==="127.0.0.1:8099";
 }
 const adminAccountJson=()=>isolatedSchoolPreview()?
   process.env.BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON:
@@ -47,14 +48,15 @@ const anyIsolatedFeatureRequested=()=>process.env.VERCEL_ENV!=="production"&&
 export function ready(){
   // Never permit real school PDF signing in any isolated security rehearsal,
   // including a partially misconfigured preview with a production admin key.
-  return !isolatedSchoolPreview()&&!anyIsolatedFeatureRequested() &&
+  return process.env.BHS_SERVER_ISOLATED_PREVIEW!=="true"&&
+    !isolatedSchoolPreview()&&!anyIsolatedFeatureRequested() &&
     Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&
       process.env.BHS_SIGNING_SESSION_SECRET?.length>=32&&process.env.BHS_BACKUP_SECRET);
 }
 function serverAdminApp(){
   if(process.env.BHS_SERVER_ISOLATED_PREVIEW==="true"&&
-     process.env.VERCEL_ENV==="production")
-    throw new Error("ห้ามเปิด Backend ทดสอบบน Production");
+     !isolatedSchoolPreview())
+    throw new Error("ห้ามเชื่อม Backend ทดสอบนอก Firestore Emulator");
   const raw=adminAccountJson();
   if(!raw)throw new Error("Firebase Admin ยังไม่ได้ตั้งค่า");
   const parsed=JSON.parse(raw);
@@ -141,7 +143,7 @@ const APP_COOKIE="bhs_app_session";
 const MAX_APP_MS=7*24*60*60*1000;
 export function appSessionReady(){
   if(process.env.BHS_SERVER_ISOLATED_PREVIEW==="true" &&
-     process.env.VERCEL_ENV==="production")return false;
+     !isolatedSchoolPreview())return false;
   if(anyIsolatedFeatureRequested()&&!isolatedSchoolPreview())return false;
   return Boolean(adminAccountJson()&&serverSessionSecret()?.length>=32);
 }
