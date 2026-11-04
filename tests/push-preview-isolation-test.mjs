@@ -12,7 +12,7 @@ assert.match(api,/MAX_SENDS_GLOBAL=60/,"global send ceiling must exist");
 assert.match(api,/safeCompare\(record.secretHash,hex\(data.token\)\)/);
 assert.doesNotMatch(api,/bhs_documents|bhs_users|firebaseapp\.com|bhs-edoc-2/);
 const sw=readFileSync(new URL("../public/sw.js",import.meta.url),"utf8");
-assert.match(sw,/push-preview-lab\\.html/,"test pushes must open lab, not school's document UI");
+assert.match(sw,/push-preview-lab\.html/,"test pushes must open lab, not school's document UI");
 assert.match(page,/pushManager\.subscribe/);
 assert.match(page,/Notification\.requestPermission/);
 assert.doesNotMatch(page,/bhs_documents|bhs_users|firebaseConfig|__firebase_config/);
