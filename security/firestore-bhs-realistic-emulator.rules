@@ -1,0 +1,118 @@
+// EMULATOR ONLY: synthetic BHS-shaped document security candidate.
+// NEVER deploy to bhs-edoc-2 or bhs-edoc-security-test.
+// Browser writes to documents are intentionally DENIED: sensitive changes
+// require a FUTURE authorized server API with an atomic audit trail.
+// Current BHS App.jsx is NOT compatible with these deny-by-default rules.
+// Fake user IDs require TEST_ and documents require TEST_DOC_.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function syntheticIdentity() {
+      return request.auth != null
+        && request.auth.token.bhsSchoolIdentity == true
+        && request.auth.uid.matches('^TEST_[A-Z0-9_]{1,80}$');
+    }
+    function userPath(uid) {
+      return /databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_users/$(uid);
+    }
+    function settingsPath() {
+      return /databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_settings/system;
+    }
+    function person() {
+      return get(userPath(request.auth.uid)).data;
+    }
+    function active() {
+      return syntheticIdentity() && exists(userPath(request.auth.uid))
+        && person().status == 'active';
+    }
+    function role(name) {return active() && person().role == name;}
+    function finalState(status) {
+      return status in ['อนุมัติ/สั่งการแล้ว','เผยแพร่แล้ว'];
+    }
+    function isPrimaryOrActingHead(entry) {
+      return entry.primary == request.auth.uid ||
+        entry.acting == request.auth.uid;
+    }
+    function isHeadOfRoutedGroup(data) {
+      return data.type == 'หนังสือเข้า'
+        && data.routedGroup is string
+        && data.routedGroup.size() > 0
+        && exists(settingsPath())
+        && (
+          (get(settingsPath()).data.adminHeads.keys().hasAny([data.routedGroup])
+           && isPrimaryOrActingHead(get(settingsPath()).data.adminHeads[data.routedGroup]))
+          ||
+          (get(settingsPath()).data.subjectHeads.keys().hasAny([data.routedGroup])
+           && person().subjectArea == data.routedGroup
+           && isPrimaryOrActingHead(get(settingsPath()).data.subjectHeads[data.routedGroup]))
+        );
+    }
+    function canSeeDocument(data) {
+      return active() && !data.isDeleted && (
+        role('admin') || role('director')
+        || data.createdBy == request.auth.uid
+        || (role('deputy') &&
+          (data.status == 'รอรองผู้อำนวยการ' || finalState(data.status)))
+        || (role('clerk') && data.type == 'หนังสือเข้า')
+        || (finalState(data.status) && (
+          (data.recipientIds is list && request.auth.uid in data.recipientIds)
+          || (data.assignedUserIds is list && request.auth.uid in data.assignedUserIds)
+          || isHeadOfRoutedGroup(data)
+        ))
+      );
+    }
+
+    match /artifacts/bhs-edoc-app/public/data {
+      match /bhs_users/{uid} {
+        // The fixture contains NO passwords or credential verifiers.
+        allow get: if active() && (uid == request.auth.uid || role('admin'));
+        allow list, create, update, delete: if false;
+      }
+      match /bhs_settings/{settingsId} {
+        allow get: if active() && settingsId == 'system';
+        allow list, create, update, delete: if false;
+      }
+      match /bhs_documents/{documentId} {
+        allow get: if documentId.matches('^TEST_DOC_[A-Z0-9_]{3,80}$')
+          && canSeeDocument(resource.data);
+        // Existing App.jsx still lists whole collections; that behavior
+        // MUST be replaced before production cutover. No query leakage.
+        allow list: if false;
+        // Full workflow modifications (including director/head/admin writes,
+        // correction, file version changes and signedFiles) are SERVER ONLY.
+        allow create, update, delete: if false;
+
+        match /receipts/{uid} {
+          allow get: if active() && (
+            role('admin') || role('director')
+            || (uid == request.auth.uid
+              && exists(/databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_documents/$(documentId))
+              && canSeeDocument(get(/databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_documents/$(documentId)).data))
+          );
+          allow list: if role('admin') || role('director');
+          allow create: if documentId.matches('^TEST_DOC_[A-Z0-9_]{3,80}$')
+            && active() && uid == request.auth.uid
+            && (role('teacher') || role('clerk'))
+            && exists(/databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_documents/$(documentId))
+            && !get(/databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_documents/$(documentId)).data.isDeleted
+            && finalState(get(/databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_documents/$(documentId)).data.status)
+            && request.auth.uid in get(/databases/$(database)/documents/artifacts/bhs-edoc-app/public/data/bhs_documents/$(documentId)).data.recipientIds
+            && request.resource.data.keys().hasOnly(['uid','acknowledgedAt'])
+            && request.resource.data.keys().hasAll(['uid','acknowledgedAt'])
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.acknowledgedAt == request.time;
+          allow update, delete: if false;
+        }
+      }
+      // Audits, numbers, backup/control data and reminders are server only.
+      match /bhs_audit_logs/{id} {allow read, write: if false;}
+      match /bhs_order_reservations/{id} {allow read, write: if false;}
+      match /bhs_outgoing_reservations/{id} {allow read, write: if false;}
+      match /bhs_number_counters/{id} {allow read, write: if false;}
+      match /bhs_reminders/{id} {allow read, write: if false;}
+      match /{other=**} {allow read, write: if false;}
+    }
+
+    match /{document=**} {allow read, write: if false;}
+  }
+}
