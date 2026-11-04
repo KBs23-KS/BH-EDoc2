@@ -1,8 +1,11 @@
 import {
   fail,appSessionReady,forbidCrossSite,findByUsername,matchesLegacyPassword,
   makeAppSession,readAppSession,appSessionFingerprint,setAppSessionCookie,clearAppSessionCookie,
-  userRef,setupResponse
+  userRef,adminDb,schoolAdminProjectId,isolatedSchoolPreview,setupResponse
 } from "./_signatureServer.js";
+import {
+  credentialVaultMode,verifyPrivateSchoolPassword
+} from "./_schoolCredentialVault.js";
 
 /**
  * Re-establish a valid logged-in profile after page refresh.
@@ -34,7 +37,19 @@ export default async function handler(req,res){
        typeof password!=="string"||password.length>128||typeof remember!=="boolean")
       return fail(res,400,"ข้อมูลเข้าสู่ระบบไม่ถูกต้อง");
     const user=await findByUsername(username.trim());
-    if(!user||user.status==="inactive"||!matchesLegacyPassword(password,user))
+    if(!user||user.status==="inactive")
+      return fail(res,401,"ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+    const vaultRequested=process.env.BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW==="true";
+    // The secure preview NEVER falls back to plaintext verification if
+    // vault configuration or a migrated credential is absent.
+    if(vaultRequested&&!credentialVaultMode())
+      return fail(res,503,"ยังไม่ได้เตรียมคลังรหัสผ่านที่ปลอดภัย");
+    const accepted=vaultRequested?
+      await verifyPrivateSchoolPassword({
+        db:adminDb(),projectId:schoolAdminProjectId(),user,password
+      }):
+      matchesLegacyPassword(password,user);
+    if(!accepted)
       return fail(res,401,"ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
     setAppSessionCookie(res,makeAppSession(user.id,appSessionFingerprint(user)),remember);
     return res.status(200).json({success:true,userId:user.id});
