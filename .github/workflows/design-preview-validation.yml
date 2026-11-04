@@ -84,5 +84,9 @@ jobs:
         run: node tests/secure-upload-bridge-static-test.mjs
       - name: School incoming PDF form retry regression (offline)
         run: node tests/secure-incoming-upload-client-test.mjs
+      - name: Returned PDF revision form and retry regression (offline)
+        run: node tests/secure-revision-client-test.mjs
+      - name: Returned PDF revision history, ownership and receipt trust (Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-revision-emulator.mjs"
       - name: Vite production build
         run: npm run build
