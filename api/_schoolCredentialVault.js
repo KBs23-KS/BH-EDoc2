@@ -21,7 +21,9 @@ export function credentialVaultMode(env=process.env){
   return env.VERCEL_ENV!=="production" &&
     env.BHS_SERVER_ISOLATED_PREVIEW==="true" &&
     env.BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW==="true" &&
-    env.BHS_CREDENTIAL_VAULT_AUDITED==="true";
+    env.BHS_CREDENTIAL_VAULT_AUDITED==="true" &&
+    // No real test or school Firebase writes are authorized in this stage.
+    env.FIRESTORE_EMULATOR_HOST==="127.0.0.1:8099";
 }
 export function assertCredentialVaultBoundary({projectId,env=process.env}){
   if(!credentialVaultMode(env)||
@@ -65,7 +67,10 @@ export async function migrateSyntheticUserCredential({
   db,projectId,profileRef,uid,env=process.env
 }){
   assertCredentialVaultBoundary({projectId,env});
-  if(!TEST_UID.test(uid||""))throw new Error("synthetic_uid_required");
+  if(!TEST_UID.test(uid||"")||
+     profileRef?.id!==uid ||
+     profileRef?.path!=="artifacts/bhs-edoc-app/public/data/bhs_users/"+uid)
+    throw new Error("synthetic_profile_path_required");
   const vaultRef=vaultDocument(db,uid);
   // Hash outside the transaction (which may retry). The only plaintext
   // exists in server memory; never returns it or emits it to logs.
