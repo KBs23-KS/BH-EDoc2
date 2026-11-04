@@ -23,7 +23,7 @@ self.addEventListener("push",event=>{
     let url="/";
     try{
       const target=new URL(rawUrl,self.location.origin);
-      if(target.origin===self.location.origin&&target.pathname==="/")
+      if(target.origin===self.location.origin&&["/","/push-preview-check.html","/push-preview-lab.html"].includes(target.pathname))
         url=target.pathname+target.search;
     }catch{/* fallback */}
     // Always visibly notify. Apple revokes silent Web Push subscriptions.
