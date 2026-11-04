@@ -76,5 +76,7 @@ jobs:
         run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-incoming-documents-emulator.mjs"
       - name: Order and outgoing register numbering / concurrency (local Emulator only)
         run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-register-emulator.mjs"
+      - name: Admin register overrides and settings permissions (local Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-admin-ops-emulator.mjs"
       - name: Vite production build
         run: npm run build
