@@ -62,5 +62,7 @@ jobs:
         run: node tests/login-official-crest-regression-test.mjs
       - name: Original-name signed PDF and remembered username regression
         run: node tests/signed-pdf-filename-and-remember-username-test.mjs
+      - name: Secure school login integration (mock server responses only)
+        run: node tests/secure-app-login-integration-test.mjs
       - name: Vite production build
         run: npm run build
