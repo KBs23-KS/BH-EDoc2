@@ -85,6 +85,7 @@ assert.ok(filtered.some(d=>d.id==="TEST_ROUTED"));
 assert.ok(filtered.some(d=>d.id==="TEST_RETURNED"));
 assert.ok(!filtered.some(d=>d.id==="TEST_PRIVATE"));
 assert.ok(!filtered.some(d=>d.isDeleted));
+assert.ok(filterSchoolDocuments(admin,docs,users,settings).some(d=>d.id==="TEST_DELETED"));
 assert.equal("passwordHash" in filtered[0],false);
 assert.equal("secret" in filtered[0],false);
 assert.equal(filterSchoolReservations(teacher,[
