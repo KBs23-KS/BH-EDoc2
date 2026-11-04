@@ -145,7 +145,7 @@ assert.equal(can(outsider,"acknowledgeAssignment",routed,{
 assert.equal(can(teacher,"acknowledgeAssignment",{
   ...routed,assignmentAcknowledged:["R1::TEST_TEACHER"]
 },{assignmentEventId:"R1"}),false);
-assert.equal(can(teacher,"route",routed,{...routeOptions,admin:true}),true);
+assert.equal(can(teacher,"route",routed,{...routeOptions,admin:true}),false);
 // Unexpected client fields do not grant permissions.
 assert.equal(can(teacher,"route",routed,{
   ...routeOptions,role:"admin",status:"เผยแพร่แล้ว"
