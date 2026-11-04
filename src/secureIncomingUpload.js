@@ -13,7 +13,8 @@ export function validateSecureIncomingFiles(files){
     if(!file||typeof file.name!=="string"||
        !/\.pdf$/i.test(file.name)||file.name.length>180||
        /[/\\<>:"|?*\x00-\x1f]/.test(file.name)||
-       file.type!=="application/pdf"||
+       (file.type&&file.type!=="application/pdf"&&
+        file.type!=="application/octet-stream")||
        !Number.isFinite(file.size)||file.size<20||
        file.size>MAX_PDF_BYTES)
       throw new Error("รองรับเฉพาะ PDF ไม่เกิน 3 MB ต่อไฟล์ในโหมดทดสอบ");
