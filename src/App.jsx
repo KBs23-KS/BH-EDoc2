@@ -78,6 +78,16 @@ import {
 } from "./webPushClient.js";
 import {clientNotificationCandidates} from "../shared/pushEvents.js";
 const PUSH_UI_ENABLED=import.meta.env.VITE_BHS_ENABLE_PUSH==="true";
+// Fire-and-forget AFTER a successful document commit. Does not delay school
+// workflows if push service or device subscription is not ready.
+function notifyPushAfterSave(docId,kind,eventId){
+  if(!PUSH_UI_ENABLED)return;
+  const body=JSON.stringify({docId,kind,...(eventId?{eventId}:{})});
+  void fetch("/api/push-dispatch",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    keepalive:true,headers:{"Content-Type":"application/json"},body
+  }).catch(()=>{});
+}
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -791,14 +801,16 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     finally{setPushBusy(false)}
   };
   const logoutWithPush=()=>{
-    // A signed-out shared device must not keep receiving another user's work.
-    if(PUSH_UI_ENABLED){
-      void disableWebPush().catch(()=>{}).finally(()=>{
-        if(typeof navigator?.clearAppBadge==="function")
-          navigator.clearAppBadge().catch(()=>{});
-        onLogout();
-      });
-    }else onLogout();
+    // Shared computers must not remain subscribed to the last user.
+    if(!PUSH_UI_ENABLED){onLogout();return;}
+    const removal=disableWebPush().catch(()=>{});
+    void Promise.race([
+      removal,new Promise(resolve=>setTimeout(resolve,2500))
+    ]).finally(()=>{
+      if(typeof navigator.clearAppBadge==="function")
+        Promise.resolve(navigator.clearAppBadge()).catch(()=>{});
+      onLogout();
+    });
   };
   
   const [soundVolume,setSoundVolume]=useState(()=>{try{const v=localStorage.getItem("bhs-edoc-volume");return v===null?50:Math.max(0,Math.min(100,Number(v)||0))}catch{return 50}});
@@ -2711,6 +2723,8 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
       
       const actionText = actionType === "RETURN" ? "ส่งกลับแก้ไข" : isDeputyStage ? "เสนอผู้อำนวยการ" : "อนุมัติและเผยแพร่";
       await commitCheckedAction(currentUser, docObj, updates, actionText, docObj.subject);
+      notifyPushAfterSave(docObj.id,actionType==="RETURN"?"returned":
+        isDeputyStage?"director":"published");
       if (signedPdf) {
         signedUploads.current.delete(`${docObj.id}:${fileIdentity(docObj)}`);
         setSignDoc(null);
@@ -3563,6 +3577,7 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
         await batch.commit();
       }
       try{localStorage.removeItem(draftKey)}catch{}
+      notifyPushAfterSave(newDocId,"created");
       if (docType === "คำสั่งโรงเรียน") {
         setCreatedSummary({ number: newDoc.docNumber || "ไม่มีเลข", subject: newDoc.subject, status: "รอรองผู้อำนวยการ", id:newDocId });
       } else changeMenu(backMenu);
