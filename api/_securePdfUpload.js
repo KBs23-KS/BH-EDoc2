@@ -58,46 +58,95 @@ export async function addSyntheticIncomingPdf({
   if(!UID.test(actorId||"")||!DOC.test(docId||"")||
      !UPLOAD_ID.test(uploadId||"")||typeof deliver!=="function")
     throw err(400,"invalid_upload_request");
+  // Validate actual PDF structure before reserving an upload attempt.
   const file=await validatePdfUpload({fileName,base64});
   const docRef=db.doc(ROOT+"bhs_documents/"+docId);
   const userRef=db.doc(ROOT+"bhs_users/"+actorId);
   const receiptRef=db.doc(ROOT+"bhs_secure_upload_receipts/"+uploadId);
-  const [actorSnap,docSnap,priorReceipt]=await Promise.all([
-    userRef.get(),docRef.get(),receiptRef.get()
-  ]);
-  const actor=actorSnap.exists?actorSnap.data():null;
-  const document=docSnap.exists?docSnap.data():null;
-  if(!canAttach(actor,document))throw err(403,"incoming_upload_not_allowed");
-  if(priorReceipt.exists){
-    const record=priorReceipt.data();
-    if(record.actorId!==actorId||record.docId!==docId||
-       record.sha256!==file.sha256)throw err(409,"upload_id_conflict");
-    return {success:true,docId,uploadId,driveId:record.driveId,
-      duplicate:true};
-  }
-  // Randomized generated filename avoids path traversal and same-name
-  // collisions in the Drive folder. Never trust the caller's Drive ID.
-  const safeStoredName=docId+"-"+randomUUID()+".pdf";
-  const delivered=await deliver({
-    base64:file.base64,fileName:safeStoredName,mimeType:"application/pdf"
-  });
-  if(!delivered?.success||!FILE_ID.test(delivered.fileId||""))
-    throw err(502,"unverified_file_transport");
-  const driveId=delivered.fileId;
-  const recorded=await db.runTransaction(async tx=>{
-    const [userSnap,currentDoc,receiptSnap]=await Promise.all([
+  const receiptMatches=record=>record?.actorId===actorId&&
+    record?.docId===docId&&record?.sha256===file.sha256 &&
+    record?.name===file.fileName;
+  const ensureAllowed=(actor,document)=>{
+    if(!canAttach(actor,document))throw err(403,"incoming_upload_not_allowed");
+  };
+
+  // Step 1: atomically CLAIM the idempotency key before any network upload.
+  // Concurrent calls with the same key must never both send a file to GAS.
+  const claim=await db.runTransaction(async tx=>{
+    const [actorSnap,docSnap,receiptSnap]=await Promise.all([
       tx.get(userRef),tx.get(docRef),tx.get(receiptRef)
     ]);
-    if(!userSnap.exists||!currentDoc.exists||
-       !canAttach(userSnap.data(),currentDoc.data()))
-      throw err(403,"document_changed_during_upload");
+    ensureAllowed(actorSnap.exists?actorSnap.data():null,
+      docSnap.exists?docSnap.data():null);
     if(receiptSnap.exists){
-      const existing=receiptSnap.data();
-      if(existing.actorId!==actorId||existing.docId!==docId||
-         existing.sha256!==file.sha256)throw err(409,"upload_id_conflict");
-      return existing.driveId;
+      const previous=receiptSnap.data();
+      if(!receiptMatches(previous))throw err(409,"upload_id_conflict");
+      if(previous.state==="complete"&&FILE_ID.test(previous.driveId||""))
+        return {state:"complete",driveId:previous.driveId};
+      if(previous.state==="stored"&&FILE_ID.test(previous.driveId||""))
+        return {state:"stored",driveId:previous.driveId};
+      throw err(409,"upload_pending_or_failed_use_new_id");
     }
-    const doc=currentDoc.data();
+    tx.create(receiptRef,{
+      state:"pending",docId,actorId,sha256:file.sha256,
+      name:file.fileName,createdAt:Date.now()
+    });
+    return {state:"new"};
+  });
+  if(claim.state==="complete")
+    return {success:true,docId,uploadId,driveId:claim.driveId,duplicate:true};
+
+  let driveId=claim.driveId||null;
+  if(claim.state==="new"){
+    // Step 2: send once to the private TEST transport. All failed deliveries
+    // remain visibly marked and are never silently retried with this key.
+    const safeStoredName=docId+"-"+randomUUID()+".pdf";
+    try{
+      const response=await deliver({
+        base64:file.base64,fileName:safeStoredName,mimeType:"application/pdf"
+      });
+      if(!response?.success||!FILE_ID.test(response.fileId||""))
+        throw err(502,"unverified_file_transport");
+      driveId=response.fileId;
+      // Persist transport receipt before attempting the document update.
+      // If the document changes concurrently, the stored receipt provides a
+      // deterministic reconciliation path without reuploading the PDF.
+      await db.runTransaction(async tx=>{
+        const snap=await tx.get(receiptRef);
+        if(!snap.exists||!receiptMatches(snap.data())||
+           snap.data().state!=="pending")
+          throw err(409,"upload_receipt_changed");
+        tx.update(receiptRef,{state:"stored",driveId,storedAt:Date.now()});
+      });
+    }catch(error){
+      if(!driveId){
+        await db.runTransaction(async tx=>{
+          const snap=await tx.get(receiptRef);
+          if(snap.exists&&receiptMatches(snap.data())&&
+             snap.data().state==="pending")
+            tx.update(receiptRef,{state:"failed",failedAt:Date.now()});
+        }).catch(()=>{});
+      }
+      throw error;
+    }
+  }
+
+  // Step 3: reconcile a previously stored file, or attach the new file.
+  // This transaction also commits version history, receipt and Audit Log.
+  const attached=await db.runTransaction(async tx=>{
+    const [userSnap,docSnap,receiptSnap]=await Promise.all([
+      tx.get(userRef),tx.get(docRef),tx.get(receiptRef)
+    ]);
+    ensureAllowed(userSnap.exists?userSnap.data():null,
+      docSnap.exists?docSnap.data():null);
+    const receipt=receiptSnap.exists?receiptSnap.data():null;
+    if(!receiptMatches(receipt)||receipt.driveId!==driveId)
+      throw err(409,"stored_receipt_mismatch");
+    if(receipt.state==="complete")
+      return {driveId,duplicate:true};
+    if(receipt.state!=="stored")
+      throw err(409,"upload_not_stored");
+    const doc=docSnap.data();
     if((doc.files||[]).some(x=>x.driveId===driveId))
       throw err(409,"duplicate_drive_file");
     const at=Date.now();
@@ -121,14 +170,13 @@ export async function addSyntheticIncomingPdf({
       fileVersions:versions,lastEventAt:at,
       history:[...(doc.history||[]),event]
     });
-    tx.create(receiptRef,{
-      docId,actorId,sha256:file.sha256,driveId,createdAt:at
-    });
+    tx.update(receiptRef,{state:"complete",completedAt:at});
     tx.create(db.collection(ROOT+"bhs_audit_logs").doc("TEST_AUDIT_"+randomUUID()),{
       action:event.action,userId:actorId,targetType:"DOCUMENT",
       targetId:docId,timestamp:at,detail:"PDF validated server-side"
     });
-    return driveId;
+    return {driveId,duplicate:false};
   });
-  return {success:true,docId,uploadId,driveId:recorded,duplicate:false};
+  return {success:true,docId,uploadId,
+    driveId:attached.driveId,duplicate:attached.duplicate};
 }
