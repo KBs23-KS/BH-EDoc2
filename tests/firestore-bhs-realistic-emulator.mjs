@@ -32,10 +32,14 @@ const audit=(action,userId,id)=>({
   timestamp:1793764800000,detail:"synthetic authorization only"
 });
 async function backendGet(id){
-  return env.withSecurityRulesDisabled(async ctx=>{
+  // withSecurityRulesDisabled resolves when the callback completes; do not
+  // assume that it propagates the callback's returned record.
+  let value=null;
+  await env.withSecurityRulesDisabled(async ctx=>{
     const result=await getDoc(paper(ctx.firestore(),id));
-    return result.exists()?{id,...result.data()}:null;
+    value=result.exists()?{id,...result.data()}:null;
   });
+  return value;
 }
 async function backendCreate(actorId,data){
   assert.equal(mayPerform(actor(actorId),"create-incoming",data,{settings:SETTINGS,users:USERS}),true);
