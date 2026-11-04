@@ -93,7 +93,8 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
 
 // New school-auth path is disabled unless explicitly selected for a gated preview.
 // This branch must NOT be deployed against the real school Firebase Rules.
-const SECURE_LOGIN_PREVIEW = secureLoginPreviewEnabled();
+const SECURE_LOGIN_REQUESTED=import.meta.env?.VITE_BHS_SECURE_LOGIN_PREVIEW==="true";
+const SECURE_LOGIN_PREVIEW = secureLoginPreviewEnabled(firebaseConfig);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -438,9 +439,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // A request for secure mode on any non-isolated project is a hard error.
+    // NEVER fall back to the live anonymous Firestore sign-in in this case.
+    if(SECURE_LOGIN_REQUESTED&&!SECURE_LOGIN_PREVIEW){
+      setInitError("โหมดทดสอบความปลอดภัยไม่สามารถเชื่อมต่อ Firebase ระบบจริงได้");
+      setIsInitializing(false);
+      setSessionChecking(false);
+      return;
+    }
+  },[]);
+
+  useEffect(() => {
     // Secure mode NEVER attempts an anonymous Firebase login. A trusted
     // signed app session is exchanged for a Firebase custom token instead.
-    if (SECURE_LOGIN_PREVIEW) return;
+    if (SECURE_LOGIN_REQUESTED) return;
     let unsubscribeAuth;
     const initAuth = async () => {
       try {
