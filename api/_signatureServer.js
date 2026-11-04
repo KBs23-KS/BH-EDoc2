@@ -5,6 +5,7 @@
 import {createHmac,randomBytes,timingSafeEqual} from "node:crypto";
 import {getApps,initializeApp,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
+import {getAuth as getFirebaseAdminAuth} from "firebase-admin/auth";
 import {findUniqueUsernameAccount} from "../shared/username.js";
 
 const COOKIE="bhs_signing_session";
@@ -25,18 +26,41 @@ export function setupResponse(res){
 }
 export function fail(res,status,message){setupResponse(res);return res.status(status).json({success:false,error:message});}
 export const forbidCrossSite=(req,res)=>originMatches(req)?false:(fail(res,403,"คำขอไม่ได้มาจากเว็บไซต์โรงเรียน"),true);
+export function isolatedSchoolPreview(){
+  return process.env.BHS_SERVER_ISOLATED_PREVIEW==="true"&&
+    process.env.VERCEL_ENV!=="production";
+}
+const adminAccountJson=()=>isolatedSchoolPreview()?
+  process.env.BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON:
+  process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON;
+const serverSessionSecret=()=>isolatedSchoolPreview()?
+  process.env.BHS_TEST_SESSION_SECRET:
+  process.env.BHS_SIGNING_SESSION_SECRET;
 export function ready(){
-  return Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&process.env.BHS_SIGNING_SESSION_SECRET?.length>=32&&process.env.BHS_BACKUP_SECRET);
+  // PDF signing is NEVER permitted in the isolated backend rehearsal.
+  return !isolatedSchoolPreview() &&
+    Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&
+      process.env.BHS_SIGNING_SESSION_SECRET?.length>=32&&process.env.BHS_BACKUP_SECRET);
 }
-function adminDb(){
-  if(!process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON)throw new Error("Firebase Admin ยังไม่ได้ตั้งค่า");
-  if(!getApps().length){
-    const parsed=JSON.parse(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON);
-    if(parsed.project_id!=="bhs-edoc-2")throw new Error("Firebase project ไม่ตรงกับระบบ");
-    initializeApp({credential:cert(parsed)});
+function serverAdminApp(){
+  if(process.env.BHS_SERVER_ISOLATED_PREVIEW==="true"&&
+     process.env.VERCEL_ENV==="production")
+    throw new Error("ห้ามเปิด Backend ทดสอบบน Production");
+  const raw=adminAccountJson();
+  if(!raw)throw new Error("Firebase Admin ยังไม่ได้ตั้งค่า");
+  const parsed=JSON.parse(raw);
+  const expected=isolatedSchoolPreview()?"bhs-edoc-security-test":"bhs-edoc-2";
+  if(parsed.project_id!==expected)throw new Error("Firebase project ไม่ตรงกับระบบ");
+  const name="bhs-school-admin-"+expected;
+  const existing=getApps().find(app=>app.name===name);
+  if(existing){
+    if(existing.options.projectId!==expected)throw new Error("Firebase Admin identity ไม่ตรง");
+    return existing;
   }
-  return getFirestore();
+  return initializeApp({credential:cert(parsed),projectId:expected},name);
 }
+export function adminDb(){return getFirestore(serverAdminApp());}
+export function serverAdminAuth(){return getFirebaseAdminAuth(serverAdminApp());}
 export function userRef(id){return adminDb().doc(COLLECTION+"/bhs_users/"+id);}
 export function documentRef(id){return adminDb().doc(COLLECTION+"/bhs_documents/"+id);}
 export async function findByUsername(username){
@@ -50,7 +74,10 @@ export async function findByUsername(username){
   );
 }
 function sign(payload){
-  return createHmac("sha256",process.env.BHS_SIGNING_SESSION_SECRET).update(payload).digest("base64url");
+  const secret=serverSessionSecret();
+  if(typeof secret!=="string"||secret.length<32)
+    throw new Error("Session secret not configured");
+  return createHmac("sha256",secret).update(payload).digest("base64url");
 }
 export function makeSession(userId){
   const body=Buffer.from(JSON.stringify({userId,exp:Date.now()+MAX_SESSION_MS,nonce:randomBytes(12).toString("hex")})).toString("base64url");
@@ -101,7 +128,9 @@ export function allowedToSign(user,document,driveId){
 const APP_COOKIE="bhs_app_session";
 const MAX_APP_MS=7*24*60*60*1000;
 export function appSessionReady(){
-  return Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&process.env.BHS_SIGNING_SESSION_SECRET?.length>=32);
+  if(process.env.BHS_SERVER_ISOLATED_PREVIEW==="true" &&
+     process.env.VERCEL_ENV==="production")return false;
+  return Boolean(adminAccountJson()&&serverSessionSecret()?.length>=32);
 }
 export const appSessionFingerprint = user =>
   sign("bhs-app-session-user-v1:"+String(user?.username||"")+":"+
