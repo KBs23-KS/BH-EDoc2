@@ -46,6 +46,7 @@ import {
   signInWithCustomToken,
   signInAnonymously,
   onAuthStateChanged,
+  signOut,
 } from "firebase/auth";
 import {
   getFirestore,
@@ -73,6 +74,10 @@ import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
+import {
+  secureLoginPreviewEnabled,verifySchoolSession,createSchoolSession,
+  establishPrivateSchoolIdentity
+} from "./secureSessionPreview.js";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
@@ -86,6 +91,9 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
       measurementId: "G-RQ6LXD3XGY",
     };
 
+// New school-auth path is disabled unless explicitly selected for a gated preview.
+// This branch must NOT be deployed against the real school Firebase Rules.
+const SECURE_LOGIN_PREVIEW = secureLoginPreviewEnabled();
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -430,6 +438,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Secure mode NEVER attempts an anonymous Firebase login. A trusted
+    // signed app session is exchanged for a Firebase custom token instead.
+    if (SECURE_LOGIN_PREVIEW) return;
     let unsubscribeAuth;
     const initAuth = async () => {
       try {
@@ -477,7 +488,9 @@ export default function App() {
   }, [firebaseUser]);
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    // In the secure preview only a password-free server directory is allowed.
+    // Never subscribe to the legacy users collection (which has passwords).
+    if (SECURE_LOGIN_PREVIEW || !firebaseUser) return;
     const unsub = onSnapshot(getCollectionRef(USERS_PATH), (snapshot) => {
       setDbUsers(snapshot.docs.map((d) => d.data()));
       setDbUsersReady(true);
@@ -485,9 +498,47 @@ export default function App() {
     return () => unsub();
   }, [firebaseUser]);
 
+  // When secure preview is enabled, bootstrap without anonymous Firebase or
+  // a pre-login Firestore user read. An expired cookie is a logged-out state.
+  useEffect(()=>{
+    if(!SECURE_LOGIN_PREVIEW)return;
+    let disposed=false;
+    setSystemSettings(DEFAULT_SETTINGS); // login heading only, not an auth source
+    setIsInitializing(false);
+    (async()=>{
+      try{
+        const userId=await verifySchoolSession(fetch);
+        if(disposed)return;
+        const result=await establishPrivateSchoolIdentity({
+          fetcher:fetch,
+          signIn:token=>signInWithCustomToken(auth,token),
+          userId
+        });
+        if(disposed)return;
+        setDbUsers(result.users);
+        setDbUsersReady(true);
+        setFirebaseUser(result.firebaseUser);
+        setResumedUserId(userId);
+      }catch{
+        if(!disposed){
+          await signOut(auth).catch(()=>{});
+          setActiveProfile(null);
+          setFirebaseUser(null);
+          setDbUsers([]);
+          setResumedUserId(null);
+          setDbUsersReady(true);
+        }
+      }finally{
+        if(!disposed)setSessionChecking(false);
+      }
+    })();
+    return()=>{disposed=true;};
+  },[]);
+
   // Restore only an authenticated identity from a server-verified HttpOnly session cookie.
   // The signing cookie remains separate; this identity cannot sign a PDF.
   useEffect(()=>{
+    if(SECURE_LOGIN_PREVIEW)return;
     if(!dbUsersReady)return;
     let disposed=false;
     const controller=new AbortController();
@@ -509,6 +560,51 @@ export default function App() {
 
   const handleLogin = (e) => {
     e.preventDefault();
+    if(SECURE_LOGIN_PREVIEW){
+      setLoading(true);
+      (async()=>{
+        try{
+          // Authentication is performed by server session; no password list,
+          // plaintext comparison or anonymous Firebase fallback in the browser.
+          const userId=await createSchoolSession(fetch,{username,password});
+          const result=await establishPrivateSchoolIdentity({
+            fetcher:fetch,
+            signIn:token=>signInWithCustomToken(auth,token),
+            userId
+          });
+          setDbUsers(result.users);
+          setDbUsersReady(true);
+          setFirebaseUser(result.firebaseUser);
+          setResumedUserId(null);
+          setActiveProfile(result.profile);
+          if(["director","admin"].includes(result.profile.role)){
+            // This separate short-lived PDF session is optional and cannot be
+            // replaced by the seven-day website-login cookie.
+            await fetch("/api/signing-session",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              credentials:"same-origin",body:JSON.stringify({username:username.trim(),password})
+            }).catch(()=>{});
+          }
+          try{
+            if(rememberUsername)window.localStorage.setItem(LOGIN_USERNAME_STORAGE_KEY,username.trim());
+            else window.localStorage.removeItem(LOGIN_USERNAME_STORAGE_KEY);
+          }catch{}
+          showToast("เข้าสู่ระบบสำเร็จ: "+result.profile.name,"success");
+        }catch{
+          await signOut(auth).catch(()=>{});
+          await fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"}).catch(()=>{});
+          setFirebaseUser(null);
+          setActiveProfile(null);
+          setResumedUserId(null);
+          setDbUsers([]);
+          showToast("ไม่สามารถเข้าสู่ระบบที่ปลอดภัยได้ กรุณาตรวจสอบบัญชีหรือการตั้งค่าระบบทดสอบ","error");
+        }finally{
+          setPassword("");
+          setLoading(false);
+        }
+      })();
+      return;
+    }
     setLoading(true);
     const user = findUniqueUsernameAccount(dbUsers, username);
     // Legacy login remains usable if the optional secure signing service is
@@ -560,6 +656,12 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    if(SECURE_LOGIN_PREVIEW){
+      void signOut(auth).catch(()=>{});
+      setDbUsers([]);
+      setFirebaseUser(null);
+      setSystemSettings(DEFAULT_SETTINGS);
+    }
     void Promise.allSettled([
       fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}),
       fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"})
@@ -707,14 +809,14 @@ export default function App() {
               </label>
               <button
                 type="submit"
-                disabled={loading || dbUsers.length === 0}
+                disabled={loading || (!SECURE_LOGIN_PREVIEW && dbUsers.length === 0)}
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1555A5] to-[#003879] px-4 py-3.5 text-base font-bold text-white shadow-[0_9px_22px_rgba(0,54,113,0.22)] transition-colors hover:from-[#0B448C] hover:to-[#002B5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#003879] disabled:opacity-50"
               >
                 {loading ? <Loader2 className="animate-spin" size={20} /> : <><LogOut className="rotate-180" size={19}/>เข้าสู่ระบบ</>}
               </button>
             </form>
 
-            {dbUsers.length === 0 && (
+            {!SECURE_LOGIN_PREVIEW && dbUsers.length === 0 && (
               <div className="mt-6 border-t border-[#E6EDF5] pt-5 text-center">
                 <p className="mb-2 text-xs font-semibold text-red-600">ยังไม่มีข้อมูลผู้ใช้งานในฐานข้อมูล</p>
                 <button onClick={setupInitialData} disabled={loading} className="rounded-lg bg-green-700 px-4 py-2 text-xs font-bold text-white hover:bg-green-800 disabled:opacity-50">
