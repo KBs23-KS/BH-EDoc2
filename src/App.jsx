@@ -1315,12 +1315,42 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                if(np !== cp) return showToast("รหัสผ่านไม่ตรงกัน", "error");
                if(np.length < 6) return showToast("รหัสผ่านต้องมี 6 ตัวอักษรขึ้นไป", "error");
                try {
+                 if(SECURE_LOGIN_PREVIEW){
+                   const response=await fetch("/api/secure-password",{
+                     method:"POST",credentials:"same-origin",cache:"no-store",
+                     headers:{"Content-Type":"application/json"},
+                     body:JSON.stringify({
+                       currentPassword:e.target.oldPassword?.value||"",
+                       newPassword:np
+                     })
+                   });
+                   if(!response.ok)throw new Error(
+                     response.status===401?"รหัสผ่านปัจจุบันไม่ถูกต้อง":
+                     "ไม่สามารถเปลี่ยนรหัสผ่านผ่านเซิร์ฟเวอร์ทดสอบได้"
+                   );
+                   const changed=await response.json();
+                   if(changed?.success!==true||!changed.requiresLogin)
+                     throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการเปลี่ยนรหัสผ่าน");
+                   showToast("เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบอีกครั้ง","success");
+                   await fetch("/api/app-session",{
+                     method:"DELETE",credentials:"same-origin"
+                   }).catch(()=>{});
+                   await signOut(auth).catch(()=>{});
+                   setChangePasswordModal(false);
+                   window.location.reload();
+                   return;
+                 }
                  await updateDoc(getDocumentRef(USERS_PATH, currentUser.id), { password: np });
                  writeAuditLog(currentUser, "เปลี่ยนรหัสผ่าน", "AUTH", currentUser.id, "ผู้ใช้เปลี่ยนรหัสผ่านของตนเอง");
                  showToast("เปลี่ยนรหัสผ่านสำเร็จ!", "success");
                  setChangePasswordModal(false);
                } catch(err) { showToast(err.message, "error"); }
              }} className="p-5 space-y-4">
+                {SECURE_LOGIN_PREVIEW&&<div>
+                  <label className="block text-xs font-bold mb-1">รหัสผ่านปัจจุบัน (ยืนยันตัวตน)</label>
+                  <input name="oldPassword" type="password" required autoComplete="current-password"
+                    className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>}
                 <div>
                   <label className="block text-xs font-bold mb-1">รหัสผ่านใหม่</label>
                   <input name="np" type="password" required className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500" />
