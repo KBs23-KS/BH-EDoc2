@@ -3,7 +3,10 @@ const vm=require("node:vm");
 const assert=require("node:assert/strict");
 const script=fs.readFileSync(new URL("../gas/Code.gs","file://"+__filename),"utf8");
 const folder="folder-1", good="strong-secret-longer-than-32-characters-for-test";
-const store={BHS_DRIVE_FOLDER_ID:folder,BHS_BACKUP_SECRET:good};
+const store={
+  BHS_DRIVE_FOLDER_ID:folder,BHS_BACKUP_SECRET:good,
+  BHS_UPLOAD_SECRET:"ONLY_TEST_UPLOAD_SECRET_LONGER_THAN_32_CHARACTERS"
+};
 let reads=0,uploads=0,shares=0;
 const makeResponse=text=>({setMimeType(){return this},getContent(){return text},text});
 const mocks={
@@ -24,8 +27,35 @@ assert.equal(call({action:"getFile",fileId:"inside",backupSecret:"wrong"}).succe
 assert.equal(reads,0);
 assert.equal(call({action:"getFile",fileId:"outside",backupSecret:good}).success,false);
 assert.equal(call({action:"getFile",fileId:"inside",backupSecret:good}).base64,Buffer.from("PDF").toString("base64"));
-assert.equal(call({fileName:"sample.pdf",mimeType:"application/pdf",base64:Buffer.from("hello").toString("base64")}).success,true);
+// New secureUpload only accepts server-provided upload secret and vetted
+// PDF/image signatures. A browser must never see BHS_UPLOAD_SECRET.
+const sample=Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
+const secureUpload={
+  action:"secureUpload",uploadSecret:store.BHS_UPLOAD_SECRET,
+  fileName:"sample.pdf",mimeType:"application/pdf",base64:sample.toString("base64")
+};
+assert.equal(call({fileName:"sample.pdf",mimeType:"application/pdf",base64:sample.toString("base64")}).success,false);
+assert.equal(uploads,0,"legacy anonymous upload is denied by default");
+assert.equal(call({...secureUpload,uploadSecret:"wrong"}).success,false);
+assert.equal(call({...secureUpload,uploadSecret:undefined}).success,false);
+assert.equal(call({...secureUpload,fileName:"../evil.pdf"}).success,false);
+assert.equal(call({...secureUpload,fileName:"folder\\\\evil.pdf"}).success,false);
+assert.equal(call({...secureUpload,fileName:"sample.jpg",mimeType:"image/jpeg"}).success,false);
+assert.equal(call({...secureUpload,base64:Buffer.from("NOT A PDF").toString("base64")}).success,false);
+assert.equal(uploads,0,"invalid secure uploads must be rejected before Drive write");
+assert.equal(call(secureUpload).success,true);
 assert.equal(uploads,1);
-assert.equal(shares,1);
+assert.equal(shares,0,"secure upload must not publish school PDF via link sharing");
 assert.equal(call({action:"unknown"}).success,false);
-console.log("Protected GAS getFile and legacy upload compatibility: passed");
+
+// Legacy API is available ONLY with an explicit operator setting for an
+// approved transitional migration. No automatic fallback.
+store.BHS_ALLOW_LEGACY_UPLOAD="true";
+assert.equal(call({fileName:"sample.pdf",mimeType:"application/pdf",
+  base64:sample.toString("base64")}).success,true);
+assert.equal(uploads,2);
+assert.equal(shares,1);
+store.BHS_ALLOW_LEGACY_UPLOAD="false";
+assert.equal(call({fileName:"anonymous.pdf",mimeType:"application/pdf",
+  base64:sample.toString("base64")}).success,false);
+console.log("Protected GAS backup, secret-gated private upload and explicit legacy compatibility: passed");

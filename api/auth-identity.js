@@ -9,10 +9,9 @@
  * Do not enable on the live system before moving passwords out of readable
  * documents and testing least-privilege Firestore Rules.
  */
-import {getAuth as getAdminAuth} from "firebase-admin/auth";
 import {
-  appSessionReady,appSessionFingerprint,forbidCrossSite,readAppSession,
-  userRef,setupResponse,fail
+  appSessionReady,appSessionFingerprint,forbidCrossSite,readAppSession,isolatedSchoolPreview,
+  userRef,serverAdminAuth,setupResponse,fail
 } from "./_signatureServer.js";
 import {canExchangeSchoolIdentity,schoolIdentityClaims} from "../shared/identityPolicy.js";
 
@@ -20,7 +19,7 @@ export default async function handler(req,res) {
   setupResponse(res);
   if(forbidCrossSite(req,res))return;
   if(req.method!=="GET")return fail(res,405,"ไม่รองรับวิธีเรียกนี้");
-  if(process.env.VERCEL_ENV==="production"||process.env.BHS_ENABLE_CUSTOM_AUTH_PREVIEW!=="true")
+  if(!isolatedSchoolPreview()||process.env.VERCEL_ENV==="production"||process.env.BHS_ENABLE_CUSTOM_AUTH_PREVIEW!=="true")
     return fail(res,503,"บริการยืนยันตัวตนใหม่ยังไม่เปิดใช้งาน");
   if(!appSessionReady())
     return fail(res,503,"บริการยืนยันตัวตนไม่พร้อม");
@@ -33,7 +32,7 @@ export default async function handler(req,res) {
     if(!canExchangeSchoolIdentity(session,user,appSessionFingerprint(user)))
       return fail(res,401,"บัญชีนี้ไม่มีสิทธิ์เข้าใช้งาน");
     // Existing user document IDs are stable across device and role changes.
-    const customToken=await getAdminAuth().createCustomToken(user.id,schoolIdentityClaims());
+    const customToken=await serverAdminAuth().createCustomToken(user.id,schoolIdentityClaims());
     return res.status(200).json({uid:user.id,customToken});
   }catch(err){
     // Avoid leaking service-account paths, tokens or school credentials in logs.

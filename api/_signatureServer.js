@@ -5,6 +5,7 @@
 import {createHmac,randomBytes,timingSafeEqual} from "node:crypto";
 import {getApps,initializeApp,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
+import {getAuth as getFirebaseAdminAuth} from "firebase-admin/auth";
 import {findUniqueUsernameAccount} from "../shared/username.js";
 
 const COOKIE="bhs_signing_session";
@@ -25,18 +26,58 @@ export function setupResponse(res){
 }
 export function fail(res,status,message){setupResponse(res);return res.status(status).json({success:false,error:message});}
 export const forbidCrossSite=(req,res)=>originMatches(req)?false:(fail(res,403,"คำขอไม่ได้มาจากเว็บไซต์โรงเรียน"),true);
+export function isolatedSchoolPreview(){
+  return process.env.BHS_SERVER_ISOLATED_PREVIEW==="true"&&
+    process.env.VERCEL_ENV!=="production"&&
+    process.env.FIRESTORE_EMULATOR_HOST==="127.0.0.1:8099";
+}
+const adminAccountJson=()=>isolatedSchoolPreview()?
+  process.env.BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON:
+  process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON;
+const serverSessionSecret=()=>isolatedSchoolPreview()?
+  process.env.BHS_TEST_SESSION_SECRET:
+  process.env.BHS_SIGNING_SESSION_SECRET;
+const anyIsolatedFeatureRequested=()=>process.env.VERCEL_ENV!=="production"&&
+  ["BHS_ENABLE_CUSTOM_AUTH_PREVIEW","BHS_ENABLE_SECURE_DIRECTORY_PREVIEW",
+    "BHS_ENABLE_SECURE_DATA_PREVIEW","BHS_ENABLE_SECURE_ROUTING_PREVIEW",
+    "BHS_ENABLE_SECURE_WORKFLOW_PREVIEW",
+    "BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW",
+    "BHS_ENABLE_SECURE_USERS_PREVIEW",
+    "BHS_ENABLE_SECURE_DOCUMENTS_PREVIEW",
+    "BHS_ENABLE_SECURE_AUDIT_PREVIEW",
+    "BHS_ENABLE_SECURE_REGISTER_PREVIEW",
+    "BHS_ENABLE_SECURE_PASSWORD_PREVIEW",
+    "BHS_ENABLE_SECURE_ADMIN_PREVIEW",
+    "BHS_ENABLE_SECURE_UPLOAD_PREVIEW",
+    "BHS_ENABLE_SECURE_REVISION_PREVIEW"].some(name=>process.env[name]==="true");
 export function ready(){
-  return Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&process.env.BHS_SIGNING_SESSION_SECRET?.length>=32&&process.env.BHS_BACKUP_SECRET);
+  // Never permit real school PDF signing in any isolated security rehearsal,
+  // including a partially misconfigured preview with a production admin key.
+  return process.env.BHS_SERVER_ISOLATED_PREVIEW!=="true"&&
+    !isolatedSchoolPreview()&&!anyIsolatedFeatureRequested() &&
+    Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&
+      process.env.BHS_SIGNING_SESSION_SECRET?.length>=32&&process.env.BHS_BACKUP_SECRET);
 }
-function adminDb(){
-  if(!process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON)throw new Error("Firebase Admin ยังไม่ได้ตั้งค่า");
-  if(!getApps().length){
-    const parsed=JSON.parse(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON);
-    if(parsed.project_id!=="bhs-edoc-2")throw new Error("Firebase project ไม่ตรงกับระบบ");
-    initializeApp({credential:cert(parsed)});
+function serverAdminApp(){
+  if(process.env.BHS_SERVER_ISOLATED_PREVIEW==="true"&&
+     !isolatedSchoolPreview())
+    throw new Error("ห้ามเชื่อม Backend ทดสอบนอก Firestore Emulator");
+  const raw=adminAccountJson();
+  if(!raw)throw new Error("Firebase Admin ยังไม่ได้ตั้งค่า");
+  const parsed=JSON.parse(raw);
+  const expected=isolatedSchoolPreview()?"bhs-edoc-security-test":"bhs-edoc-2";
+  if(parsed.project_id!==expected)throw new Error("Firebase project ไม่ตรงกับระบบ");
+  const name="bhs-school-admin-"+expected;
+  const existing=getApps().find(app=>app.name===name);
+  if(existing){
+    if(existing.options.projectId!==expected)throw new Error("Firebase Admin identity ไม่ตรง");
+    return existing;
   }
-  return getFirestore();
+  return initializeApp({credential:cert(parsed),projectId:expected},name);
 }
+export function adminDb(){return getFirestore(serverAdminApp());}
+export function serverAdminAuth(){return getFirebaseAdminAuth(serverAdminApp());}
+export function schoolAdminProjectId(){return serverAdminApp().options.projectId;}
 export function userRef(id){return adminDb().doc(COLLECTION+"/bhs_users/"+id);}
 export function documentRef(id){return adminDb().doc(COLLECTION+"/bhs_documents/"+id);}
 export async function findByUsername(username){
@@ -50,7 +91,10 @@ export async function findByUsername(username){
   );
 }
 function sign(payload){
-  return createHmac("sha256",process.env.BHS_SIGNING_SESSION_SECRET).update(payload).digest("base64url");
+  const secret=serverSessionSecret();
+  if(typeof secret!=="string"||secret.length<32)
+    throw new Error("Session secret not configured");
+  return createHmac("sha256",secret).update(payload).digest("base64url");
 }
 export function makeSession(userId){
   const body=Buffer.from(JSON.stringify({userId,exp:Date.now()+MAX_SESSION_MS,nonce:randomBytes(12).toString("hex")})).toString("base64url");
@@ -78,8 +122,10 @@ export function clearSessionCookie(res){
   res.setHeader("Set-Cookie",COOKIE+"=; Path=/api; HttpOnly; Secure; SameSite=Strict; Max-Age=0");
 }
 export function matchesLegacyPassword(given,user) {
-  // Temporary bridge to existing stored passwords; replace with Firebase Auth
-  // before tightening Firestore Rules and migrating passwords.
+  // A migrated account MUST NEVER fall back to "123456" or a stale
+  // plaintext password when the isolated vault flag is disabled.
+  if(user?.credentialVersion)return false;
+  // Temporary bridge for unmigrated legacy users only.
   if(typeof given!=="string"||given.length>128)return false;
   const actual=String(user.password||"123456");
   const a=createHmac("sha256","legacy-bhs-compare").update(given).digest();
@@ -101,11 +147,19 @@ export function allowedToSign(user,document,driveId){
 const APP_COOKIE="bhs_app_session";
 const MAX_APP_MS=7*24*60*60*1000;
 export function appSessionReady(){
-  return Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&process.env.BHS_SIGNING_SESSION_SECRET?.length>=32);
+  if(process.env.BHS_SERVER_ISOLATED_PREVIEW==="true" &&
+     !isolatedSchoolPreview())return false;
+  if(anyIsolatedFeatureRequested()&&!isolatedSchoolPreview())return false;
+  return Boolean(adminAccountJson()&&serverSessionSecret()?.length>=32);
 }
 export const appSessionFingerprint = user =>
   sign("bhs-app-session-user-v1:"+String(user?.username||"")+":"+
-       String(user?.password||"123456")+":"+String(user?.role||"")).slice(0,24);
+       // Once a private vault is activated, the public profile no longer
+       // contains a password. A random version revokes old sessions safely.
+       (typeof user?.credentialVersion==="string"&&user.credentialVersion.length>=24
+         ?"vault:"+user.credentialVersion
+         :String(user?.password||"123456"))+
+       ":"+String(user?.role||"")).slice(0,24);
 export function makeAppSession(userId,credentialTag){
   const body=Buffer.from(JSON.stringify({
     kind:"app",userId,credentialTag,exp:Date.now()+MAX_APP_MS,nonce:randomBytes(12).toString("hex")

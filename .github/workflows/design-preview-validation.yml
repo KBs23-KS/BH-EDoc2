@@ -1,7 +1,7 @@
 name: BHS Design Preview Validation
 on:
   pull_request:
-    branches: [main]
+    branches: [main, security/prepare-firebase-identity-20261103]
   workflow_dispatch:
 jobs:
   validate:
@@ -62,5 +62,31 @@ jobs:
         run: node tests/login-official-crest-regression-test.mjs
       - name: Original-name signed PDF and remembered username regression
         run: node tests/signed-pdf-filename-and-remember-username-test.mjs
+      - name: Secure school login integration (mock server responses only)
+        run: node tests/secure-app-login-integration-test.mjs
+      - name: Secure school document feed and atomic routing policy (offline)
+        run: node tests/secure-server-feed-policy-test.mjs
+      - name: Secure deputy/director workflow and signing safeguards (offline)
+        run: node tests/secure-approval-policy-test.mjs
+      - name: Private credential vault migration in Firestore Emulator (no real Firebase writes)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/private-credential-vault-emulator.mjs"
+      - name: School admin account CRUD and private-password reset (local Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-user-admin-emulator.mjs"
+      - name: Incoming document register and audit (local Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-incoming-documents-emulator.mjs"
+      - name: Order and outgoing register numbering / concurrency (local Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-register-emulator.mjs"
+      - name: Admin register overrides and settings permissions (local Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-admin-ops-emulator.mjs"
+      - name: Private PDF upload bridge and fake GAS with role and idempotency checks (local Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-pdf-upload-emulator.mjs"
+      - name: Secure upload route / private GAS security regression (offline)
+        run: node tests/secure-upload-bridge-static-test.mjs
+      - name: School incoming PDF form retry regression (offline)
+        run: node tests/secure-incoming-upload-client-test.mjs
+      - name: Returned PDF revision form and retry regression (offline)
+        run: node tests/secure-revision-client-test.mjs
+      - name: Returned PDF revision history, ownership and receipt trust (Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-revision-emulator.mjs"
       - name: Vite production build
         run: npm run build

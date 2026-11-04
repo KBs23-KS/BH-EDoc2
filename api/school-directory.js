@@ -8,7 +8,7 @@
  * Disabled in production and by default; no migration is performed here.
  */
 import {
-  fail,forbidCrossSite,readAppSession,appSessionReady,appSessionFingerprint,
+  fail,forbidCrossSite,readAppSession,appSessionReady,appSessionFingerprint,isolatedSchoolPreview,
   userRef,setupResponse
 } from "./_signatureServer.js";
 import {browserSchoolDirectory} from "../shared/schoolProfile.js";
@@ -18,7 +18,7 @@ export default async function handler(req,res){
   setupResponse(res);
   if(forbidCrossSite(req,res))return;
   if(req.method!=="GET")return fail(res,405,"ไม่รองรับวิธีเรียกนี้");
-  if(process.env.VERCEL_ENV==="production"||process.env.BHS_ENABLE_SECURE_DIRECTORY_PREVIEW!=="true")
+  if(!isolatedSchoolPreview()||process.env.VERCEL_ENV==="production"||process.env.BHS_ENABLE_SECURE_DIRECTORY_PREVIEW!=="true")
     return fail(res,503,"บริการบัญชีแบบใหม่ยังไม่เปิดใช้งาน");
   if(!appSessionReady())return fail(res,503,"บริการยืนยันตัวตนยังไม่พร้อม");
   try{

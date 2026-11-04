@@ -46,6 +46,7 @@ import {
   signInWithCustomToken,
   signInAnonymously,
   onAuthStateChanged,
+  signOut,
 } from "firebase/auth";
 import {
   getFirestore,
@@ -58,6 +59,9 @@ import {
   arrayUnion, runTransaction, getDocs, getDoc, getDocFromServer, getDocsFromServer, writeBatch, query, orderBy, limit, startAfter,
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
+import {uploadSecureIncomingFiles,validateSecureIncomingFiles}
+  from "./secureIncomingUpload.js";
+import {resubmitSecureRevision} from "./secureRevisionUpload.js";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
 import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
@@ -73,8 +77,17 @@ import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
+import {
+  secureLoginPreviewEnabled,verifySchoolSession,createSchoolSession,
+  establishPrivateSchoolIdentity
+} from "./secureSessionPreview.js";
+import {BHS_TEST_FIREBASE_WEB_CONFIG} from "./secureTestFirebaseConfig.js";
 
-const firebaseConfig = typeof __firebase_config !== 'undefined'
+// A requested secure rehearsal is pinned to the ISOLATED test project.
+// Even a misconfigured feature flag must never attempt live school Firebase.
+const firebaseConfig = import.meta.env?.VITE_BHS_SECURE_LOGIN_PREVIEW==="true"
+  ? BHS_TEST_FIREBASE_WEB_CONFIG
+  : typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
   : {
       apiKey: "AIzaSyDK3KOtUeQKbJAWCMWEYDfWftSHFJkejuA",
@@ -86,6 +99,10 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
       measurementId: "G-RQ6LXD3XGY",
     };
 
+// New school-auth path is disabled unless explicitly selected for a gated preview.
+// This branch must NOT be deployed against the real school Firebase Rules.
+const SECURE_LOGIN_REQUESTED=import.meta.env?.VITE_BHS_SECURE_LOGIN_PREVIEW==="true";
+const SECURE_LOGIN_PREVIEW = secureLoginPreviewEnabled(firebaseConfig);
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -103,7 +120,9 @@ const REMINDERS_PATH = 'bhs_reminders';
 const getCollectionRef = (collectionName) => collection(db, 'artifacts', appId, 'public', 'data', collectionName);
 const getDocumentRef = (collectionName, documentId) => doc(db, 'artifacts', appId, 'public', 'data', collectionName, documentId);
 
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbybUep1zqPvNXMaed11u7bibs7SaOWNsfgrpm1d3Wz8jh8eql9ljOU6MyygE2nrPmsIPg/exec";
+// Never let the isolated security rehearsal access the school's real Drive GAS.
+const GAS_WEB_APP_URL = SECURE_LOGIN_REQUESTED ? "" :
+  "https://script.google.com/macros/s/AKfycbybUep1zqPvNXMaed11u7bibs7SaOWNsfgrpm1d3Wz8jh8eql9ljOU6MyygE2nrPmsIPg/exec";
 
 const ROLES = {
   ADMIN: { id: "admin", name: "ผู้ดูแลระบบ", level: 99 },
@@ -430,6 +449,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // A request for secure mode on any non-isolated project is a hard error.
+    // NEVER fall back to the live anonymous Firestore sign-in in this case.
+    if(SECURE_LOGIN_REQUESTED&&!SECURE_LOGIN_PREVIEW){
+      setInitError("โหมดทดสอบความปลอดภัยไม่สามารถเชื่อมต่อ Firebase ระบบจริงได้");
+      setIsInitializing(false);
+      setSessionChecking(false);
+      return;
+    }
+  },[]);
+
+  useEffect(() => {
+    // Secure mode NEVER attempts an anonymous Firebase login. A trusted
+    // signed app session is exchanged for a Firebase custom token instead.
+    if (SECURE_LOGIN_REQUESTED) return;
     let unsubscribeAuth;
     const initAuth = async () => {
       try {
@@ -459,6 +492,12 @@ export default function App() {
 
   useEffect(() => {
     if (!firebaseUser) return;
+    if(SECURE_LOGIN_PREVIEW){
+      // The secure server feed returns whitelisted school settings. Do not
+      // subscribe to the legacy settings document with client Firestore.
+      setIsInitializing(false);
+      return;
+    }
 
     const unsubSettings = onSnapshot(getDocumentRef(SETTINGS_PATH, 'system'), (docSnap) => {
         if(docSnap.exists()) {
@@ -477,7 +516,9 @@ export default function App() {
   }, [firebaseUser]);
 
   useEffect(() => {
-    if (!firebaseUser) return;
+    // In the secure preview only a password-free server directory is allowed.
+    // Never subscribe to the legacy users collection (which has passwords).
+    if (SECURE_LOGIN_PREVIEW || !firebaseUser) return;
     const unsub = onSnapshot(getCollectionRef(USERS_PATH), (snapshot) => {
       setDbUsers(snapshot.docs.map((d) => d.data()));
       setDbUsersReady(true);
@@ -485,9 +526,47 @@ export default function App() {
     return () => unsub();
   }, [firebaseUser]);
 
+  // When secure preview is enabled, bootstrap without anonymous Firebase or
+  // a pre-login Firestore user read. An expired cookie is a logged-out state.
+  useEffect(()=>{
+    if(!SECURE_LOGIN_PREVIEW)return;
+    let disposed=false;
+    setSystemSettings(DEFAULT_SETTINGS); // login heading only, not an auth source
+    setIsInitializing(false);
+    (async()=>{
+      try{
+        const userId=await verifySchoolSession(fetch);
+        if(disposed)return;
+        const result=await establishPrivateSchoolIdentity({
+          fetcher:fetch,
+          signIn:token=>signInWithCustomToken(auth,token),
+          userId
+        });
+        if(disposed)return;
+        setDbUsers(result.users);
+        setDbUsersReady(true);
+        setFirebaseUser(result.firebaseUser);
+        setResumedUserId(userId);
+      }catch{
+        if(!disposed){
+          await signOut(auth).catch(()=>{});
+          setActiveProfile(null);
+          setFirebaseUser(null);
+          setDbUsers([]);
+          setResumedUserId(null);
+          setDbUsersReady(true);
+        }
+      }finally{
+        if(!disposed)setSessionChecking(false);
+      }
+    })();
+    return()=>{disposed=true;};
+  },[]);
+
   // Restore only an authenticated identity from a server-verified HttpOnly session cookie.
   // The signing cookie remains separate; this identity cannot sign a PDF.
   useEffect(()=>{
+    if(SECURE_LOGIN_PREVIEW)return;
     if(!dbUsersReady)return;
     let disposed=false;
     const controller=new AbortController();
@@ -509,6 +588,51 @@ export default function App() {
 
   const handleLogin = (e) => {
     e.preventDefault();
+    if(SECURE_LOGIN_PREVIEW){
+      setLoading(true);
+      (async()=>{
+        try{
+          // Authentication is performed by server session; no password list,
+          // plaintext comparison or anonymous Firebase fallback in the browser.
+          const userId=await createSchoolSession(fetch,{username,password});
+          const result=await establishPrivateSchoolIdentity({
+            fetcher:fetch,
+            signIn:token=>signInWithCustomToken(auth,token),
+            userId
+          });
+          setDbUsers(result.users);
+          setDbUsersReady(true);
+          setFirebaseUser(result.firebaseUser);
+          setResumedUserId(null);
+          setActiveProfile(result.profile);
+          if(["director","admin"].includes(result.profile.role)){
+            // This separate short-lived PDF session is optional and cannot be
+            // replaced by the seven-day website-login cookie.
+            await fetch("/api/signing-session",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              credentials:"same-origin",body:JSON.stringify({username:username.trim(),password})
+            }).catch(()=>{});
+          }
+          try{
+            if(rememberUsername)window.localStorage.setItem(LOGIN_USERNAME_STORAGE_KEY,username.trim());
+            else window.localStorage.removeItem(LOGIN_USERNAME_STORAGE_KEY);
+          }catch{}
+          showToast("เข้าสู่ระบบสำเร็จ: "+result.profile.name,"success");
+        }catch{
+          await signOut(auth).catch(()=>{});
+          await fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"}).catch(()=>{});
+          setFirebaseUser(null);
+          setActiveProfile(null);
+          setResumedUserId(null);
+          setDbUsers([]);
+          showToast("ไม่สามารถเข้าสู่ระบบที่ปลอดภัยได้ กรุณาตรวจสอบบัญชีหรือการตั้งค่าระบบทดสอบ","error");
+        }finally{
+          setPassword("");
+          setLoading(false);
+        }
+      })();
+      return;
+    }
     setLoading(true);
     const user = findUniqueUsernameAccount(dbUsers, username);
     // Legacy login remains usable if the optional secure signing service is
@@ -560,6 +684,12 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    if(SECURE_LOGIN_PREVIEW){
+      void signOut(auth).catch(()=>{});
+      setDbUsers([]);
+      setFirebaseUser(null);
+      setSystemSettings(DEFAULT_SETTINGS);
+    }
     void Promise.allSettled([
       fetch("/api/signing-session",{method:"DELETE",credentials:"same-origin"}),
       fetch("/api/app-session",{method:"DELETE",credentials:"same-origin"})
@@ -707,14 +837,14 @@ export default function App() {
               </label>
               <button
                 type="submit"
-                disabled={loading || dbUsers.length === 0}
+                disabled={loading || (!SECURE_LOGIN_PREVIEW && dbUsers.length === 0)}
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#1555A5] to-[#003879] px-4 py-3.5 text-base font-bold text-white shadow-[0_9px_22px_rgba(0,54,113,0.22)] transition-colors hover:from-[#0B448C] hover:to-[#002B5C] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#003879] disabled:opacity-50"
               >
                 {loading ? <Loader2 className="animate-spin" size={20} /> : <><LogOut className="rotate-180" size={19}/>เข้าสู่ระบบ</>}
               </button>
             </form>
 
-            {dbUsers.length === 0 && (
+            {!SECURE_LOGIN_PREVIEW && dbUsers.length === 0 && (
               <div className="mt-6 border-t border-[#E6EDF5] pt-5 text-center">
                 <p className="mb-2 text-xs font-semibold text-red-600">ยังไม่มีข้อมูลผู้ใช้งานในฐานข้อมูล</p>
                 <button onClick={setupInitialData} disabled={loading} className="rounded-lg bg-green-700 px-4 py-2 text-xs font-bold text-white hover:bg-green-800 disabled:opacity-50">
@@ -738,12 +868,13 @@ export default function App() {
         systemSettings={systemSettings}
         onLogout={handleLogout}
         showToast={showToast}
+        onSecureSettings={setSystemSettings}
       />
     </>
   );
 }
 
-function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast }) {
+function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast, onSecureSettings }) {
   const [documents, setDocuments] = useState([]);
   const [orderReservations, setOrderReservations] = useState([]);
   const [outgoingReservations, setOutgoingReservations] = useState([]);
@@ -770,6 +901,43 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
 
   useEffect(() => {
     if (!firebaseUser) return;
+    if(SECURE_LOGIN_PREVIEW){
+      // Read ONLY the documents authorized by the current server-verified
+      // school session. Never subscribe to whole Firestore collections here.
+      let stopped=false,busy=false;
+      const refresh=async()=>{
+        if(stopped||busy)return;
+        busy=true;
+        try{
+          const response=await fetch("/api/secure-data",{
+            method:"GET",credentials:"same-origin",cache:"no-store",
+            headers:{"Accept":"application/json"}
+          });
+          if(!response.ok)throw new Error("secure_feed_unavailable");
+          const data=await response.json();
+          if(data?.success!==true||data.userId!==currentUser.id||
+            !Array.isArray(data.documents)||!Array.isArray(data.orderReservations)||
+            !Array.isArray(data.outgoingReservations)||!Array.isArray(data.reminders))
+            throw new Error("secure_feed_identity_mismatch");
+          if(stopped)return;
+          setDocuments([...data.documents].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
+          setOrderReservations(data.orderReservations);
+          setOutgoingReservations(data.outgoingReservations);
+          setReminders(data.reminders);
+          if(data.settings&&typeof data.settings==="object")
+            onSecureSettings(previous=>({...previous,...data.settings}));
+        }catch(error){
+          if(!stopped)showToast("ไม่สามารถโหลดเอกสารตามสิทธิ์จากเซิร์ฟเวอร์ทดสอบได้","error");
+        }finally{busy=false;}
+      };
+      void refresh();
+      const timer=setInterval(refresh,30000);
+      window.addEventListener("bhs-secure-data-refresh",refresh);
+      return()=>{
+        stopped=true;clearInterval(timer);
+        window.removeEventListener("bhs-secure-data-refresh",refresh);
+      };
+    }
     const unsub = onSnapshot(getCollectionRef(DOCS_PATH), (snapshot) => {
       const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       docs.sort((a, b) => b.createdAt - a.createdAt);
@@ -797,13 +965,29 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
       unsubOutRes();
       unsubReminder();
     };
-  }, [firebaseUser]);
+  }, [firebaseUser,currentUser?.id]);
 
   const activeDocs = documents.filter(d => !d.isDeleted);
   const managedGroups=headGroups(currentUser,systemSettings);
+  const secureCall=SECURE_LOGIN_PREVIEW?async(action,docId,options={})=>{
+    const res=await fetch("/api/secure-routing",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action,docId,options})
+    });
+    if(!res.ok)throw new Error(
+      res.status===403?"ไม่มีสิทธิ์ดำเนินการ หรือรายการนี้ดำเนินการแล้ว":
+        "ไม่สามารถบันทึกผ่านระบบความปลอดภัยได้"
+    );
+    const result=await res.json();
+    if(result?.success!==true||result.docId!==docId)
+      throw new Error("ผลลัพธ์จากเซิร์ฟเวอร์ไม่ตรงกับเอกสาร");
+    window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+    return result;
+  }:null;
   const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
     db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
-    user:currentUser,users:dbUsers,settings:systemSettings,showToast
+    user:currentUser,users:dbUsers,settings:systemSettings,showToast,secureCall
   });
   const openDocument=id=>{
     const d=activeDocs.find(x=>x.id===id);
@@ -1134,12 +1318,42 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                if(np !== cp) return showToast("รหัสผ่านไม่ตรงกัน", "error");
                if(np.length < 6) return showToast("รหัสผ่านต้องมี 6 ตัวอักษรขึ้นไป", "error");
                try {
+                 if(SECURE_LOGIN_PREVIEW){
+                   const response=await fetch("/api/secure-password",{
+                     method:"POST",credentials:"same-origin",cache:"no-store",
+                     headers:{"Content-Type":"application/json"},
+                     body:JSON.stringify({
+                       currentPassword:e.target.oldPassword?.value||"",
+                       newPassword:np
+                     })
+                   });
+                   if(!response.ok)throw new Error(
+                     response.status===401?"รหัสผ่านปัจจุบันไม่ถูกต้อง":
+                     "ไม่สามารถเปลี่ยนรหัสผ่านผ่านเซิร์ฟเวอร์ทดสอบได้"
+                   );
+                   const changed=await response.json();
+                   if(changed?.success!==true||!changed.requiresLogin)
+                     throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการเปลี่ยนรหัสผ่าน");
+                   showToast("เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบอีกครั้ง","success");
+                   await fetch("/api/app-session",{
+                     method:"DELETE",credentials:"same-origin"
+                   }).catch(()=>{});
+                   await signOut(auth).catch(()=>{});
+                   setChangePasswordModal(false);
+                   window.location.reload();
+                   return;
+                 }
                  await updateDoc(getDocumentRef(USERS_PATH, currentUser.id), { password: np });
                  writeAuditLog(currentUser, "เปลี่ยนรหัสผ่าน", "AUTH", currentUser.id, "ผู้ใช้เปลี่ยนรหัสผ่านของตนเอง");
                  showToast("เปลี่ยนรหัสผ่านสำเร็จ!", "success");
                  setChangePasswordModal(false);
                } catch(err) { showToast(err.message, "error"); }
              }} className="p-5 space-y-4">
+                {SECURE_LOGIN_PREVIEW&&<div>
+                  <label className="block text-xs font-bold mb-1">รหัสผ่านปัจจุบัน (ยืนยันตัวตน)</label>
+                  <input name="oldPassword" type="password" required autoComplete="current-password"
+                    className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>}
                 <div>
                   <label className="block text-xs font-bold mb-1">รหัสผ่านใหม่</label>
                   <input name="np" type="password" required className="w-full border p-2 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500" />
@@ -1155,6 +1369,26 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
       )}
     </div>
   );
+}
+
+// The isolated register API never accepts a client-assigned number or PDF.
+async function secureSchoolRegister({kind,action,reservationId,form={}}){
+  if(!SECURE_LOGIN_PREVIEW)throw new Error("บริการนี้ใช้ในโหมดความปลอดภัยทดสอบเท่านั้น");
+  const response=await fetch("/api/secure-register",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({kind,action,reservationId,form})
+  });
+  if(!response.ok)throw new Error(
+    response.status===403?"ไม่มีสิทธิ์ หรือเลขทะเบียนนี้ถูกใช้แล้ว":
+    response.status===400?"ข้อมูลทะเบียนไม่ถูกต้อง หรือปีเปลี่ยนไป":
+    "ไม่สามารถติดต่อเซิร์ฟเวอร์ทะเบียนทดสอบ"
+  );
+  const result=await response.json();
+  if(result?.success!==true||result.kind!==kind||
+    result.action!==action)throw new Error("เซิร์ฟเวอร์ไม่ยืนยันผลทะเบียน");
+  window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+  return result;
 }
 
 function OutgoingReservationsView({ reservations, currentUser, systemSettings, showToast }) {
@@ -1237,6 +1471,19 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
         responsibleDept: form.responsibleDept,
         remark: form.remark
       };
+      if(SECURE_LOGIN_PREVIEW){
+        const old=reservations.find(x=>x.id===form.id);
+        if(old&&(old.docNumber!==form.docNumber||old.docDate!==form.docDate))
+          throw new Error("เปลี่ยนเลขหรือวันที่ทะเบียนเดิมไม่ได้จากเมนูแก้ข้อมูล");
+        const result=await secureSchoolRegister({
+          kind:"OUT",action:form.id?"edit":"create",
+          reservationId:form.id||undefined,
+          form:{subject:form.subject,date:form.docDate,
+            responsibleDept:form.responsibleDept,remark:form.remark}
+        });
+        if(!form.id)setSavedNumber(result.number);
+        setShowModal(false);setIsSubmitting(false);return;
+      }
 
       if (form.id) {
         const original = reservations.find(r => r.id === form.id);
@@ -1265,6 +1512,12 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
   const handleDelete = async () => {
     if (!docToDelete) return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureSchoolRegister({kind:"OUT",action:"cancel",reservationId:docToDelete});
+        setDocToDelete(null);
+        showToast("ยกเลิกเลขหนังสือออกผ่านเซิร์ฟเวอร์แล้ว","success");
+        return;
+      }
       const ref = getDocumentRef(OUTGOING_RESERVE_PATH, docToDelete);
       await runTransaction(db, async tx => {
         const snap = await tx.get(ref);
@@ -1280,6 +1533,8 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
   };
 
   const handleUploadFile = async (resId, e) => {
+    if(SECURE_LOGIN_PREVIEW)return showToast(
+      "ต้องผ่านระบบตรวจสอบไฟล์ก่อนแนบหนังสือออกในโหมดปลอดภัย","error");
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
@@ -1629,6 +1884,20 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
         responsibleDept: form.responsibleDept,
         remark: form.remark
       };
+      if(SECURE_LOGIN_PREVIEW){
+        const original=reservations.find(x=>x.id===form.id);
+        if(original&&(original.orderNumber!==form.orderNumber||
+          original.orderDate!==form.orderDate))
+          throw new Error("การเปลี่ยนเลขคำสั่งหรือปีต้องใช้ Backend ตรวจเอกสารคู่ก่อน");
+        const result=await secureSchoolRegister({
+          kind:"ORDER",action:form.id?"edit":"create",
+          reservationId:form.id||undefined,
+          form:{subject:form.subject,date:form.orderDate,
+            responsibleDept:form.responsibleDept,remark:form.remark}
+        });
+        if(!form.id)setSavedNumber(result.number);
+        setShowModal(false);setIsSubmitting(false);return;
+      }
 
       if (form.id) {
         const original=reservations.find(r=>r.id===form.id);
@@ -1726,6 +1995,11 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
   const handleDelete = async () => {
     if (!docToDelete) return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureSchoolRegister({kind:"ORDER",action:"cancel",reservationId:docToDelete});
+        showToast("ยกเลิกเลขจองคำสั่งผ่านเซิร์ฟเวอร์แล้ว","success");
+        setDocToDelete(null);return;
+      }
       const ref = getDocumentRef(ORDER_RESERVE_PATH, docToDelete);
       await runTransaction(db, async tx => {
         const snap = await tx.get(ref);
@@ -1743,6 +2017,8 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
   // Admin-only hard removal of a reservation plus the linked record (any status).
   // Audit metadata remains for traceability; Drive uploads are external and are not deleted.
   const deleteOrderPermanently=async id=>{
+    if(SECURE_LOGIN_PREVIEW)throw new Error(
+      "การลบถาวรต้องผ่าน Backend ที่ตรวจเลขและเอกสารเชื่อมโยงก่อน");
     if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้น");
     const resRef=getDocumentRef(ORDER_RESERVE_PATH,id);
     const before=await getDocFromServer(resRef);
@@ -2430,6 +2706,23 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   const handleRestore = async (docId) => {
     try {
       if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้นที่กู้คืนจากถังขยะได้");
+      if(SECURE_LOGIN_PREVIEW){
+        const item=documents.find(d=>d.id===docId);
+        if(item?.type!=="หนังสือเข้า")
+          throw new Error("โหมดทดสอบกู้คืนได้เฉพาะหนังสือเข้า โดยไม่แก้ PDF คำสั่ง");
+        const response=await fetch("/api/secure-documents",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"restore",docId})
+        });
+        if(!response.ok)throw new Error("กู้คืนไม่สำเร็จ หรือเลขรับหนังสือซ้ำกับรายการที่ใช้งาน");
+        const result=await response.json();
+        if(result?.success!==true||result.docId!==docId)
+          throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการกู้คืน");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("กู้คืนหนังสือเข้าผ่านเซิร์ฟเวอร์สำเร็จ","success");
+        return;
+      }
       const item=documents.find(d=>d.id===docId);
       if(item?.trialArchived)
         throw new Error("รายการทดลองต้องกู้คืนที่เมนูเลขคำสั่งโรงเรียน เพื่อให้เลขและคำสั่งตรงกัน");
@@ -2455,6 +2748,10 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   };
 
   const handlePermanentDelete = async (docId) => {
+    if(SECURE_LOGIN_PREVIEW){
+      showToast("การลบเอกสารถาวรต้องตรวจไฟล์ Drive และทะเบียนที่เชื่อมโยงบนเซิร์ฟเวอร์ก่อน","error");
+      return;
+    }
     if(documents.find(d=>d.id===docId)?.reservationId){
       showToast("ลบคำสั่งที่เชื่อมทะเบียนจากเมนูเลขคำสั่งโรงเรียน เพื่อให้ลบทั้งสองจุด","error");return;
     }
@@ -2524,6 +2821,54 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
   const handleInput = (id, key, value) => setInputs((prev) => ({ ...prev, [id]: { ...prev[id], [key]: value } }));
 
   const submitAction = async (docObj, actionType, signedPdf = null) => {
+    if(SECURE_LOGIN_PREVIEW){
+      // Secure review MUST be authorized against the latest server document.
+      // Never treat a browser-uploaded file as a valid signed PDF.
+      if(actionType==="APPROVE"&&isSinglePdfDocument(docObj.type)){
+        showToast("การอนุมัติคำสั่ง/หนังสือเวียนต้องลงนาม PDF ที่ตรวจสอบฝั่งเซิร์ฟเวอร์ก่อน","error");
+        return;
+      }
+      const input=inputs[docObj.id]||{};
+      const isDirector=docObj.status===DOC_STATUS.WAITING_DIRECTOR;
+      const reason=isDirector?input.command:input.comment;
+      if(actionType==="RETURN"&&!String(reason||"").trim()){
+        showToast("กรุณาระบุเหตุผลส่งกลับแก้ไข","error");return;
+      }
+      if(actionType==="APPROVE"&&isDirector&&docObj.type==="หนังสือเข้า"){
+        if(!input.routeAll&&!(input.routeGroups||[]).length&&
+           !(input.routeUserIds||[]).length){
+          showToast("กรุณาระบุผู้รับหรือกลุ่มก่อนอนุมัติ","error");return;
+        }
+        if(!window.confirm("ยืนยันอนุมัติหนังสือเข้าและส่งถึงผู้รับที่เลือก?"))return;
+      }
+      setProcessingId(docObj.id);
+      try{
+        const response=await fetch("/api/secure-workflow",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            action:actionType,docId:docObj.id,
+            comment:actionType==="RETURN"?String(reason||""):String(input.comment||""),
+            command:String(input.command||""),
+            routeGroups:input.routeGroups||[],
+            routeUserIds:input.routeUserIds||[],
+            routeAll:input.routeAll===true
+          })
+        });
+        if(!response.ok)throw new Error(
+          response.status===403?"ไม่มีสิทธิ์ หรือสถานะหนังสือเปลี่ยนไป":
+            "ไม่สามารถบันทึกผลการพิจารณาผ่านเซิร์ฟเวอร์ได้"
+        );
+        const result=await response.json();
+        if(result?.success!==true||result.docId!==docObj.id)
+          throw new Error("ผลการบันทึกไม่ถูกต้อง");
+        setInputs(prev=>{const n={...prev};delete n[docObj.id];return n;});
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("บันทึกผลการพิจารณาสำเร็จ","success");
+      }catch(e){showToast(e.message,"error")}
+      finally{setProcessingId(null);setUploadStatus("")}
+      return;
+    }
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
       return showToast("กรุณาตั้งค่า GAS_WEB_APP_URL ให้ถูกต้องก่อนใช้งาน", "error");
     }
@@ -2773,6 +3118,8 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   const [extraReason,setExtraReason]=useState("");
   const [extraBusy,setExtraBusy]=useState(false);
   const saveExtra=async()=>{
+    if(SECURE_LOGIN_PREVIEW)return showToast(
+      "แนบไฟล์หลังอนุมัติต้องตรวจสอบไฟล์จากเซิร์ฟเวอร์ก่อน โหมดทดลองยังไม่เปิด","error");
     if(!extraDoc||!extraFiles.length||!extraReason.trim())return showToast("เลือกไฟล์และระบุเหตุผลก่อน","error");
     setExtraBusy(true);
     try{
@@ -2825,6 +3172,19 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
 
   const handleAcknowledge = async (docId) => {
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-routing",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"acknowledge",docId,options:{}})
+        });
+        if(!response.ok)throw new Error("ไม่มีสิทธิ์รับทราบหรือเคยรับทราบแล้ว");
+        const result=await response.json();
+        if(result?.success!==true)throw new Error("ยืนยันผลการรับทราบไม่ได้");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("รับทราบหนังสือผ่านเซิร์ฟเวอร์แล้ว","success");
+        return;
+      }
       const latest=await getDoc(getDocumentRef(DOCS_PATH,docId));
       if(!latest.exists()||!isRecipient(latest.data(),currentUser,dbUsers))throw new Error("คุณไม่ได้อยู่ในรายชื่อผู้รับเอกสารนี้");
       await commitDocumentWithAudit(currentUser, docId, { acknowledgedBy: arrayUnion(currentUser.id),[`acknowledgedAt.${currentUser.id}`]:Date.now() }, "รับทราบเอกสาร", "ผู้ใช้กดรับทราบเอกสาร");
@@ -2837,6 +3197,20 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   const executeDeleteDoc = async () => {
     if(!docToDelete)return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-documents",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"soft-delete",docId:docToDelete})
+        });
+        if(!response.ok)throw new Error("ไม่สามารถย้ายหนังสือลงถังขยะได้");
+        const result=await response.json();
+        if(result?.success!==true)throw new Error("การดำเนินการไม่สำเร็จ");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("ย้ายหนังสือจำลองลงถังขยะแล้ว","success");
+        setDocToDelete(null);
+        return;
+      }
       await runTransaction(db,async tx=>{
         const ref=getDocumentRef(DOCS_PATH,docToDelete),snapshot=await tx.get(ref);
         if(!snapshot.exists())throw new Error("ไม่พบเอกสาร");
@@ -2889,6 +3263,24 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
         from:editForm.from.trim(),
         type:editForm.type
       };
+      if(SECURE_LOGIN_PREVIEW){
+        if(docToEdit.type!=="หนังสือเข้า"||editForm.type!=="หนังสือเข้า")
+          throw new Error("โหมดทดสอบยังอนุญาตแก้ไขเฉพาะหนังสือเข้า");
+        const response=await fetch("/api/secure-documents",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"edit",docId:docToEdit.id,form:{
+            subject:changes.subject,docNumber:changes.docNumber,
+            date:changes.date,urgency:changes.urgency,from:changes.from
+          }})
+        });
+        if(!response.ok)throw new Error("แก้ไขไม่สำเร็จ หรือเลขรับหนังสือซ้ำ");
+        const result=await response.json();
+        if(result?.success!==true)throw new Error("บันทึกข้อมูลไม่ถูกต้อง");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("แก้ไขหนังสือเข้าผ่านเซิร์ฟเวอร์แล้ว","success");
+        setDocToEdit(null);setIsSavingEdit(false);return;
+      }
       if(editForm.type==="หนังสือเข้า"){
         await withIncomingNumberLock({
           number:changes.docNumber,date:changes.date,exceptId:docToEdit.id,
@@ -2931,6 +3323,27 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleResubmit = async () => {
+    if(SECURE_LOGIN_PREVIEW){
+      setIsResubmitting(true);
+      try{
+        const result=await resubmitSecureRevision({
+          docId:docToResubmit?.id,
+          subject:resubmitForm.subject,
+          files:resubmitNewFiles,
+          isSinglePdf:isSinglePdfDocument(docToResubmit?.type),
+          storage:sessionStorage,fetcher:fetch,
+          encode:fileToBase64,idFactory:()=>crypto.randomUUID(),
+          onProgress:setResubmitStatus
+        });
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("ส่งฉบับแก้ไขที่ "+result.activeFileVersion+
+          " เข้าพิจารณารองผู้อำนวยการแล้ว","success");
+        setDocToResubmit(null);
+        setResubmitNewFiles([]);
+      }catch(e){showToast("ส่งฉบับแก้ไขไม่สำเร็จ: "+e.message,"error")}
+      finally{setIsResubmitting(false);setResubmitStatus("")}
+      return;
+    }
     if (!resubmitForm.subject.trim()) return showToast("กรุณาระบุชื่อเรื่อง", "error");
     if (!resubmitNewFiles.length) return showToast("กรุณาอัปโหลดไฟล์ฉบับแก้ไขใหม่ก่อนส่งเรื่อง", "error");
     if (isSinglePdfDocument(docToResubmit.type) && (resubmitNewFiles.length !== 1 || !isPdfUpload(resubmitNewFiles[0])))
@@ -3389,6 +3802,13 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
   useEffect(()=>{try{localStorage.setItem(draftKey,JSON.stringify(form))}catch{}},[draftKey,form]);
   
   const [rawFiles, setRawFiles] = useState([]);
+  const securePendingKey=draftKey+"-secure-upload";
+  const [securePendingDocId,setSecurePendingDocId]=useState(()=>{
+    try{
+      const id=sessionStorage.getItem(securePendingKey)||"";
+      return /^TEST_DOC_[A-F0-9]{24}$/.test(id)?id:"";
+    }catch{return "";}
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const [selectedReservation, setSelectedReservation] = useState("");
@@ -3401,6 +3821,57 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting)return;
+    if(SECURE_LOGIN_PREVIEW){
+      if(docType!=="หนังสือเข้า")return showToast(
+        "การสร้างคำสั่ง/เวียนต้องมี PDF ที่ตรวจสอบฝั่งเซิร์ฟเวอร์ก่อน","error");
+      try{validateSecureIncomingFiles(rawFiles);}
+      catch(e){showToast(e.message,"error");return;}
+      setIsSubmitting(true);
+      try{
+        let docId=securePendingDocId;
+        if(!docId){
+          setUploadStatus("กำลังลงทะเบียนหนังสือเข้าจำลอง...");
+          const response=await fetch("/api/secure-documents",{
+            method:"POST",credentials:"same-origin",cache:"no-store",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({action:"create",form:{
+              subject:form.subject,docNumber:form.docNumber,date:form.date,
+              urgency:form.urgency,from:form.from
+            }})
+          });
+          if(!response.ok)throw new Error(
+            "ไม่สามารถลงทะเบียนได้ อาจมีเลขรับซ้ำหรือไม่มีสิทธิ์"
+          );
+          const result=await response.json();
+          if(result?.success!==true||!/^TEST_DOC_[A-F0-9]{24}$/.test(result.docId||""))
+            throw new Error("เซิร์ฟเวอร์ไม่ยืนยันทะเบียนหนังสือเข้า");
+          docId=result.docId;
+          // If the subsequent PDF upload fails, keep the document ID so a
+          // retry never registers a second incoming number.
+          sessionStorage.setItem(securePendingKey,docId);
+          setSecurePendingDocId(docId);
+        }
+        await uploadSecureIncomingFiles({
+          docId,files:rawFiles,storage:sessionStorage,
+          fetcher:fetch,encode:fileToBase64,
+          idFactory:()=>crypto.randomUUID(),onProgress:setUploadStatus
+        });
+        try{
+          localStorage.removeItem(draftKey);
+          sessionStorage.removeItem(securePendingKey);
+        }catch{}
+        setSecurePendingDocId("");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("ลงทะเบียนและแนบ PDF ผ่านเซิร์ฟเวอร์ทดสอบสำเร็จ","success");
+        changeMenu(backMenu);
+      }catch(e){
+        showToast("การดำเนินการยังไม่ครบ: "+e.message,"error");
+      }finally{
+        setIsSubmitting(false);
+        setUploadStatus("");
+      }
+      return;
+    }
     if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
     if (docType==="หนังสือเข้า"&&!["admin","clerk"].includes(currentUser.role))
@@ -3495,6 +3966,11 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
 
   return (
     <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden w-full">
+      {SECURE_LOGIN_PREVIEW&&securePendingDocId&&
+        <div className="m-4 p-3 border border-amber-300 rounded-lg bg-amber-50 text-amber-900 text-sm">
+          ทะเบียนหนังสือเข้าจำลองถูกบันทึกแล้ว กรุณาแนบ PDF ชุดเดิมแล้วกดบันทึกอีกครั้ง
+          ระบบจะใช้รายการเดิม ไม่สร้างเลขรับซ้ำ ({securePendingDocId})
+        </div>}
       {createdSummary && <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center p-4">
         <div className="bg-white max-w-md w-full rounded-xl p-6 space-y-3 text-center">
           <CheckCircle className="mx-auto text-green-600" size={40}/>
@@ -3639,10 +4115,33 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
     return highest;
   };
 
+  const fetchSecureRegisterState=async()=>{
+    const response=await fetch(
+      "/api/secure-admin?kind="+encodeURIComponent(registerKind)+
+      "&year="+encodeURIComponent(registerYear),
+      {method:"GET",credentials:"same-origin",cache:"no-store",
+        headers:{"Accept":"application/json"}}
+    );
+    if(!response.ok)throw new Error("อ่านเลขทะเบียนผ่านเซิร์ฟเวอร์ไม่ได้");
+    const data=await response.json();
+    if(data?.success!==true||data.kind!==registerKind||
+       data.year!==selectedYear||!Array.isArray(data.history))
+      throw new Error("ข้อมูลทะเบียนไม่ตรงกับที่เลือก");
+    return data;
+  };
+  const applySecureRegisterState=data=>{
+    setCounterInfo(data.counter);
+    setHighestInDatabase(data.highest);
+    setHistoryRows(data.history);
+  };
   const readRegisterState = async () => {
     if (!isAdmin || !yearIsValid) return;
     setLoadingInfo(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        applySecureRegisterState(await fetchSecureRegisterState());
+        return;
+      }
       const [counterSnap, reservationSnap, docsSnap, logsSnap] = await Promise.all([
         getDocFromServer(getDocumentRef(COUNTERS_PATH, counterId)),
         getDocsFromServer(getCollectionRef(sourceCollection)),
@@ -3667,6 +4166,14 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
     if (!isAdmin || !yearIsValid) return;
     let cancelled = false;
     setLoadingInfo(true);
+    if(SECURE_LOGIN_PREVIEW){
+      void fetchSecureRegisterState().then(data=>{
+        if(!cancelled)applySecureRegisterState(data);
+      }).catch(error=>{
+        if(!cancelled)showToast(error.message,"error");
+      }).finally(()=>{if(!cancelled)setLoadingInfo(false);});
+      return()=>{cancelled=true;};
+    }
     Promise.all([
       getDocFromServer(getDocumentRef(COUNTERS_PATH, counterId)),
       getDocsFromServer(getCollectionRef(sourceCollection)),
@@ -3706,6 +4213,24 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
 
     setSavingNumber(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-admin",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"set-next",kind:registerKind,
+            year:selectedYear,nextNumber:next})
+        });
+        if(!response.ok)throw new Error("ตั้งเลขผ่านเซิร์ฟเวอร์ไม่สำเร็จ");
+        const data=await response.json();
+        if(data?.success!==true||data.kind!==registerKind||
+           data.year!==selectedYear)throw new Error("เซิร์ฟเวอร์ไม่ยืนยันเลขทะเบียน");
+        setCounterInfo(data.counter);
+        setHighestInDatabase(data.highest);
+        setNextNumberText("");
+        showToast("กำหนดเลขถัดไปแล้ว เลขที่จะออกจริง "+data.effectiveNext,"success");
+        await readRegisterState();
+        return;
+      }
       const counterRef = getDocumentRef(COUNTERS_PATH, counterId);
       // อ่านทะเบียนล่าสุด ก่อนทำธุรกรรม และอ่าน counter ซ้ำภายในธุรกรรม
       // การจองเลขปกติก็เขียน counter เดียวกัน จึงป้องกันการเขียนทับการจองพร้อมกันได้
@@ -3824,6 +4349,25 @@ function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers })
     if (!form.schoolName || !form.schoolLogoText) return showToast("กรุณาระบุชื่อโรงเรียนและอักษรย่อ", "error");
     setIsSaving(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-admin",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"save-settings",settings:{
+            schoolName:form.schoolName,schoolLogoText:form.schoolLogoText,
+            academicYear:form.academicYear,fiscalYear:form.fiscalYear,
+            adminDepts:form.adminDepts,subjectAreas:form.subjectAreas,
+            adminHeads:form.adminHeads,subjectHeads:form.subjectHeads
+          }})
+        });
+        if(!response.ok)throw new Error("ไม่มีสิทธิ์หรือข้อมูลการตั้งค่าไม่ถูกต้อง");
+        const data=await response.json();
+        if(data?.success!==true)throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการตั้งค่า");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("บันทึกการตั้งค่าผ่านเซิร์ฟเวอร์แล้ว","success");
+        setIsSaving(false);
+        return;
+      }
       await setDoc(getDocumentRef(SETTINGS_PATH, 'system'), form);
       writeAuditLog(currentUser, "แก้ไขการตั้งค่าระบบ", "SYSTEM", "settings", "อัปเดตข้อมูลโรงเรียน/กลุ่มงาน");
       showToast("บันทึกการตั้งค่าระบบเรียบร้อยแล้ว", "success");
@@ -3912,6 +4456,23 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [modalMode, setModalMode] = useState(null); 
   const [isSaving, setIsSaving] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
+  // No direct account write is permitted in the secure rehearsal. The
+  // verified server API performs every change and rotates private credentials.
+  const secureUsersRequest=async(action,targetId,form={})=>{
+    const response=await fetch("/api/secure-users",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action,targetId,form})
+    });
+    if(!response.ok)throw new Error(
+      response.status===403?"คุณไม่มีสิทธิ์ดำเนินการนี้":
+      response.status===400?"ข้อมูลไม่ถูกต้องหรือชื่อผู้ใช้ซ้ำ":
+      "บริการจัดการบัญชีอย่างปลอดภัยยังไม่พร้อม"
+    );
+    const result=await response.json();
+    if(result?.success!==true)throw new Error("ไม่สามารถยืนยันผลการแก้บัญชี");
+    return result;
+  };
   const [formData, setFormData] = useState({ id: "", name: "", username: "", password: "", role: "teacher", adminDept: systemSettings.adminDepts[0] || "", subjectArea: systemSettings.subjectAreas[0] || "", status: "active" });
 
   const [backupBusy, setBackupBusy] = useState(false);
@@ -3928,6 +4489,8 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [restorePreview,setRestorePreview]=useState(null);
   const [preBackupReady,setPreBackupReady]=useState(false);
   const handleBackup = async () => {
+    if(SECURE_LOGIN_PREVIEW)return showToast(
+      "ระบบสำรองข้อมูลต้องทดสอบผ่านเซิร์ฟเวอร์แยกก่อนใช้งานในโหมดความปลอดภัย","error");
     if(!backupSecret.trim())return showToast("กรุณาระบุรหัสสำรองข้อมูล Google Drive ที่ตั้งไว้ใน Apps Script ก่อน","error");
     setBackupReport(null);
     setBackupBusy(true);
@@ -3965,11 +4528,13 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
     showToast("ลบรหัสสำรองข้อมูลที่จำไว้ในเบราว์เซอร์นี้แล้ว","success");
   };
   const handleInspect=async()=>{
+    if(SECURE_LOGIN_PREVIEW)return showToast("ไม่อนุญาตให้กู้คืนข้อมูลจากเบราว์เซอร์ในโหมดทดสอบ","error");
     if(!restoreFile)return;
     setBackupBusy(true);try{setRestorePreview(await inspectFullBackup({zipFile:restoreFile,getCollectionRef,onStatus:setBackupStatus}));}
     catch(e){showToast(e.message,"error");setRestorePreview(null)}finally{setBackupBusy(false);setBackupStatus("")}
   };
   const handleRestore = async () => {
+    if(SECURE_LOGIN_PREVIEW)return showToast("ต้องยืนยันการกู้คืนกับเซิร์ฟเวอร์ก่อน","error");
     if(!restoreFile||!restorePreview||restoreConfirm!=="RESTORE")return showToast("ต้องตรวจสอบ Backup และพิมพ์ RESTORE ก่อน","error");
     if(restoreMode==="replace"&&!preBackupReady)return showToast("ต้องดาวน์โหลดสำเนาข้อมูลปัจจุบันและยืนยันก่อน","error");
     setBackupBusy(true);
@@ -3988,13 +4553,21 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   };
 
   const openEditModal = (user) => {
-    setFormData({ ...user, password: user.password || "" });
+    // Existing password/hash is never sent to this screen in secure mode.
+    // Empty means KEEP the user's current password unchanged.
+    setFormData({ ...user, password:SECURE_LOGIN_PREVIEW?"":(user.password||"") });
     setModalMode('edit');
   };
 
   const toggleStatus = async (user) => {
     const newStatus = user.status === "inactive" ? "active" : "inactive";
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureUsersRequest("status",user.id,{status:newStatus});
+        showToast("เปลี่ยนสถานะบัญชีผ่านเซิร์ฟเวอร์แล้ว","success");
+        window.location.reload();
+        return;
+      }
       await updateDoc(getDocumentRef(USERS_PATH, user.id), { status: newStatus });
       writeAuditLog(currentUser, newStatus === "active" ? "เปิดใช้งานผู้ใช้" : "ปิดใช้งานผู้ใช้", "USER", user.id, `ผู้ใช้: ${user.name}`);
       showToast(`เปลี่ยนสถานะบัญชี ${user.name} เป็น ${newStatus} แล้ว`, "success");
@@ -4013,6 +4586,22 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
 
     setIsSaving(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        if(modalMode==="add"&&!formData.password)
+          throw new Error("กรุณากำหนดรหัสผ่านเริ่มต้นสำหรับบัญชีใหม่");
+        const changes={
+          name:formData.name,username:formData.username,
+          role:formData.role,adminDept:formData.adminDept,
+          subjectArea:formData.subjectArea,status:formData.status,
+          password:formData.password||""
+        };
+        await secureUsersRequest(modalMode==="add"?"create":"edit",
+          modalMode==="add"?undefined:formData.id,changes);
+        setModalMode(null);
+        showToast("บันทึกบัญชีผ่านเซิร์ฟเวอร์สำเร็จ","success");
+        window.location.reload();
+        return;
+      }
       const userProfile = { ...formData, username: formData.username.trim() }; 
       
       if (userProfile.role === "director" || userProfile.role === "deputy") {
@@ -4042,6 +4631,12 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const executeDelete = async () => {
     if(!userToDelete) return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureUsersRequest("delete",userToDelete);
+        showToast("ลบบัญชีและข้อมูลยืนยันตัวตนจำลองแล้ว","success");
+        window.location.reload();
+        return;
+      }
       await deleteDoc(getDocumentRef(USERS_PATH, userToDelete));
       writeAuditLog(currentUser, "ลบผู้ใช้", "USER", userToDelete, "ลบบัญชีออกจากระบบถาวร");
       showToast("ลบผู้ใช้สำเร็จ", "success");
@@ -4137,7 +4732,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
                     <div className="font-bold text-gray-900 text-sm md:text-base break-words">{u.name}</div>
                     <RoleIndicators user={u} settings={systemSettings} compact/>
                     <div className="text-[11px] md:text-xs text-gray-500 mt-0.5 break-words">Username: {u.username}</div>
-                    {u.password && u.password !== "123456" && (
+                    {!SECURE_LOGIN_PREVIEW && u.password && u.password !== "123456" && (
                       <div className="text-[9px] md:text-[10px] font-medium text-[#D4AF37] mt-1 bg-yellow-50 px-2 py-0.5 rounded inline-block border border-yellow-100">
                         รหัสผ่านถูกอัปเดตแล้ว
                       </div>
@@ -4253,6 +4848,33 @@ function AuditLogView({ currentUser, showToast }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if(SECURE_LOGIN_PREVIEW){
+      let stopped=false;
+      const refresh=async()=>{
+        try{
+          const response=await fetch("/api/secure-audit",{
+            method:"GET",credentials:"same-origin",cache:"no-store",
+            headers:{"Accept":"application/json"}
+          });
+          if(!response.ok)throw new Error("secure_audit_unavailable");
+          const body=await response.json();
+          if(body?.success!==true||!Array.isArray(body.logs))
+            throw new Error("invalid_audit_feed");
+          if(!stopped){
+            setLogs(body.logs);
+            setLoading(false);
+          }
+        }catch{
+          if(!stopped){
+            setLoading(false);
+            showToast("Audit Log ผ่านเซิร์ฟเวอร์ทดสอบยังไม่พร้อม","error");
+          }
+        }
+      };
+      void refresh();
+      const timer=setInterval(refresh,30000);
+      return()=>{stopped=true;clearInterval(timer);};
+    }
     const unsub = onSnapshot(getCollectionRef(AUDIT_LOG_PATH), (snap) => {
       const data = snap.docs.map(d => ({id: d.id, ...d.data()}));
       data.sort((a,b) => b.timestamp - a.timestamp);
