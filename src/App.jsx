@@ -3153,7 +3153,10 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
         const response=await fetch("/api/secure-documents",{
           method:"POST",credentials:"same-origin",cache:"no-store",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({action:"edit",docId:docToEdit.id,form:changes})
+          body:JSON.stringify({action:"edit",docId:docToEdit.id,form:{
+            subject:changes.subject,docNumber:changes.docNumber,
+            date:changes.date,urgency:changes.urgency,from:changes.from
+          }})
         });
         if(!response.ok)throw new Error("แก้ไขไม่สำเร็จ หรือเลขรับหนังสือซ้ำ");
         const result=await response.json();
