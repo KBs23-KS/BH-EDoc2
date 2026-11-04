@@ -1,7 +1,7 @@
 name: BHS Design Preview Validation
 on:
   pull_request:
-    branches: [main]
+    branches: [main, security/prepare-firebase-identity-20261103]
   workflow_dispatch:
 jobs:
   validate:
