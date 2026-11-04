@@ -61,7 +61,9 @@ function doPost(e) {
         throw new Error("ไม่อนุญาตให้อัปโหลดโดยไม่มีรหัสเซิร์ฟเวอร์");
       if (!data.fileName || typeof data.fileName !== "string" ||
           data.fileName.length > 180 ||
-          /[\\/<>:"|?*\\x00-\\x1f]/.test(data.fileName) ||
+          (/[<>:"|?*]/.test(data.fileName) ||
+           /[\x00-\x1f]/.test(data.fileName) ||
+           data.fileName.includes("/") || data.fileName.includes("\\")) ||
           !data.fileName.trim() || data.fileName === "." || data.fileName === "..")
         throw new Error("ชื่อไฟล์ไม่ถูกต้อง");
       if (typeof data.base64 !== "string" || !data.base64 ||
@@ -79,9 +81,9 @@ function doPost(e) {
         .every((value,i) => b(i) === value);
       const isJpeg = bytes.length >= 4 && b(0) === 255 && b(1) === 216 &&
         b(2) === 255;
-      if (!((mime === "application/pdf" && /\\.pdf$/i.test(data.fileName) && isPdf) ||
-        (mime === "image/png" && /\\.png$/i.test(data.fileName) && isPng) ||
-        (mime === "image/jpeg" && /\\.jpe?g$/i.test(data.fileName) && isJpeg)))
+      if (!((mime === "application/pdf" && /\.pdf$/i.test(data.fileName) && isPdf) ||
+        (mime === "image/png" && /\.png$/i.test(data.fileName) && isPng) ||
+        (mime === "image/jpeg" && /\.jpe?g$/i.test(data.fileName) && isJpeg)))
         throw new Error("ชนิดไฟล์และข้อมูลภายในไม่ตรงกัน");
       const folder = DriveApp.getFolderById(FOLDER_ID);
       const file = folder.createFile(Utilities.newBlob(bytes,mime,data.fileName));
