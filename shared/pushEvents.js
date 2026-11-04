@@ -80,6 +80,10 @@ export function serverNotificationEvent({
     timestamp=timeOf(event);
     if(kind==="route"){
       if(!["director","admin"].includes(actor.role))return null;
+      const published=latestHistory(doc,actor.id,actions.published,now);
+      // Publishing an incoming letter also creates its FIRST routing entry
+      // in the same transaction. Send one push for that event, not two.
+      if(published&&Math.abs(timeOf(published)-timestamp)<15000)return null;
       ids=[...audience(event,users),...headRecipients(doc,users,settings)];
       title="มีหนังสือเกษียณถึงคุณ";
     }else{
@@ -117,8 +121,12 @@ export function clientNotificationCandidates(documents,actor,now=Date.now()){
     if(isFinalDoc(doc))for(const [kind,key] of [
       ["route","routingEntries"],["head","headActions"]
     ])for(const e of doc[key]||[]){
-      if(e.by===actor.id&&recent(e.at,now))
-        events.push({docId:doc.id,kind,eventId:e.id});
+      if(e.by!==actor.id||!recent(e.at,now))continue;
+      if(kind==="route"){
+        const published=latestHistory(doc,actor.id,actions.published,now);
+        if(published&&Math.abs(timeOf(published)-timeOf(e))<15000)continue;
+      }
+      events.push({docId:doc.id,kind,eventId:e.id});
     }
   }
   return events.slice(-20);
