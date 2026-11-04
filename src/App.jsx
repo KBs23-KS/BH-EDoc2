@@ -2697,6 +2697,54 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
   const handleInput = (id, key, value) => setInputs((prev) => ({ ...prev, [id]: { ...prev[id], [key]: value } }));
 
   const submitAction = async (docObj, actionType, signedPdf = null) => {
+    if(SECURE_LOGIN_PREVIEW){
+      // Secure review MUST be authorized against the latest server document.
+      // Never treat a browser-uploaded file as a valid signed PDF.
+      if(actionType==="APPROVE"&&isSinglePdfDocument(docObj.type)){
+        showToast("การอนุมัติคำสั่ง/หนังสือเวียนต้องลงนาม PDF ที่ตรวจสอบฝั่งเซิร์ฟเวอร์ก่อน","error");
+        return;
+      }
+      const input=inputs[docObj.id]||{};
+      const isDirector=docObj.status===DOC_STATUS.WAITING_DIRECTOR;
+      const reason=isDirector?input.command:input.comment;
+      if(actionType==="RETURN"&&!String(reason||"").trim()){
+        showToast("กรุณาระบุเหตุผลส่งกลับแก้ไข","error");return;
+      }
+      if(actionType==="APPROVE"&&isDirector&&docObj.type==="หนังสือเข้า"){
+        if(!input.routeAll&&!(input.routeGroups||[]).length&&
+           !(input.routeUserIds||[]).length){
+          showToast("กรุณาระบุผู้รับหรือกลุ่มก่อนอนุมัติ","error");return;
+        }
+        if(!window.confirm("ยืนยันอนุมัติหนังสือเข้าและส่งถึงผู้รับที่เลือก?"))return;
+      }
+      setProcessingId(docObj.id);
+      try{
+        const response=await fetch("/api/secure-workflow",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            action:actionType,docId:docObj.id,
+            comment:actionType==="RETURN"?String(reason||""):String(input.comment||""),
+            command:String(input.command||""),
+            routeGroups:input.routeGroups||[],
+            routeUserIds:input.routeUserIds||[],
+            routeAll:input.routeAll===true
+          })
+        });
+        if(!response.ok)throw new Error(
+          response.status===403?"ไม่มีสิทธิ์ หรือสถานะหนังสือเปลี่ยนไป":
+            "ไม่สามารถบันทึกผลการพิจารณาผ่านเซิร์ฟเวอร์ได้"
+        );
+        const result=await response.json();
+        if(result?.success!==true||result.docId!==docObj.id)
+          throw new Error("ผลการบันทึกไม่ถูกต้อง");
+        setInputs(prev=>{const n={...prev};delete n[docObj.id];return n;});
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("บันทึกผลการพิจารณาสำเร็จ","success");
+      }catch(e){showToast(e.message,"error")}
+      finally{setProcessingId(null);setUploadStatus("")}
+      return;
+    }
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
       return showToast("กรุณาตั้งค่า GAS_WEB_APP_URL ให้ถูกต้องก่อนใช้งาน", "error");
     }
