@@ -80,6 +80,59 @@ try{
   await assertFails(setDoc(doc(teacher,"bhs_security_test_documents","TEST_SHARED_001","receipts","TEST_CLERK_001"),{
     uid:"TEST_CLERK_001",acknowledgedAt:serverTimestamp()
   }));
+  // Four-step browser workflow: clerk draft -> admin forwards -> director approves -> teacher acknowledges.
+  const flowId="TEST_FLOW_0123456789AbCdEfGhIj";
+  const flowRef=(database)=>doc(database,"bhs_security_test_documents",flowId);
+  await assertSucceeds(setDoc(flowRef(clerk),{
+    title:"Synthetic end-to-end workflow",status:"draft",
+    createdBy:"TEST_CLERK_001",readerUids:["TEST_CLERK_001"],
+    createdAt:serverTimestamp()
+  }));
+  await assertFails(getDoc(flowRef(teacher)));
+  await assertFails(setDoc(doc(teacher,"bhs_security_test_documents","TEST_FLOW_UNAUTHORIZED"),{
+    title:"Unauthorized",status:"draft",createdBy:"TEST_TEACHER_001",
+    readerUids:["TEST_TEACHER_001"],createdAt:serverTimestamp()
+  }));
+  await assertSucceeds(updateDoc(flowRef(admin),{
+    status:"pending-director",readerUids:["TEST_CLERK_001","TEST_TEACHER_001"]
+  }));
+  // Even a named recipient cannot read pending items before approval.
+  await assertFails(getDoc(flowRef(teacher)));
+  await assertSucceeds(getDoc(flowRef(clerk)));
+  await assertSucceeds(getDoc(flowRef(director)));
+  await assertFails(updateDoc(flowRef(clerk),{status:"approved"}));
+  await assertFails(updateDoc(flowRef(teacher),{status:"approved"}));
+  await assertFails(setDoc(
+    doc(teacher,"bhs_security_test_documents",flowId,"receipts","TEST_TEACHER_001"),
+    {uid:"TEST_TEACHER_001",acknowledgedAt:serverTimestamp()}
+  ));
+  await assertSucceeds(updateDoc(flowRef(director),{status:"approved"}));
+  await assertSucceeds(getDoc(flowRef(teacher)));
+  await assertSucceeds(setDoc(
+    doc(teacher,"bhs_security_test_documents",flowId,"receipts","TEST_TEACHER_001"),
+    {uid:"TEST_TEACHER_001",acknowledgedAt:serverTimestamp()}
+  ));
+  await assertFails(setDoc(
+    doc(teacher,"bhs_security_test_documents",flowId,"receipts","TEST_CLERK_001"),
+    {uid:"TEST_CLERK_001",acknowledgedAt:serverTimestamp()}
+  ));
+  await assertFails(setDoc(
+    doc(clerk,"bhs_security_test_documents",flowId,"receipts","TEST_TEACHER_001"),
+    {uid:"TEST_TEACHER_001",acknowledgedAt:serverTimestamp()}
+  ));
+  // Receipt create is one-time; overwriting an acknowledged receipt is prohibited.
+  await assertFails(setDoc(
+    doc(teacher,"bhs_security_test_documents",flowId,"receipts","TEST_TEACHER_001"),
+    {uid:"TEST_TEACHER_001",acknowledgedAt:serverTimestamp()}
+  ));
+  // A recipient assigned by mistake must not acknowledge any pending document.
+  await assertSucceeds(updateDoc(flowRef(admin),{status:"pending-director"}));
+  await assertFails(getDoc(flowRef(teacher)));
+  await assertFails(setDoc(
+    doc(teacher,"bhs_security_test_documents",flowId,"receipts","TEST_OTHER_TEACHER"),
+    {uid:"TEST_OTHER_TEACHER",acknowledgedAt:serverTimestamp()}
+  ));
+  await assertSucceeds(updateDoc(flowRef(admin),{status:"approved"}));
   assert.ok(true);
-  console.log("Firestore Emulator: all 7 synthetic role/access cases and denial tests passed");
+  console.log("Firestore Emulator: all 7 synthetic role/access cases + four-stage workflow and denial tests passed");
 }finally{await env.cleanup();}
