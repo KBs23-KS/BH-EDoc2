@@ -108,3 +108,18 @@ GOOGLE_CLOUD_PROJECT=bhs-edoc-security-test BHS_SECURITY_TEST_SEED_CONFIRM=bhs-e
 **Warning**: Cloud Shell's user credential must have appropriate Firebase Auth and Firestore administrative permissions. Project rules deployment and seed run are irreversible side effects on the isolated **test** project (not production). If any step fails, stop and review rather than changing the live project. Google auth CLI and ADC are separate login flows.
 
 No actual test Firestore Rules or test users were deployed/created by ChatGPT, because Firebase management tools were unavailable from this chat. The browser preview needs to be redeployed after this patch and verified again.
+
+
+## Stage 4 — four-step workflow UI in isolated test Preview (2026-11-04)
+
+Only for the Draft branch `security/sandbox-login-firestore-20261103`. This page creates synthetic Firestore `TEST_FLOW_<random>` documents; it does not use the production Firebase project, school data, PDF signing, or the live App.
+
+1. `test_clerk` signs in and clicks **1. ธุรการสร้างหนังสือ**. The browser creates a `draft` with self-only `readerUids`, `createdBy`, and server timestamp. Copy the generated `TEST_FLOW_...` ID or retain it in the same browser's local storage.
+2. `test_admin` signs in and clicks **2. แอดมินส่งรอ ผอ.**. This updates the draft to `pending-director` and targets the synthetic teacher as an eventual recipient.
+3. **Security denial check:** Before approval, `test_teacher` must be denied the document even though it appears in `readerUids`; do **not** consider a successful read as a passing test. This is enforced by the updated **test-only Rules**, not just by hiding a button.
+4. `test_director` signs in and clicks **3. ผอ. อนุมัติ**. The only allowed director update is `pending-director` → `approved`.
+5. `test_teacher` signs in and clicks **4. ครูรับทราบ**. A receipt is created only for the signed-in teacher and only after approval. Duplicate acknowledgements are displayed rather than overwritten.
+
+**Important:** The updated `security/firestore-security-test.rules` must be published again **only in `bhs-edoc-security-test`** for the denial of preapproval reads and preapproval receipts to become active. This publication is a manual Firebase Console step because Firebase administrator tools are not available in the current chat. Existing teacher/read-role tests should continue to pass once published. The old version still allows recipients to read pending documents; the UI flags this as a failure instead of reporting success.
+
+CI Firestore Emulator covers the same 4 writes, denial of early teacher reads/receipts, denial of unauthorized clerk/director/teacher mutations, and duplicate acknowledgement. The separate Vercel Preview deploy and manual browser tests must be checked independently. Never merge either Draft PR or deploy the live `bhs-edoc-2` project without separate approval.
