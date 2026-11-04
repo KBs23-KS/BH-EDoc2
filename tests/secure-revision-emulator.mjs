@@ -171,6 +171,13 @@ try{
   assert.equal(editedOrder.fileVersions.length,2);
   assert.equal(editedOrder.status,"รอรองผู้อำนวยการ");
   assert.equal(editedOrder.signedFiles.length,0);
+  // A PDF staged during revision 1 must never be used when the director
+  // returns revision 2 for another correction cycle.
+  await docs.doc(order).update({status:"ส่งกลับแก้ไข"});
+  deny(await run(creator,finalize(order,[orderTwo.uploadId],
+    "ห้ามใช้ไฟล์เก่าของรอบก่อน")),403);
+  deny(await run(creator,orderTwo),400);
+  assert.equal((await docs.doc(order).get()).data().activeFileVersion,2);
   assert.ok((await db.collection(ROOT+"bhs_audit_logs").get()).size>=2);
   console.log("PASS: returned-document revisions validate owner, stage PDFs,"+
     " preserve old version, enforce single-PDF orders and atomic resubmit");
