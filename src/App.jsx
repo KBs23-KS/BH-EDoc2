@@ -4057,10 +4057,33 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
     return highest;
   };
 
+  const fetchSecureRegisterState=async()=>{
+    const response=await fetch(
+      "/api/secure-admin?kind="+encodeURIComponent(registerKind)+
+      "&year="+encodeURIComponent(registerYear),
+      {method:"GET",credentials:"same-origin",cache:"no-store",
+        headers:{"Accept":"application/json"}}
+    );
+    if(!response.ok)throw new Error("อ่านเลขทะเบียนผ่านเซิร์ฟเวอร์ไม่ได้");
+    const data=await response.json();
+    if(data?.success!==true||data.kind!==registerKind||
+       data.year!==selectedYear||!Array.isArray(data.history))
+      throw new Error("ข้อมูลทะเบียนไม่ตรงกับที่เลือก");
+    return data;
+  };
+  const applySecureRegisterState=data=>{
+    setCounterInfo(data.counter);
+    setHighestInDatabase(data.highest);
+    setHistoryRows(data.history);
+  };
   const readRegisterState = async () => {
     if (!isAdmin || !yearIsValid) return;
     setLoadingInfo(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        applySecureRegisterState(await fetchSecureRegisterState());
+        return;
+      }
       const [counterSnap, reservationSnap, docsSnap, logsSnap] = await Promise.all([
         getDocFromServer(getDocumentRef(COUNTERS_PATH, counterId)),
         getDocsFromServer(getCollectionRef(sourceCollection)),
@@ -4085,6 +4108,14 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
     if (!isAdmin || !yearIsValid) return;
     let cancelled = false;
     setLoadingInfo(true);
+    if(SECURE_LOGIN_PREVIEW){
+      void fetchSecureRegisterState().then(data=>{
+        if(!cancelled)applySecureRegisterState(data);
+      }).catch(error=>{
+        if(!cancelled)showToast(error.message,"error");
+      }).finally(()=>{if(!cancelled)setLoadingInfo(false);});
+      return()=>{cancelled=true;};
+    }
     Promise.all([
       getDocFromServer(getDocumentRef(COUNTERS_PATH, counterId)),
       getDocsFromServer(getCollectionRef(sourceCollection)),
@@ -4124,6 +4155,24 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
 
     setSavingNumber(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-admin",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"set-next",kind:registerKind,
+            year:selectedYear,nextNumber:next})
+        });
+        if(!response.ok)throw new Error("ตั้งเลขผ่านเซิร์ฟเวอร์ไม่สำเร็จ");
+        const data=await response.json();
+        if(data?.success!==true||data.kind!==registerKind||
+           data.year!==selectedYear)throw new Error("เซิร์ฟเวอร์ไม่ยืนยันเลขทะเบียน");
+        setCounterInfo(data.counter);
+        setHighestInDatabase(data.highest);
+        setNextNumberText("");
+        showToast("กำหนดเลขถัดไปแล้ว เลขที่จะออกจริง "+data.effectiveNext,"success");
+        await readRegisterState();
+        return;
+      }
       const counterRef = getDocumentRef(COUNTERS_PATH, counterId);
       // อ่านทะเบียนล่าสุด ก่อนทำธุรกรรม และอ่าน counter ซ้ำภายในธุรกรรม
       // การจองเลขปกติก็เขียน counter เดียวกัน จึงป้องกันการเขียนทับการจองพร้อมกันได้
@@ -4242,6 +4291,24 @@ function SystemSettingsView({ systemSettings, showToast, currentUser, dbUsers })
     if (!form.schoolName || !form.schoolLogoText) return showToast("กรุณาระบุชื่อโรงเรียนและอักษรย่อ", "error");
     setIsSaving(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-admin",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"save-settings",settings:{
+            schoolName:form.schoolName,schoolLogoText:form.schoolLogoText,
+            academicYear:form.academicYear,fiscalYear:form.fiscalYear,
+            adminDepts:form.adminDepts,subjectAreas:form.subjectAreas,
+            adminHeads:form.adminHeads,subjectHeads:form.subjectHeads
+          }})
+        });
+        if(!response.ok)throw new Error("ไม่มีสิทธิ์หรือข้อมูลการตั้งค่าไม่ถูกต้อง");
+        const data=await response.json();
+        if(data?.success!==true)throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการตั้งค่า");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("บันทึกการตั้งค่าผ่านเซิร์ฟเวอร์แล้ว","success");
+        return;
+      }
       await setDoc(getDocumentRef(SETTINGS_PATH, 'system'), form);
       writeAuditLog(currentUser, "แก้ไขการตั้งค่าระบบ", "SYSTEM", "settings", "อัปเดตข้อมูลโรงเรียน/กลุ่มงาน");
       showToast("บันทึกการตั้งค่าระบบเรียบร้อยแล้ว", "success");
