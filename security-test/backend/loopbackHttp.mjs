@@ -8,8 +8,7 @@ function answer(res,status,body){
   res.writeHead(status,{
     "Content-Type":"application/json; charset=utf-8",
     "Cache-Control":"no-store, private",
-    "X-Content-Type-Options":"nosniff",
-    "Access-Control-Allow-Origin":"null"
+    "X-Content-Type-Options":"nosniff"
   });
   res.end(JSON.stringify(body));
 }
