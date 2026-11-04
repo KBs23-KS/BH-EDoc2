@@ -8,6 +8,7 @@ import {initializeApp,deleteApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import secureUsersHandler from "../api/secure-users.js";
 import secureAuditHandler from "../api/secure-audit.js";
+import securePasswordHandler from "../api/secure-password.js";
 import {
   migrateSyntheticUserCredential,verifyPrivateSchoolPassword,
   VAULT_COLLECTION,assertCredentialVaultBoundary
@@ -24,7 +25,8 @@ const OLD_KEYS=[
   "VERCEL_ENV","BHS_SERVER_ISOLATED_PREVIEW","BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW",
   "BHS_CREDENTIAL_VAULT_AUDITED","BHS_ENABLE_SECURE_USERS_PREVIEW",
   "BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON","BHS_TEST_SESSION_SECRET",
-  "BHS_ENABLE_SECURE_AUDIT_PREVIEW"
+  "BHS_ENABLE_SECURE_AUDIT_PREVIEW",
+  "BHS_ENABLE_SECURE_PASSWORD_PREVIEW"
 ];
 const old=Object.fromEntries(OLD_KEYS.map(k=>[k,process.env[k]]));
 const {privateKey}=generateKeyPairSync("rsa",{
@@ -39,6 +41,7 @@ Object.assign(process.env,{
   BHS_CREDENTIAL_VAULT_AUDITED:"true",
   BHS_ENABLE_SECURE_USERS_PREVIEW:"true",
   BHS_ENABLE_SECURE_AUDIT_PREVIEW:"true",
+  BHS_ENABLE_SECURE_PASSWORD_PREVIEW:"true",
   BHS_TEST_SESSION_SECRET:"FAKE_TEST_SESSION_SECRET_".repeat(4),
   BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({
     project_id:PROJECT,
@@ -218,6 +221,43 @@ try{
     method:"GET",headers:{host:"localhost",cookie:await session(teacherId)}
   },teacherLog);
   denied(teacherLog,403);
+
+  // Self-service password change must verify OLD password and rotate the
+  // private credential hash without modifying anyone else's credentials.
+  const previousTeacherCookie=await session(teacherId);
+  const teacherBeforeChange=(await users.doc(teacherId).get()).data();
+  const oldAdminHash=(await db.collection(VAULT_COLLECTION).doc(adminId).get())
+    .data().passwordHash;
+  async function passwordChange(cookie,currentPassword,newPassword){
+    const output=res();
+    await securePasswordHandler({
+      method:"POST",headers:{host:"localhost",cookie,
+        "content-type":"application/json","sec-fetch-site":"same-origin"},
+      body:{currentPassword,newPassword}
+    },output);
+    return output;
+  }
+  denied(await passwordChange(previousTeacherCookie,"wrong","new-strong-password"),401);
+  assert.equal((await users.doc(teacherId).get()).data().credentialVersion,
+    teacherBeforeChange.credentialVersion);
+  const changed=await passwordChange(previousTeacherCookie,"a","new-strong-password");
+  accepted(changed);
+  assert.equal(changed.body.requiresLogin,true);
+  const newTeacher=(await users.doc(teacherId).get()).data();
+  assert.equal(newTeacher.username,"t001");
+  assert.equal(Object.hasOwn(newTeacher,"password"),false);
+  assert.notEqual(newTeacher.credentialVersion,teacherBeforeChange.credentialVersion);
+  assert.equal(await verifyPrivateSchoolPassword({
+    db,projectId:PROJECT,user:{id:teacherId,...newTeacher},
+    password:"new-strong-password",env
+  }),true);
+  assert.equal(await verifyPrivateSchoolPassword({
+    db,projectId:PROJECT,user:{id:teacherId,...newTeacher},
+    password:"a",env
+  }),false);
+  denied(await passwordChange(previousTeacherCookie,"a","another-password"),401);
+  assert.equal((await db.collection(VAULT_COLLECTION).doc(adminId).get())
+    .data().passwordHash,oldAdminHash);
 
   assert.throws(()=>assertCredentialVaultBoundary({
     projectId:"bhs-edoc-2",env
