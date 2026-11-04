@@ -852,12 +852,13 @@ export default function App() {
         systemSettings={systemSettings}
         onLogout={handleLogout}
         showToast={showToast}
+        onSecureSettings={setSystemSettings}
       />
     </>
   );
 }
 
-function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast }) {
+function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast, onSecureSettings }) {
   const [documents, setDocuments] = useState([]);
   const [orderReservations, setOrderReservations] = useState([]);
   const [outgoingReservations, setOutgoingReservations] = useState([]);
@@ -884,6 +885,43 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
 
   useEffect(() => {
     if (!firebaseUser) return;
+    if(SECURE_LOGIN_PREVIEW){
+      // Read ONLY the documents authorized by the current server-verified
+      // school session. Never subscribe to whole Firestore collections here.
+      let stopped=false,busy=false;
+      const refresh=async()=>{
+        if(stopped||busy)return;
+        busy=true;
+        try{
+          const response=await fetch("/api/secure-data",{
+            method:"GET",credentials:"same-origin",cache:"no-store",
+            headers:{"Accept":"application/json"}
+          });
+          if(!response.ok)throw new Error("secure_feed_unavailable");
+          const data=await response.json();
+          if(data?.success!==true||data.userId!==currentUser.id||
+            !Array.isArray(data.documents)||!Array.isArray(data.orderReservations)||
+            !Array.isArray(data.outgoingReservations)||!Array.isArray(data.reminders))
+            throw new Error("secure_feed_identity_mismatch");
+          if(stopped)return;
+          setDocuments([...data.documents].sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)));
+          setOrderReservations(data.orderReservations);
+          setOutgoingReservations(data.outgoingReservations);
+          setReminders(data.reminders);
+          if(data.settings&&typeof data.settings==="object")
+            onSecureSettings(previous=>({...previous,...data.settings}));
+        }catch(error){
+          if(!stopped)showToast("ไม่สามารถโหลดเอกสารตามสิทธิ์จากเซิร์ฟเวอร์ทดสอบได้","error");
+        }finally{busy=false;}
+      };
+      void refresh();
+      const timer=setInterval(refresh,30000);
+      window.addEventListener("bhs-secure-data-refresh",refresh);
+      return()=>{
+        stopped=true;clearInterval(timer);
+        window.removeEventListener("bhs-secure-data-refresh",refresh);
+      };
+    }
     const unsub = onSnapshot(getCollectionRef(DOCS_PATH), (snapshot) => {
       const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       docs.sort((a, b) => b.createdAt - a.createdAt);
@@ -911,13 +949,29 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
       unsubOutRes();
       unsubReminder();
     };
-  }, [firebaseUser]);
+  }, [firebaseUser,currentUser?.id]);
 
   const activeDocs = documents.filter(d => !d.isDeleted);
   const managedGroups=headGroups(currentUser,systemSettings);
+  const secureCall=SECURE_LOGIN_PREVIEW?async(action,docId,options={})=>{
+    const res=await fetch("/api/secure-routing",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action,docId,options})
+    });
+    if(!res.ok)throw new Error(
+      res.status===403?"ไม่มีสิทธิ์ดำเนินการ หรือรายการนี้ดำเนินการแล้ว":
+        "ไม่สามารถบันทึกผ่านระบบความปลอดภัยได้"
+    );
+    const result=await res.json();
+    if(result?.success!==true||result.docId!==docId)
+      throw new Error("ผลลัพธ์จากเซิร์ฟเวอร์ไม่ตรงกับเอกสาร");
+    window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+    return result;
+  }:null;
   const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
     db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
-    user:currentUser,users:dbUsers,settings:systemSettings,showToast
+    user:currentUser,users:dbUsers,settings:systemSettings,showToast,secureCall
   });
   const openDocument=id=>{
     const d=activeDocs.find(x=>x.id===id);
