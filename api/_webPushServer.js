@@ -59,8 +59,12 @@ function credentials(){
 }
 function database(){
   const c=credentials();
-  let app=getApps().find(a=>a.name==="bhs-web-push");
-  if(!app)app=initializeApp({credential:cert(c),projectId:PROJECT},"bhs-web-push");
+  // Reuse the existing default Admin app used by /api/app-session.
+  // Creating a named-only app would break the legacy server's getFirestore().
+  let app=getApps().find(a=>a.name==="[DEFAULT]");
+  if(!app)app=initializeApp({credential:cert(c),projectId:PROJECT});
+  if(app.options.projectId&&app.options.projectId!==PROJECT)
+    throw issue(503,"wrong_active_firebase_project");
   return getFirestore(app);
 }
 export function pushPublicKey(){
