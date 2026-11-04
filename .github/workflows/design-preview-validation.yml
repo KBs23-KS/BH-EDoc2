@@ -1,7 +1,7 @@
 name: BHS Design Preview Validation
 on:
   pull_request:
-    branches: [main, security/isolated-firebase-test-20261103, security/sandbox-login-firestore-20261103]
+    branches: [main, security/isolated-firebase-test-20261103, security/sandbox-login-firestore-20261103, security/realistic-bhs-workflow-emulator-20261104]
   workflow_dispatch:
 jobs:
   validate:
@@ -78,3 +78,5 @@ jobs:
         run: node tests/bhs-realistic-workflow-policy-test.mjs
       - name: BHS-shaped Firestore Emulator - all roles and workflows (no deployment)
         run: npx --yes firebase-tools@14 emulators:exec --project demo-bhs-realistic-only --config security/firebase-bhs-realistic.emulator.json --only firestore "node tests/firestore-bhs-realistic-emulator.mjs"
+      - name: Emulator-only HTTP backend — authenticated commands, atomic audit, workflow (no deployment)
+        run: npx --yes firebase-tools@14 emulators:exec --project demo-bhs-realistic-only --config security/firebase-bhs-realistic.emulator.json --only firestore "node tests/bhs-emulator-backend-integration.mjs"
