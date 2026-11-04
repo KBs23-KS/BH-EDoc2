@@ -78,8 +78,13 @@ import {
   secureLoginPreviewEnabled,verifySchoolSession,createSchoolSession,
   establishPrivateSchoolIdentity
 } from "./secureSessionPreview.js";
+import {BHS_TEST_FIREBASE_WEB_CONFIG} from "./secureTestFirebaseConfig.js";
 
-const firebaseConfig = typeof __firebase_config !== 'undefined'
+// A requested secure rehearsal is pinned to the ISOLATED test project.
+// Even a misconfigured feature flag must never attempt live school Firebase.
+const firebaseConfig = import.meta.env?.VITE_BHS_SECURE_LOGIN_PREVIEW==="true"
+  ? BHS_TEST_FIREBASE_WEB_CONFIG
+  : typeof __firebase_config !== 'undefined'
   ? JSON.parse(__firebase_config)
   : {
       apiKey: "AIzaSyDK3KOtUeQKbJAWCMWEYDfWftSHFJkejuA",
