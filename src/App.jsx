@@ -117,7 +117,9 @@ const REMINDERS_PATH = 'bhs_reminders';
 const getCollectionRef = (collectionName) => collection(db, 'artifacts', appId, 'public', 'data', collectionName);
 const getDocumentRef = (collectionName, documentId) => doc(db, 'artifacts', appId, 'public', 'data', collectionName, documentId);
 
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbybUep1zqPvNXMaed11u7bibs7SaOWNsfgrpm1d3Wz8jh8eql9ljOU6MyygE2nrPmsIPg/exec";
+// Never let the isolated security rehearsal access the school's real Drive GAS.
+const GAS_WEB_APP_URL = SECURE_LOGIN_REQUESTED ? "" :
+  "https://script.google.com/macros/s/AKfycbybUep1zqPvNXMaed11u7bibs7SaOWNsfgrpm1d3Wz8jh8eql9ljOU6MyygE2nrPmsIPg/exec";
 
 const ROLES = {
   ADMIN: { id: "admin", name: "ผู้ดูแลระบบ", level: 99 },
@@ -487,6 +489,12 @@ export default function App() {
 
   useEffect(() => {
     if (!firebaseUser) return;
+    if(SECURE_LOGIN_PREVIEW){
+      // The secure server feed returns whitelisted school settings. Do not
+      // subscribe to the legacy settings document with client Firestore.
+      setIsInitializing(false);
+      return;
+    }
 
     const unsubSettings = onSnapshot(getDocumentRef(SETTINGS_PATH, 'system'), (docSnap) => {
         if(docSnap.exists()) {
