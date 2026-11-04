@@ -123,3 +123,17 @@ The following remain mandatory: (1) audit published production Firestore Rules a
 
 ### Final stop/go rule
 Do not merge, deploy, set experimental Vercel flags, publish Firestore Rules or migrate any school credentials merely because GitHub Actions is green. Green CI confirms **synthetic emulator checks and a build**, not a production-safe security cutover.
+
+
+## More isolated backend operations — 4 November 2026
+
+The same real-App Draft PR #45 covers additional previously direct-client administrator operations:
+
+- Admin-only number override: api/secure-admin.js and api/_secureAdminOperations.js atomically update ORDER/OUT year counters. They check active numbers, calculate the next available value, write a counter revision and Audit Log, and reject client-crafted roles.
+- Admin-only school settings: allowlisted school name, school abbreviation, fiscal/academic years, groups and original/acting head appointments. Unknown keys, including secrets and passwords, are rejected. The current admin status is rechecked within a Firestore transaction.
+- The real AdminRegisterNumberSettings screen obtains current number/history from the protected server in secure mode. SystemSettingsView writes via the protected endpoint.
+- Incoming-document restore: only an active admin may restore deleted, nonarchived incoming letters. The backend verifies the receipt number is unused in the original year, then restores history, counter and audit atomically. Only admins receive deleted documents in the server feed. Permanent deletion stays blocked in secure preview until linked Drive/PDF resources can be verified.
+- New Firestore Emulator regression tests for administrator number/settings permissions, duplicates and restore. No school accounts or real Firebase instances are accessed.
+- An additional server gate BHS_ENABLE_SECURE_ADMIN_PREVIEW=true is restricted to the exact localhost Firestore Emulator, synthetic TEST_ accounts and non-production environments. This code cannot be enabled in an online Vercel Preview.
+
+**Production launch still blocked** by trusted Google Drive/PDF upload/signing and returned-document revisions, safe handling of linked order deletion/archive and other direct browser writes, real-data credential migration with encrypted backup/rollback, final least-privilege Firestore Rules and all-role school acceptance testing. A Draft PR or green synthetic CI is NOT evidence of a complete security cutover.
