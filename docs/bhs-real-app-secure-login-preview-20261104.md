@@ -78,3 +78,28 @@ The same Draft PR now includes `api/_schoolCredentialVault.js`, a private scrypt
 - CI run `41781233562` passed four fake accounts including a short password, the legacy default, and a Thai password; the complete web regression suite and Vite build passed.
 
 **CRITICAL: No school account has been migrated yet.** The currently published school Firestore Rules and existing backups may still expose plaintext passwords. The test-only migration is deliberately prohibited outside the local emulator. The real credential cutover requires a separate safe production migration procedure that first protects **all** old account records, confirms real user roster/backup compatibility, and enables server-only account editing. Never turn on flags or publish these temporary rules on `bhs-edoc-2` just to see if it works.
+
+## Further migration work — 4 November 2026 (same Draft PR #45)
+
+### Admin user management
+- `api/_secureAccountManagement.js` and `api/secure-users.js` now implement **emulator-only**, trusted admin profile management. The existing `UserManagementView` dispatches create/edit/disable/enable/delete to the server in isolated secure mode.
+- The server rechecks the current admin's role and status in a transaction, checks usernames case-insensitively, serializes changes with a username lock, stores any new password as a private salted scrypt hash, updates `credentialVersion` on an actual reset, and writes an independent audit record.
+- Editing a user's name, role or membership **without typing a password** does not change that person's password. Existing username casing and all unrelated accounts remain unchanged. Password resets affect only the intended account.
+- Self-deactivation/self-deletion and credential resets through arbitrary client field writes are prohibited. New accounts require an explicit password in isolated secure mode. An inactive account cannot log in.
+- Firestore Emulator integration runs the **actual BHS admin API** with synthetic signed 7-day sessions and confirms credential preservation, duplicate-username denial, role checks, private hash storage and audit integrity.
+
+### Incoming register and document management
+- `api/_secureIncomingDocuments.js` and `api/secure-documents.js` provide isolated-server-only incoming document metadata registration, editing and soft deletion, with a per-Buddhist-year lock, number-duplication detection, current-role checks, and atomic document/counter/audit updates.
+- The existing `FormDocument` and `AdvancedSearchTable` call these server routes in secure mode for incoming metadata. The read-screen acknowledgement is routed through the already protected `/api/secure-routing` pathway.
+- File upload, post-approval attachments, returned document PDF resubmission, and unsigned order/circular creation are **blocked** in secure test mode. The test backend never fabricates a signed PDF, accepts arbitrary client-supplied Drive IDs or uploads to the school's Google Apps Script.
+- Test-only register rules preserve existing BHS policy: duplicates within an active incoming-book year are refused; documents moved to the trash remain in history and do not reserve a number.
+
+### Audit log and emulator isolation
+- The existing admin Audit Log screen uses `/api/secure-audit` in secure mode, not a broad Firestore collection listener. The feed requires an active admin session, returns a bounded window and discards unapproved fields (including accidental password/hash attributes).
+- `BHS_SERVER_ISOLATED_PREVIEW=true` now additionally requires **FIRESTORE_EMULATOR_HOST=127.0.0.1:8099** for any test Backend operation. Missing the Emulator host cannot silently cause a connection to the actual `bhs-edoc-2` Firebase Admin project.
+- Additional isolated server flags: `BHS_ENABLE_SECURE_USERS_PREVIEW`, `BHS_ENABLE_SECURE_DOCUMENTS_PREVIEW`, and `BHS_ENABLE_SECURE_AUDIT_PREVIEW`. Do not set these in Vercel or either live Firebase environment.
+
+### What remains before production usage
+
+**This is a tested source-code integration, not a complete or deployed security cutover.**
+The following remain mandatory: (1) audit published production Firestore Rules and all access paths; (2) controlled migration of every actual credential into a private store with verified rollback and no exposure through backups; (3) server migration of order/outgoing-register and remaining document actions; (4) actual trusted Google Drive/PDF upload/signing pipeline and revision history; (5) full staging tests for all menus and roles, including iPad, plus end-to-end recovery rehearsal. Never publish the Emulator deny-all Rules over the school database. Keeping the current production login unchanged is intentional until all release gates pass.
