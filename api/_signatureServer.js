@@ -39,7 +39,8 @@ const serverSessionSecret=()=>isolatedSchoolPreview()?
 const anyIsolatedFeatureRequested=()=>process.env.VERCEL_ENV!=="production"&&
   ["BHS_ENABLE_CUSTOM_AUTH_PREVIEW","BHS_ENABLE_SECURE_DIRECTORY_PREVIEW",
     "BHS_ENABLE_SECURE_DATA_PREVIEW","BHS_ENABLE_SECURE_ROUTING_PREVIEW",
-    "BHS_ENABLE_SECURE_WORKFLOW_PREVIEW"].some(name=>process.env[name]==="true");
+    "BHS_ENABLE_SECURE_WORKFLOW_PREVIEW",
+    "BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW"].some(name=>process.env[name]==="true");
 export function ready(){
   // Never permit real school PDF signing in any isolated security rehearsal,
   // including a partially misconfigured preview with a production admin key.
@@ -66,6 +67,7 @@ function serverAdminApp(){
 }
 export function adminDb(){return getFirestore(serverAdminApp());}
 export function serverAdminAuth(){return getFirebaseAdminAuth(serverAdminApp());}
+export function schoolAdminProjectId(){return serverAdminApp().options.projectId;}
 export function userRef(id){return adminDb().doc(COLLECTION+"/bhs_users/"+id);}
 export function documentRef(id){return adminDb().doc(COLLECTION+"/bhs_documents/"+id);}
 export async function findByUsername(username){
@@ -140,7 +142,12 @@ export function appSessionReady(){
 }
 export const appSessionFingerprint = user =>
   sign("bhs-app-session-user-v1:"+String(user?.username||"")+":"+
-       String(user?.password||"123456")+":"+String(user?.role||"")).slice(0,24);
+       // Once a private vault is activated, the public profile no longer
+       // contains a password. A random version revokes old sessions safely.
+       (typeof user?.credentialVersion==="string"&&user.credentialVersion.length>=24
+         ?"vault:"+user.credentialVersion
+         :"legacy:"+String(user?.password||"123456"))+
+       ":"+String(user?.role||"")).slice(0,24);
 export function makeAppSession(userId,credentialTag){
   const body=Buffer.from(JSON.stringify({
     kind:"app",userId,credentialTag,exp:Date.now()+MAX_APP_MS,nonce:randomBytes(12).toString("hex")
