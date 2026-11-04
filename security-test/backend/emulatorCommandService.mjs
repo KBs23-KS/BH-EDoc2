@@ -9,7 +9,7 @@
  * Signing is a READ-ONLY permission check: no signature bytes or Drive access.
  */
 import {randomUUID} from "node:crypto";
-import {FieldValue} from "firebase-admin/firestore";
+import {FieldValue,getFirestore} from "firebase-admin/firestore";
 import {mayPerform,LIVE_STATES} from "../realisticWorkflowPolicy.mjs";
 
 export const EMULATOR_PROJECT="demo-bhs-realistic-only";
@@ -83,12 +83,14 @@ function contextFor({settings,users,payload,current}){
   };
 }
 
-export function createEmulatorCommandService({db,auth}){
-  // The guard is intentionally NOT configurable via an env override.
+export function createEmulatorCommandService({app,auth}){
+  // Derive the DB from the verified Firebase Admin app; never accept an
+  // arbitrary Firestore client whose project cannot be independently checked.
   if(process.env.FIRESTORE_EMULATOR_HOST!==EMULATOR_HOST ||
-     db?.app?.options?.projectId!==EMULATOR_PROJECT ||
+     app?.options?.projectId!==EMULATOR_PROJECT ||
      typeof auth?.verifyIdToken!=="function")
     throw problem(503,"emulator_only_service");
+  const db=getFirestore(app);
   return {
     async execute({idToken,action,docId,payload={}}){
       if(typeof idToken!=="string"||!idToken||idToken.length>4096)
