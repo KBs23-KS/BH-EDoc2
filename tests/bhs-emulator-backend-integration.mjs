@@ -31,7 +31,7 @@ const mockedFirebaseAdminAuth={
     return {uid,bhsSchoolIdentity:uid!==IDS.inactive,role:"admin"};
   }
 };
-const command=createEmulatorCommandService({db,auth:mockedFirebaseAdminAuth});
+const command=createEmulatorCommandService({app,auth:mockedFirebaseAdminAuth});
 const server=createLoopbackEmulatorServer(command);
 let url,count=0;
 const request=async(uid,action,payload={},docId)=>{
@@ -63,7 +63,7 @@ try{
 
   // The service MUST fail closed outside the exact emulator project.
   assert.throws(()=>createEmulatorCommandService({
-    db:{app:{options:{projectId:"bhs-edoc-2"}}},auth:mockedFirebaseAdminAuth
+    app:{options:{projectId:"bhs-edoc-2"}},auth:mockedFirebaseAdminAuth
   }),/emulator_only_service/);
 
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
