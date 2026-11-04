@@ -104,7 +104,7 @@ assert.doesNotMatch(secure,/signInAnonymously|getDocs\(|onSnapshot\(|passwordHas
 const keys=["VERCEL_ENV","BHS_SERVER_ISOLATED_PREVIEW",
   "BHS_ENABLE_CUSTOM_AUTH_PREVIEW","BHS_FIREBASE_SERVICE_ACCOUNT_JSON",
   "BHS_SIGNING_SESSION_SECRET","BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON",
-  "BHS_TEST_SESSION_SECRET","BHS_BACKUP_SECRET"];
+  "BHS_TEST_SESSION_SECRET","BHS_BACKUP_SECRET","FIRESTORE_EMULATOR_HOST"];
 const originals=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
 try{
   process.env.VERCEL_ENV="preview";
@@ -119,6 +119,11 @@ try{
   process.env.BHS_SERVER_ISOLATED_PREVIEW="true";
   process.env.BHS_TEST_FIREBASE_SERVICE_ACCOUNT_JSON="FAKE_TEST_ONLY";
   process.env.BHS_TEST_SESSION_SECRET="b".repeat(64);
+  delete process.env.FIRESTORE_EMULATOR_HOST;
+  assert.equal(isolatedSchoolPreview(),false);
+  assert.equal(appSessionReady(),false);
+  assert.equal(ready(),false);
+  process.env.FIRESTORE_EMULATOR_HOST="127.0.0.1:8099";
   assert.equal(isolatedSchoolPreview(),true);
   assert.equal(appSessionReady(),true);
   assert.equal(ready(),false);
