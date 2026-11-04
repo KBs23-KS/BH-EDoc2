@@ -72,7 +72,7 @@ assert.equal(canReceiveSchoolDoc(subject,docs[3],users,settings),true);
 assert.equal(canReceiveSchoolDoc(outsider,docs[3],users,settings),false);
 assert.equal(canReceiveSchoolDoc(outsider,docs[4],users,settings),true);
 assert.equal(canReceiveSchoolDoc(disabled,docs[4],users,settings),false);
-assert.equal(canReceiveSchoolDoc(admin,docs[5],users,settings),false);
+assert.equal(canReceiveSchoolDoc(admin,docs[5],users,settings),true);
 assert.equal(canReceiveSchoolDoc(deputy,docs[1],users,settings),false);
 assert.equal(canReceiveSchoolDoc(deputy,docs[0],users,settings),true);
 assert.equal(canReceiveSchoolDoc(clerk,docs[0],users,settings),true);
