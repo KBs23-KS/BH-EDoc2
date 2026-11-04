@@ -61,6 +61,7 @@ import {
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import {uploadSecureIncomingFiles,validateSecureIncomingFiles}
   from "./secureIncomingUpload.js";
+import {resubmitSecureRevision} from "./secureRevisionUpload.js";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
 import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
@@ -3322,8 +3323,27 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleResubmit = async () => {
-    if(SECURE_LOGIN_PREVIEW)return showToast(
-      "ต้องเปิดช่องทางอัปโหลด PDF ที่เซิร์ฟเวอร์ตรวจสอบได้ก่อนส่งฉบับแก้ไข","error");
+    if(SECURE_LOGIN_PREVIEW){
+      setIsResubmitting(true);
+      try{
+        const result=await resubmitSecureRevision({
+          docId:docToResubmit?.id,
+          subject:resubmitForm.subject,
+          files:resubmitNewFiles,
+          isSinglePdf:isSinglePdfDocument(docToResubmit?.type),
+          storage:sessionStorage,fetcher:fetch,
+          encode:fileToBase64,idFactory:()=>crypto.randomUUID(),
+          onProgress:setResubmitStatus
+        });
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("ส่งฉบับแก้ไขที่ "+result.activeFileVersion+
+          " เข้าพิจารณารองผู้อำนวยการแล้ว","success");
+        setDocToResubmit(null);
+        setResubmitNewFiles([]);
+      }catch(e){showToast("ส่งฉบับแก้ไขไม่สำเร็จ: "+e.message,"error")}
+      finally{setIsResubmitting(false);setResubmitStatus("")}
+      return;
+    }
     if (!resubmitForm.subject.trim()) return showToast("กรุณาระบุชื่อเรื่อง", "error");
     if (!resubmitNewFiles.length) return showToast("กรุณาอัปโหลดไฟล์ฉบับแก้ไขใหม่ก่อนส่งเรื่อง", "error");
     if (isSinglePdfDocument(docToResubmit.type) && (resubmitNewFiles.length !== 1 || !isPdfUpload(resubmitNewFiles[0])))
