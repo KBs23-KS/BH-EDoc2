@@ -9,10 +9,9 @@
  * Do not enable on the live system before moving passwords out of readable
  * documents and testing least-privilege Firestore Rules.
  */
-import {getAuth as getAdminAuth} from "firebase-admin/auth";
 import {
   appSessionReady,appSessionFingerprint,forbidCrossSite,readAppSession,
-  userRef,setupResponse,fail
+  userRef,serverAdminAuth,setupResponse,fail
 } from "./_signatureServer.js";
 import {canExchangeSchoolIdentity,schoolIdentityClaims} from "../shared/identityPolicy.js";
 
@@ -33,7 +32,7 @@ export default async function handler(req,res) {
     if(!canExchangeSchoolIdentity(session,user,appSessionFingerprint(user)))
       return fail(res,401,"บัญชีนี้ไม่มีสิทธิ์เข้าใช้งาน");
     // Existing user document IDs are stable across device and role changes.
-    const customToken=await getAdminAuth().createCustomToken(user.id,schoolIdentityClaims());
+    const customToken=await serverAdminAuth().createCustomToken(user.id,schoolIdentityClaims());
     return res.status(200).json({uid:user.id,customToken});
   }catch(err){
     // Avoid leaking service-account paths, tokens or school credentials in logs.
