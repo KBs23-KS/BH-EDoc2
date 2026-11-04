@@ -44,7 +44,9 @@ export async function stageSyntheticRevisionPdf({
       throw reject(403,"not_returned_document_owner");
     if(existing.exists){
       const r=existing.data();
-      if(!matching(r))throw reject(409,"revision_id_reused_for_other_file");
+      if(!matching(r)||
+         r.baseVersion!==(Number(d.data().activeFileVersion)||1))
+        throw reject(409,"revision_id_reused_for_other_file");
       if(["ready","consumed"].includes(r.state)&&DRIVE.test(r.driveId||""))
         return {state:r.state,driveId:r.driveId};
       if(r.state==="stored"&&DRIVE.test(r.driveId||""))
@@ -52,7 +54,8 @@ export async function stageSyntheticRevisionPdf({
       throw reject(409,"revision_upload_pending_or_failed");
     }
     tx.create(receipt,{state:"pending",purpose:"revision",
-      docId,actorId,name:file.fileName,sha256:file.sha256,
+      docId,actorId,baseVersion:Number(d.data().activeFileVersion)||1,
+      name:file.fileName,sha256:file.sha256,
       size:file.size,pages:file.pages,createdAt:Date.now()});
     return {state:"new"};
   });
@@ -94,7 +97,8 @@ export async function stageSyntheticRevisionPdf({
     if(!isOwner(u.exists?u.data():null,d.exists?d.data():null,actorId))
       throw reject(403,"document_changed_during_revision");
     if(!existing.exists||!matching(existing.data())||
-       existing.data().driveId!==driveId)
+       existing.data().driveId!==driveId||
+       existing.data().baseVersion!==(Number(d.data().activeFileVersion)||1))
       throw reject(409,"revision_receipt_mismatch");
     if(existing.data().state==="ready")return;
     if(existing.data().state!=="stored")
@@ -128,6 +132,7 @@ export async function finalizeSyntheticRevision({
     if(isSingle&&uploadIds.length!==1)
       throw reject(400,"single_pdf_required");
     if(snapshots.some(s=>!s.exists||s.data()?.state!=="ready"||
+        s.data()?.baseVersion!==(Number(original.activeFileVersion)||1)||
         s.data()?.purpose!=="revision"||
         s.data()?.docId!==docId||s.data()?.actorId!==actorId||
         !DRIVE.test(s.data()?.driveId||"")||
