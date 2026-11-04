@@ -72,5 +72,7 @@ jobs:
         run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/private-credential-vault-emulator.mjs"
       - name: School admin account CRUD and private-password reset (local Emulator only)
         run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-user-admin-emulator.mjs"
+      - name: Incoming document register and audit (local Emulator only)
+        run: npx --yes firebase-tools@14 emulators:exec --project bhs-edoc-security-test --config security/firebase-credential-vault.emulator.json --only firestore "node tests/secure-incoming-documents-emulator.mjs"
       - name: Vite production build
         run: npm run build
