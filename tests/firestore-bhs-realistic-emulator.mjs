@@ -50,9 +50,12 @@ async function backendCreate(actorId,data){
 }
 async function backendTransition(actorId,operation,id,changes,opts={}){
   const before=await backendGet(id);
-  assert.equal(mayPerform(actor(actorId),operation,before,{
-    settings:SETTINGS,users:USERS,...opts
-  }),true,"Backend policy must allow "+operation);
+  const identity=actor(actorId);
+  const accepted=mayPerform(identity,operation,before,{settings:SETTINGS,users:USERS,...opts});
+  assert.equal(accepted,true,"Backend policy must allow "+operation+
+    "; actor="+JSON.stringify({id:identity?.id,role:identity?.role,status:identity?.status})+
+    "; doc="+JSON.stringify({id:before?.id,type:before?.type,status:before?.status,
+      isDeleted:before?.isDeleted,createdBy:before?.createdBy}));
   await env.withSecurityRulesDisabled(async ctx=>{
     const db=ctx.firestore(),b=writeBatch(db);
     b.update(paper(db,id),changes);
