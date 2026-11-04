@@ -64,5 +64,7 @@ jobs:
         run: node tests/signed-pdf-filename-and-remember-username-test.mjs
       - name: Secure school login integration (mock server responses only)
         run: node tests/secure-app-login-integration-test.mjs
+      - name: Secure school document feed and atomic routing policy (offline)
+        run: node tests/secure-server-feed-policy-test.mjs
       - name: Vite production build
         run: npm run build
