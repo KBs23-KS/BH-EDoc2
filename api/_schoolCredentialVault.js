@@ -45,7 +45,7 @@ export function existingLegacyPassword(record){
 }
 export async function verifyPrivateSchoolPassword({db,projectId,user,password,env=process.env}){
   assertCredentialVaultBoundary({projectId,env});
-  if(!user||!TEST_UID.test(user.id||"")||
+  if(!user||user.status==="inactive"||!TEST_UID.test(user.id||"")||
      typeof user.credentialVersion!=="string"||
      user.credentialVersion.length<24||
      typeof password!=="string")return false;
