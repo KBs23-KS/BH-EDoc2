@@ -40,7 +40,8 @@ const anyIsolatedFeatureRequested=()=>process.env.VERCEL_ENV!=="production"&&
   ["BHS_ENABLE_CUSTOM_AUTH_PREVIEW","BHS_ENABLE_SECURE_DIRECTORY_PREVIEW",
     "BHS_ENABLE_SECURE_DATA_PREVIEW","BHS_ENABLE_SECURE_ROUTING_PREVIEW",
     "BHS_ENABLE_SECURE_WORKFLOW_PREVIEW",
-    "BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW"].some(name=>process.env[name]==="true");
+    "BHS_ENABLE_PRIVATE_CREDENTIALS_PREVIEW",
+    "BHS_ENABLE_SECURE_USERS_PREVIEW"].some(name=>process.env[name]==="true");
 export function ready(){
   // Never permit real school PDF signing in any isolated security rehearsal,
   // including a partially misconfigured preview with a production admin key.
