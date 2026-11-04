@@ -4141,6 +4141,23 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [modalMode, setModalMode] = useState(null); 
   const [isSaving, setIsSaving] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
+  // No direct account write is permitted in the secure rehearsal. The
+  // verified server API performs every change and rotates private credentials.
+  const secureUsersRequest=async(action,targetId,form={})=>{
+    const response=await fetch("/api/secure-users",{
+      method:"POST",credentials:"same-origin",cache:"no-store",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action,targetId,form})
+    });
+    if(!response.ok)throw new Error(
+      response.status===403?"คุณไม่มีสิทธิ์ดำเนินการนี้":
+      response.status===400?"ข้อมูลไม่ถูกต้องหรือชื่อผู้ใช้ซ้ำ":
+      "บริการจัดการบัญชีอย่างปลอดภัยยังไม่พร้อม"
+    );
+    const result=await response.json();
+    if(result?.success!==true)throw new Error("ไม่สามารถยืนยันผลการแก้บัญชี");
+    return result;
+  };
   const [formData, setFormData] = useState({ id: "", name: "", username: "", password: "", role: "teacher", adminDept: systemSettings.adminDepts[0] || "", subjectArea: systemSettings.subjectAreas[0] || "", status: "active" });
 
   const [backupBusy, setBackupBusy] = useState(false);
@@ -4157,6 +4174,8 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const [restorePreview,setRestorePreview]=useState(null);
   const [preBackupReady,setPreBackupReady]=useState(false);
   const handleBackup = async () => {
+    if(SECURE_LOGIN_PREVIEW)return showToast(
+      "ระบบสำรองข้อมูลต้องทดสอบผ่านเซิร์ฟเวอร์แยกก่อนใช้งานในโหมดความปลอดภัย","error");
     if(!backupSecret.trim())return showToast("กรุณาระบุรหัสสำรองข้อมูล Google Drive ที่ตั้งไว้ใน Apps Script ก่อน","error");
     setBackupReport(null);
     setBackupBusy(true);
@@ -4194,11 +4213,13 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
     showToast("ลบรหัสสำรองข้อมูลที่จำไว้ในเบราว์เซอร์นี้แล้ว","success");
   };
   const handleInspect=async()=>{
+    if(SECURE_LOGIN_PREVIEW)return showToast("ไม่อนุญาตให้กู้คืนข้อมูลจากเบราว์เซอร์ในโหมดทดสอบ","error");
     if(!restoreFile)return;
     setBackupBusy(true);try{setRestorePreview(await inspectFullBackup({zipFile:restoreFile,getCollectionRef,onStatus:setBackupStatus}));}
     catch(e){showToast(e.message,"error");setRestorePreview(null)}finally{setBackupBusy(false);setBackupStatus("")}
   };
   const handleRestore = async () => {
+    if(SECURE_LOGIN_PREVIEW)return showToast("ต้องยืนยันการกู้คืนกับเซิร์ฟเวอร์ก่อน","error");
     if(!restoreFile||!restorePreview||restoreConfirm!=="RESTORE")return showToast("ต้องตรวจสอบ Backup และพิมพ์ RESTORE ก่อน","error");
     if(restoreMode==="replace"&&!preBackupReady)return showToast("ต้องดาวน์โหลดสำเนาข้อมูลปัจจุบันและยืนยันก่อน","error");
     setBackupBusy(true);
@@ -4217,13 +4238,21 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   };
 
   const openEditModal = (user) => {
-    setFormData({ ...user, password: user.password || "" });
+    // Existing password/hash is never sent to this screen in secure mode.
+    // Empty means KEEP the user's current password unchanged.
+    setFormData({ ...user, password:SECURE_LOGIN_PREVIEW?"":(user.password||"") });
     setModalMode('edit');
   };
 
   const toggleStatus = async (user) => {
     const newStatus = user.status === "inactive" ? "active" : "inactive";
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureUsersRequest("status",user.id,{status:newStatus});
+        showToast("เปลี่ยนสถานะบัญชีผ่านเซิร์ฟเวอร์แล้ว","success");
+        window.location.reload();
+        return;
+      }
       await updateDoc(getDocumentRef(USERS_PATH, user.id), { status: newStatus });
       writeAuditLog(currentUser, newStatus === "active" ? "เปิดใช้งานผู้ใช้" : "ปิดใช้งานผู้ใช้", "USER", user.id, `ผู้ใช้: ${user.name}`);
       showToast(`เปลี่ยนสถานะบัญชี ${user.name} เป็น ${newStatus} แล้ว`, "success");
@@ -4242,6 +4271,22 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
 
     setIsSaving(true);
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        if(modalMode==="add"&&!formData.password)
+          throw new Error("กรุณากำหนดรหัสผ่านเริ่มต้นสำหรับบัญชีใหม่");
+        const changes={
+          name:formData.name,username:formData.username,
+          role:formData.role,adminDept:formData.adminDept,
+          subjectArea:formData.subjectArea,status:formData.status,
+          password:formData.password||""
+        };
+        await secureUsersRequest(modalMode==="add"?"create":"edit",
+          modalMode==="add"?undefined:formData.id,changes);
+        setModalMode(null);
+        showToast("บันทึกบัญชีผ่านเซิร์ฟเวอร์สำเร็จ","success");
+        window.location.reload();
+        return;
+      }
       const userProfile = { ...formData, username: formData.username.trim() }; 
       
       if (userProfile.role === "director" || userProfile.role === "deputy") {
@@ -4271,6 +4316,12 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
   const executeDelete = async () => {
     if(!userToDelete) return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureUsersRequest("delete",userToDelete);
+        showToast("ลบบัญชีและข้อมูลยืนยันตัวตนจำลองแล้ว","success");
+        window.location.reload();
+        return;
+      }
       await deleteDoc(getDocumentRef(USERS_PATH, userToDelete));
       writeAuditLog(currentUser, "ลบผู้ใช้", "USER", userToDelete, "ลบบัญชีออกจากระบบถาวร");
       showToast("ลบผู้ใช้สำเร็จ", "success");
@@ -4366,7 +4417,7 @@ function UserManagementView({ dbUsers, documents, systemSettings, showToast, cur
                     <div className="font-bold text-gray-900 text-sm md:text-base break-words">{u.name}</div>
                     <RoleIndicators user={u} settings={systemSettings} compact/>
                     <div className="text-[11px] md:text-xs text-gray-500 mt-0.5 break-words">Username: {u.username}</div>
-                    {u.password && u.password !== "123456" && (
+                    {!SECURE_LOGIN_PREVIEW && u.password && u.password !== "123456" && (
                       <div className="text-[9px] md:text-[10px] font-medium text-[#D4AF37] mt-1 bg-yellow-50 px-2 py-0.5 rounded inline-block border border-yellow-100">
                         รหัสผ่านถูกอัปเดตแล้ว
                       </div>
