@@ -22,8 +22,11 @@ service cloud.firestore {
       return active() && get(profilePath()).data.role == name;
     }
     function canReadDocument(data) {
+      // Admin and director may review pending items. Clerks may follow
+      // their own drafts; other recipients can read only approved items.
       return active() && (role('admin') || role('director')
-        || (data.readerUids is list && request.auth.uid in data.readerUids));
+        || (data.readerUids is list && request.auth.uid in data.readerUids
+          && (role('clerk') || data.status == 'approved')));
     }
 
     // Password hashes, identity indexes, and rate limits are server-only.
@@ -70,6 +73,7 @@ service cloud.firestore {
         allow list: if role('admin') || role('director');
         allow create: if active() && request.auth.uid == uid
           && exists(/databases/$(database)/documents/bhs_security_test_documents/$(documentId))
+          && get(/databases/$(database)/documents/bhs_security_test_documents/$(documentId)).data.status == 'approved'
           && canReadDocument(get(/databases/$(database)/documents/bhs_security_test_documents/$(documentId)).data)
           && request.resource.data.keys().hasOnly(['uid','acknowledgedAt'])
           && request.resource.data.keys().hasAll(['uid','acknowledgedAt'])
