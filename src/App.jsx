@@ -1338,6 +1338,26 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   );
 }
 
+// The isolated register API never accepts a client-assigned number or PDF.
+async function secureSchoolRegister({kind,action,reservationId,form={}}){
+  if(!SECURE_LOGIN_PREVIEW)throw new Error("บริการนี้ใช้ในโหมดความปลอดภัยทดสอบเท่านั้น");
+  const response=await fetch("/api/secure-register",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({kind,action,reservationId,form})
+  });
+  if(!response.ok)throw new Error(
+    response.status===403?"ไม่มีสิทธิ์ หรือเลขทะเบียนนี้ถูกใช้แล้ว":
+    response.status===400?"ข้อมูลทะเบียนไม่ถูกต้อง หรือปีเปลี่ยนไป":
+    "ไม่สามารถติดต่อเซิร์ฟเวอร์ทะเบียนทดสอบ"
+  );
+  const result=await response.json();
+  if(result?.success!==true||result.kind!==kind||
+    result.action!==action)throw new Error("เซิร์ฟเวอร์ไม่ยืนยันผลทะเบียน");
+  window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+  return result;
+}
+
 function OutgoingReservationsView({ reservations, currentUser, systemSettings, showToast }) {
   const [pageSize, setPageSize] = useState(20);
   const [page, setPage] = useState(1);
@@ -1418,6 +1438,19 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
         responsibleDept: form.responsibleDept,
         remark: form.remark
       };
+      if(SECURE_LOGIN_PREVIEW){
+        const old=reservations.find(x=>x.id===form.id);
+        if(old&&(old.docNumber!==form.docNumber||old.docDate!==form.docDate))
+          throw new Error("เปลี่ยนเลขหรือวันที่ทะเบียนเดิมไม่ได้จากเมนูแก้ข้อมูล");
+        const result=await secureSchoolRegister({
+          kind:"OUT",action:form.id?"edit":"create",
+          reservationId:form.id||undefined,
+          form:{subject:form.subject,date:form.docDate,
+            responsibleDept:form.responsibleDept,remark:form.remark}
+        });
+        if(!form.id)setSavedNumber(result.number);
+        setShowModal(false);setIsSubmitting(false);return;
+      }
 
       if (form.id) {
         const original = reservations.find(r => r.id === form.id);
@@ -1446,6 +1479,12 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
   const handleDelete = async () => {
     if (!docToDelete) return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureSchoolRegister({kind:"OUT",action:"cancel",reservationId:docToDelete});
+        setDocToDelete(null);
+        showToast("ยกเลิกเลขหนังสือออกผ่านเซิร์ฟเวอร์แล้ว","success");
+        return;
+      }
       const ref = getDocumentRef(OUTGOING_RESERVE_PATH, docToDelete);
       await runTransaction(db, async tx => {
         const snap = await tx.get(ref);
@@ -1461,6 +1500,8 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
   };
 
   const handleUploadFile = async (resId, e) => {
+    if(SECURE_LOGIN_PREVIEW)return showToast(
+      "ต้องผ่านระบบตรวจสอบไฟล์ก่อนแนบหนังสือออกในโหมดปลอดภัย","error");
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
     if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes("script.google.com/macros/s/AKfycbwY4")) {
@@ -1810,6 +1851,20 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
         responsibleDept: form.responsibleDept,
         remark: form.remark
       };
+      if(SECURE_LOGIN_PREVIEW){
+        const original=reservations.find(x=>x.id===form.id);
+        if(original&&(original.orderNumber!==form.orderNumber||
+          original.orderDate!==form.orderDate))
+          throw new Error("การเปลี่ยนเลขคำสั่งหรือปีต้องใช้ Backend ตรวจเอกสารคู่ก่อน");
+        const result=await secureSchoolRegister({
+          kind:"ORDER",action:form.id?"edit":"create",
+          reservationId:form.id||undefined,
+          form:{subject:form.subject,date:form.orderDate,
+            responsibleDept:form.responsibleDept,remark:form.remark}
+        });
+        if(!form.id)setSavedNumber(result.number);
+        setShowModal(false);setIsSubmitting(false);return;
+      }
 
       if (form.id) {
         const original=reservations.find(r=>r.id===form.id);
@@ -1907,6 +1962,11 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
   const handleDelete = async () => {
     if (!docToDelete) return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        await secureSchoolRegister({kind:"ORDER",action:"cancel",reservationId:docToDelete});
+        showToast("ยกเลิกเลขจองคำสั่งผ่านเซิร์ฟเวอร์แล้ว","success");
+        setDocToDelete(null);return;
+      }
       const ref = getDocumentRef(ORDER_RESERVE_PATH, docToDelete);
       await runTransaction(db, async tx => {
         const snap = await tx.get(ref);
@@ -1924,6 +1984,8 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
   // Admin-only hard removal of a reservation plus the linked record (any status).
   // Audit metadata remains for traceability; Drive uploads are external and are not deleted.
   const deleteOrderPermanently=async id=>{
+    if(SECURE_LOGIN_PREVIEW)throw new Error(
+      "การลบถาวรต้องผ่าน Backend ที่ตรวจเลขและเอกสารเชื่อมโยงก่อน");
     if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้น");
     const resRef=getDocumentRef(ORDER_RESERVE_PATH,id);
     const before=await getDocFromServer(resRef);
