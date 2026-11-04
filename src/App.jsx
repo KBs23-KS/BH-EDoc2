@@ -3002,6 +3002,8 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   const [extraReason,setExtraReason]=useState("");
   const [extraBusy,setExtraBusy]=useState(false);
   const saveExtra=async()=>{
+    if(SECURE_LOGIN_PREVIEW)return showToast(
+      "แนบไฟล์หลังอนุมัติต้องตรวจสอบไฟล์จากเซิร์ฟเวอร์ก่อน โหมดทดลองยังไม่เปิด","error");
     if(!extraDoc||!extraFiles.length||!extraReason.trim())return showToast("เลือกไฟล์และระบุเหตุผลก่อน","error");
     setExtraBusy(true);
     try{
@@ -3054,6 +3056,19 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
 
   const handleAcknowledge = async (docId) => {
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-routing",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"acknowledge",docId,options:{}})
+        });
+        if(!response.ok)throw new Error("ไม่มีสิทธิ์รับทราบหรือเคยรับทราบแล้ว");
+        const result=await response.json();
+        if(result?.success!==true)throw new Error("ยืนยันผลการรับทราบไม่ได้");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("รับทราบหนังสือผ่านเซิร์ฟเวอร์แล้ว","success");
+        return;
+      }
       const latest=await getDoc(getDocumentRef(DOCS_PATH,docId));
       if(!latest.exists()||!isRecipient(latest.data(),currentUser,dbUsers))throw new Error("คุณไม่ได้อยู่ในรายชื่อผู้รับเอกสารนี้");
       await commitDocumentWithAudit(currentUser, docId, { acknowledgedBy: arrayUnion(currentUser.id),[`acknowledgedAt.${currentUser.id}`]:Date.now() }, "รับทราบเอกสาร", "ผู้ใช้กดรับทราบเอกสาร");
@@ -3066,6 +3081,20 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   const executeDeleteDoc = async () => {
     if(!docToDelete)return;
     try {
+      if(SECURE_LOGIN_PREVIEW){
+        const response=await fetch("/api/secure-documents",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"soft-delete",docId:docToDelete})
+        });
+        if(!response.ok)throw new Error("ไม่สามารถย้ายหนังสือลงถังขยะได้");
+        const result=await response.json();
+        if(result?.success!==true)throw new Error("การดำเนินการไม่สำเร็จ");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("ย้ายหนังสือจำลองลงถังขยะแล้ว","success");
+        setDocToDelete(null);
+        return;
+      }
       await runTransaction(db,async tx=>{
         const ref=getDocumentRef(DOCS_PATH,docToDelete),snapshot=await tx.get(ref);
         if(!snapshot.exists())throw new Error("ไม่พบเอกสาร");
@@ -3118,6 +3147,21 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
         from:editForm.from.trim(),
         type:editForm.type
       };
+      if(SECURE_LOGIN_PREVIEW){
+        if(docToEdit.type!=="หนังสือเข้า"||editForm.type!=="หนังสือเข้า")
+          throw new Error("โหมดทดสอบยังอนุญาตแก้ไขเฉพาะหนังสือเข้า");
+        const response=await fetch("/api/secure-documents",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"edit",docId:docToEdit.id,form:changes})
+        });
+        if(!response.ok)throw new Error("แก้ไขไม่สำเร็จ หรือเลขรับหนังสือซ้ำ");
+        const result=await response.json();
+        if(result?.success!==true)throw new Error("บันทึกข้อมูลไม่ถูกต้อง");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("แก้ไขหนังสือเข้าผ่านเซิร์ฟเวอร์แล้ว","success");
+        setDocToEdit(null);setIsSavingEdit(false);return;
+      }
       if(editForm.type==="หนังสือเข้า"){
         await withIncomingNumberLock({
           number:changes.docNumber,date:changes.date,exceptId:docToEdit.id,
@@ -3160,6 +3204,8 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
   };
 
   const handleResubmit = async () => {
+    if(SECURE_LOGIN_PREVIEW)return showToast(
+      "ต้องเปิดช่องทางอัปโหลด PDF ที่เซิร์ฟเวอร์ตรวจสอบได้ก่อนส่งฉบับแก้ไข","error");
     if (!resubmitForm.subject.trim()) return showToast("กรุณาระบุชื่อเรื่อง", "error");
     if (!resubmitNewFiles.length) return showToast("กรุณาอัปโหลดไฟล์ฉบับแก้ไขใหม่ก่อนส่งเรื่อง", "error");
     if (isSinglePdfDocument(docToResubmit.type) && (resubmitNewFiles.length !== 1 || !isPdfUpload(resubmitNewFiles[0])))
@@ -3630,6 +3676,33 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isSubmitting)return;
+    if(SECURE_LOGIN_PREVIEW){
+      if(docType!=="หนังสือเข้า")return showToast(
+        "การสร้างคำสั่ง/เวียนต้องมี PDF ที่ตรวจสอบฝั่งเซิร์ฟเวอร์ก่อน","error");
+      if(rawFiles.length)return showToast(
+        "โหมดทดสอบยังไม่รองรับการส่งไฟล์จริง ให้ทดสอบเฉพาะทะเบียนหนังสือเข้า","error");
+      setIsSubmitting(true);
+      try{
+        const response=await fetch("/api/secure-documents",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"create",form:{
+            subject:form.subject,docNumber:form.docNumber,date:form.date,
+            urgency:form.urgency,from:form.from
+          }})
+        });
+        if(!response.ok)throw new Error("ไม่สามารถลงทะเบียนได้ อาจมีเลขรับซ้ำหรือไม่มีสิทธิ์");
+        const result=await response.json();
+        if(result?.success!==true||!result.docId)
+          throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการลงทะเบียน");
+        try{localStorage.removeItem(draftKey)}catch{}
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("ลงทะเบียนหนังสือเข้าจำลองผ่านเซิร์ฟเวอร์สำเร็จ","success");
+        changeMenu(backMenu);
+      }catch(e){showToast(e.message,"error")}
+      finally{setIsSubmitting(false);setUploadStatus("")}
+      return;
+    }
     if (!navigator.onLine)return showToast("ไม่มีอินเทอร์เน็ต กรุณาเชื่อมต่อก่อนบันทึก","error");
     if (!form.subject) return showToast("กรุณากรอกชื่อเรื่อง", "error");
     if (docType==="หนังสือเข้า"&&!["admin","clerk"].includes(currentUser.role))
