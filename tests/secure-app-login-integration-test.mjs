@@ -86,7 +86,7 @@ const appSource=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
 const server=readFileSync(new URL("../api/auth-identity.js",import.meta.url),"utf8");
 const directory=readFileSync(new URL("../api/school-directory.js",import.meta.url),"utf8");
 const secure=readFileSync(new URL("../src/secureSessionPreview.js",import.meta.url),"utf8");
-assert.match(appSource,/if \(SECURE_LOGIN_PREVIEW\) return;/);
+assert.match(appSource,/if \(SECURE_LOGIN_REQUESTED\) return;/);
 assert.match(appSource,/if \(SECURE_LOGIN_PREVIEW \|\| !firebaseUser\) return;/);
 assert.match(appSource,/if\(SECURE_LOGIN_PREVIEW\)return;/);
 assert.match(appSource,/createSchoolSession\(fetch,\{username,password\}\)/);
