@@ -20,7 +20,8 @@ export function safeSchoolSettings(source={}){
     ALLOWED_SETTINGS.has(key)));
 }
 export function canReceiveSchoolDoc(user,record,users=[],settings={}){
-  if(!user||user.status==="inactive"||!record||record.isDeleted)return false;
+  if(!user||user.status==="inactive"||!record)return false;
+  if(record.isDeleted)return user.role==="admin";
   if(MANAGERS.has(user.role))return true;
   if(record.createdBy===user.id)return true;
   // A deputy can see the incoming queue and finalized documents, not every
