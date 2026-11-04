@@ -166,3 +166,17 @@ The API upload receipt now has three stages: `pending` (claimed by a transaction
 The expanded Emulator regression covers a previously stored file and simultaneous duplicate submissions. A separate offline client regression checks same-UUID retries and iPad's missing MIME. These tests are in the GitHub Actions configuration, but **do not claim that the latest commit passed CI until an actual run is visible**.
 
 Residual risk: if a transport succeeds but its response is lost entirely, a file can remain orphaned; production rollout requires a server-side orphan reconciliation/cleanup task. The existing local test endpoint remains bound to `127.0.0.1`, not the school Google Drive, and no real PDF signature/Drive ACL changes have been made. This is NOT a production release.
+
+## 4 Nov — returned PDF revisions and preserved version history
+
+The real BHS `AdvancedSearchTable` returned-document form now uses a verified server workflow **in the isolated test mode only**:
+
+- `src/secureRevisionUpload.js` uploads each corrected PDF through `/api/secure-revision` using an idempotency UUID persisted in session storage, then sends a final commit listing the verified receipt IDs. A failed stage does not automatically change the original document or its status.
+- `api/_secureRevisions.js` accepts staging only when the current **active document creator** is authenticated and the document status is `ส่งกลับแก้ไข`. It checks real PDF structure using the existing parser and delivers only to the fake localhost GAS receiver; a browser-supplied Drive ID or signed-file claim is never accepted.
+- Finalize rechecks current user/document status and every server-side receipt in **one Firestore transaction**, preserves the old `fileVersions`, creates the next version, clears stale decision/signature fields and returns the document to `รอรองผู้อำนวยการ`. Orders and circulars require exactly one corrected PDF; incoming documents may have multiple.
+- The previous document number is not changed. The revision and Audit Log commit together. A second finalize cannot reapply the same receipts.
+- New `tests/secure-revision-client-test.mjs` and `tests/secure-revision-emulator.mjs` cover stable client receipt retries, owner checks, unchanged old files during staging, two-version history, single-PDF order enforcement and forged-receipt denial. Source syntax and a manual dry run of the browser helper passed, but the latest GitHub Actions run has not yet been observed.
+
+The isolated feature gate `BHS_ENABLE_SECURE_REVISION_PREVIEW=true` requires the localhost Emulator and synthetic `TEST_` profiles. This is NOT a real Google Drive upload or signing deployment.
+
+**Not complete for production:** Director PDF signing is not yet a trusted server-side signing transaction, real Google Drive file permissions/downloads and orphan-file cleanup still need verification, and actual user/password migration and strict Firestore Rules still need a staged cutover with backup/rollback. Do not Merge or deploy this test branch based on these synthetic checks.
