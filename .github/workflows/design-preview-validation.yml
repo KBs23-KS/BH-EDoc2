@@ -66,5 +66,7 @@ jobs:
         run: node tests/secure-app-login-integration-test.mjs
       - name: Secure school document feed and atomic routing policy (offline)
         run: node tests/secure-server-feed-policy-test.mjs
+      - name: Secure deputy/director workflow and signing safeguards (offline)
+        run: node tests/secure-approval-policy-test.mjs
       - name: Vite production build
         run: npm run build
