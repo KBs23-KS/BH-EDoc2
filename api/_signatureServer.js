@@ -112,8 +112,10 @@ export function clearSessionCookie(res){
   res.setHeader("Set-Cookie",COOKIE+"=; Path=/api; HttpOnly; Secure; SameSite=Strict; Max-Age=0");
 }
 export function matchesLegacyPassword(given,user) {
-  // Temporary bridge to existing stored passwords; replace with Firebase Auth
-  // before tightening Firestore Rules and migrating passwords.
+  // A migrated account MUST NEVER fall back to "123456" or a stale
+  // plaintext password when the isolated vault flag is disabled.
+  if(user?.credentialVersion)return false;
+  // Temporary bridge for unmigrated legacy users only.
   if(typeof given!=="string"||given.length>128)return false;
   const actual=String(user.password||"123456");
   const a=createHmac("sha256","legacy-bhs-compare").update(given).digest();
