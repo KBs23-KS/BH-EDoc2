@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+const api=readFileSync(new URL("../api/push-preview-lab.js",import.meta.url),"utf8");
+const page=readFileSync(new URL("../public/push-preview-lab.html",import.meta.url),"utf8");
+assert.match(api,/VERCEL_ENV!=="preview"/,"API cannot run on Production");
+assert.match(api,/VERCEL_GIT_COMMIT_REF!==BRANCH/,"API only works on PR46 branch");
+assert.match(api,/config\?\.project_id!==PROJECT/,"server must reject wrong Firebase credentials");
+assert.match(api,/const PROJECT="bhs-edoc-security-test"/);
+assert.match(api,/BHS_PUSH_LAB_RULES_VERIFIED/,"must verify sandbox Firestore Rules first");
+assert.match(api,/aes-256-gcm/,"stored subscriptions must be encrypted");
+assert.match(api,/MAX_SENDS_GLOBAL=60/,"global send ceiling must exist");
+assert.match(api,/safeCompare\(record.secretHash,hex\(data.token\)\)/);
+assert.doesNotMatch(api,/bhs_documents|bhs_users|firebaseapp\.com|bhs-edoc-2/);
+assert.match(page,/pushManager\.subscribe/);
+assert.match(page,/Notification\.requestPermission/);
+assert.doesNotMatch(page,/bhs_documents|bhs_users|firebaseConfig|__firebase_config/);
+console.log("PASS: Preview Push Lab strictly sandbox-only; no production Firebase access");

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#173a64">
+<link rel="manifest" href="/push-preview-lab.webmanifest">
+<title>BHS Web Push จริง — ห้องทดสอบแยก</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:#f0f5fb;color:#1d3552}
+*{box-sizing:border-box}body{margin:0;padding:18px}main{max-width:680px;margin:28px auto;padding:25px;background:white;border:1px solid #dce5f0;border-radius:20px}
+h1{font-size:1.5rem}p,li{line-height:1.75}.notice{background:#eef5ff;padding:13px;border-radius:12px}
+.status{white-space:pre-line;background:#f6f9fc;padding:13px;border-radius:12px;line-height:1.7}
+button{border:none;background:#124b89;color:white;padding:13px 18px;border-radius:10px;font-size:1rem;font-weight:650;margin:5px;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}button.alt{background:#e6eef8;color:#124b89}
+small{color:#60748b}a{color:#174f91}
+</style></head><body><main>
+<small>BHS E-DOCUMENT · PR #46 · PREVIEW ONLY</small>
+<h1>ทดสอบ Web Push จริง (Firebase แยก)</h1>
+<p class="notice">หน้านี้ใช้ทดสอบส่ง Web Push ผ่านเซิร์ฟเวอร์ Vercel ไปยังอุปกรณ์ของผู้ทดสอบเท่านั้น ข้อมูลที่จัดเก็บอยู่ใน Firebase <strong>bhs-edoc-security-test</strong> ไม่อ่านบัญชีครูหรือเอกสารจริง ไม่ใช่หน้าระบบสารบรรณ</p>
+<div id="status" class="status" aria-live="polite">กำลังตรวจสอบความพร้อมของเซิร์ฟเวอร์ทดสอบ...</div>
+<p><button id="register" disabled>1. เปิดรับ Web Push</button><button id="send" disabled>2. ส่ง Push ทดสอบจริง</button><button id="remove" class="alt" disabled>ปิดรับแจ้งเตือนเครื่องนี้</button></p>
+<div id="message" class="status" aria-live="polite">ต้องอนุญาตการแจ้งเตือนก่อนทดลองส่งข้อความ</div>
+<h2>iPad / iPhone</h2>
+<p>เปิดลิงก์ใน Safari → แชร์ → เพิ่มไปยังหน้าจอโฮม → เปิดแอปจากหน้าจอโฮมก่อนทดสอบ Push</p>
+<p><strong>ทดสอบตอนปิดหน้าเว็บ:</strong> หลังเปิดรับ Push ให้สลับไปหน้าจออื่นหรือปิดแท็บก่อน แล้วกลับมาที่หน้านี้เพื่อกดส่งจากอีกอุปกรณ์ไม่ได้ เพราะการทดสอบส่งถูกล็อกให้ใช้เฉพาะอุปกรณ์ที่สมัครไว้ ทดสอบรับตอนแอปไม่อยู่เบื้องหน้าได้โดยกดส่งแล้วสลับออกอย่างรวดเร็ว</p>
+<p><small>การส่งแต่ละครั้งจำกัดเว้น 60 วินาที สูงสุด 10 ครั้งต่อเครื่องต่อวัน อายุการลงทะเบียน 24 ชั่วโมง ถ้า Firebase ทดสอบยังไม่พร้อม ปุ่มจะไม่เปิดใช้งาน</small></p>
+<p><a href="/push-preview-check.html">กลับไปหน้าทดสอบแจ้งเตือนในเครื่อง</a></p>
+</main>
+<script>
+(()=>{
+ const $=id=>document.getElementById(id),msg=t=>$("message").textContent=t;
+ const storageKey="bhs-push-lab-session-v1";
+ let cfg=null,session=null;
+ try{session=JSON.parse(localStorage.getItem(storageKey)||"null")}catch{}
+ const isApple=/iPhone|iPad|iPod/.test(navigator.userAgent)||
+   (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+ const standalone=matchMedia("(display-mode:standalone)").matches||navigator.standalone===true;
+ const supported=isSecureContext&&"serviceWorker" in navigator&&
+   "Notification" in window&&"PushManager" in window&&(!isApple||standalone);
+ const status=t=>$("status").textContent=t;
+ const refresh=()=>{
+   $("register").disabled=!cfg||!supported;
+   $("send").disabled=!cfg||!supported||!session;
+   $("remove").disabled=!cfg||!session;
+ };
+ const bytes=key=>{
+   const value=atob(key.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-key.length%4)%4));
+   return Uint8Array.from(value,c=>c.charCodeAt(0));
+ };
+ const request=async(payload)=>{
+   const r=await fetch("/api/push-preview-lab",{
+     method:"POST",credentials:"same-origin",cache:"no-store",
+     headers:{"Content-Type":"application/json"},
+     body:JSON.stringify(payload)
+   });
+   const x=await r.json();
+   if(!r.ok||!x.success)throw Error(x.error||"คำขอไม่สำเร็จ");
+   return x;
+ };
+ const initialize=async()=>{
+   refresh();
+   try{
+     const r=await fetch("/api/push-preview-lab",{cache:"no-store",credentials:"same-origin"});
+     const x=await r.json();
+     if(!r.ok||!x.ready){status("ยังไม่พร้อมส่ง Push จริง: "+(x.error||"รอการตั้งค่า Firebase ทดสอบ"));return;}
+     cfg=x;
+     status("เชื่อม API ทดสอบสำเร็จ\nFirebase: "+x.project+
+       "\nอุปกรณ์นี้: "+(supported?"รองรับ":"กรุณาเปิดแบบแอปบนหน้าจอโฮม/ใช้เบราว์เซอร์ที่รองรับ")+
+       "\nการอนุญาตแจ้งเตือน: "+Notification.permission);
+     refresh();
+   }catch{status("ยังไม่สามารถเชื่อม API ห้องทดสอบได้");}
+ };
+ $("register").addEventListener("click",async()=>{
+   try{
+     // Must request permission directly from the user action.
+     const permission=await Notification.requestPermission();
+     if(permission!=="granted")return msg("กรุณาอนุญาตการแจ้งเตือนในอุปกรณ์");
+     const sw=await navigator.serviceWorker.register("/sw.js"),reg=(await navigator.serviceWorker.ready)||sw;
+     let sub=await reg.pushManager.getSubscription();
+     if(!sub)sub=await reg.pushManager.subscribe({
+       userVisibleOnly:true,applicationServerKey:bytes(cfg.publicKey)
+     });
+     const result=await request({action:"register",subscription:sub.toJSON()});
+     session={deviceId:result.deviceId,token:result.token};
+     localStorage.setItem(storageKey,JSON.stringify(session));
+     refresh();msg("ลงทะเบียนอุปกรณ์ใน Firebase ทดสอบสำเร็จ (หมดอายุภายใน 24 ชั่วโมง)");
+   }catch(e){msg("เปิดรับไม่ได้: "+(e.message||"ไม่ทราบสาเหตุ"));}
+ });
+ $("send").addEventListener("click",async()=>{
+   try{
+     const x=await request({action:"send",...session});
+     msg(x.queued?"เซิร์ฟเวอร์ส่ง Push ออกไปแล้ว ลองดูการแจ้งเตือนของอุปกรณ์":
+       "ยังไม่ได้ส่งข้อความ");
+   }catch(e){msg("ยังส่งไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));}
+ });
+ $("remove").addEventListener("click",async()=>{
+   try{await request({action:"remove",...session});
+     const reg=await navigator.serviceWorker.ready;
+     const sub=await reg.pushManager.getSubscription();
+     if(sub)await sub.unsubscribe();
+     localStorage.removeItem(storageKey);session=null;refresh();
+     msg("ยกเลิกลงทะเบียนอุปกรณ์ทดสอบแล้ว");
+   }catch(e){msg("ยกเลิกไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));}
+ });
+ initialize();
+})();
+</script></body></html>
