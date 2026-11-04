@@ -40,7 +40,12 @@ const entry = readFileSync(new URL("../security-test/main.js",import.meta.url),"
 assert.match(vite,/root: 'security-test'/);
 assert.match(vite,/publicDir: false/);
 assert.match(html,/\.\/main\.js/);
-assert.doesNotMatch(entry,/\.\.\/src\/App|signInAnonymously|setDoc\(|updateDoc\(|deleteDoc\(/);
+assert.doesNotMatch(entry,/\.\.\/src\/App|signInAnonymously|deleteDoc\(/);
+assert.match(entry,/TEST_FLOW_/);
+assert.match(entry,/flowCreate\.addEventListener/);
+assert.match(entry,/flowSend\.addEventListener/);
+assert.match(entry,/flowApprove\.addEventListener/);
+assert.match(entry,/flowAcknowledge\.addEventListener/);
 assert.match(entry,/verifyTestProject\(\)/);
 assert.match(entry,/permission-denied/);
 console.log("Isolated Firebase security test configuration and Vercel fail-closed checks passed");
