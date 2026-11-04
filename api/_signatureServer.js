@@ -36,9 +36,14 @@ const adminAccountJson=()=>isolatedSchoolPreview()?
 const serverSessionSecret=()=>isolatedSchoolPreview()?
   process.env.BHS_TEST_SESSION_SECRET:
   process.env.BHS_SIGNING_SESSION_SECRET;
+const anyIsolatedFeatureRequested=()=>process.env.VERCEL_ENV!=="production"&&
+  ["BHS_ENABLE_CUSTOM_AUTH_PREVIEW","BHS_ENABLE_SECURE_DIRECTORY_PREVIEW",
+    "BHS_ENABLE_SECURE_DATA_PREVIEW","BHS_ENABLE_SECURE_ROUTING_PREVIEW",
+    "BHS_ENABLE_SECURE_WORKFLOW_PREVIEW"].some(name=>process.env[name]==="true");
 export function ready(){
-  // PDF signing is NEVER permitted in the isolated backend rehearsal.
-  return !isolatedSchoolPreview() &&
+  // Never permit real school PDF signing in any isolated security rehearsal,
+  // including a partially misconfigured preview with a production admin key.
+  return !isolatedSchoolPreview()&&!anyIsolatedFeatureRequested() &&
     Boolean(process.env.BHS_FIREBASE_SERVICE_ACCOUNT_JSON&&
       process.env.BHS_SIGNING_SESSION_SECRET?.length>=32&&process.env.BHS_BACKUP_SECRET);
 }
@@ -130,6 +135,7 @@ const MAX_APP_MS=7*24*60*60*1000;
 export function appSessionReady(){
   if(process.env.BHS_SERVER_ISOLATED_PREVIEW==="true" &&
      process.env.VERCEL_ENV==="production")return false;
+  if(anyIsolatedFeatureRequested()&&!isolatedSchoolPreview())return false;
   return Boolean(adminAccountJson()&&serverSessionSecret()?.length>=32);
 }
 export const appSessionFingerprint = user =>
