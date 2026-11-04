@@ -2703,6 +2703,23 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   const handleRestore = async (docId) => {
     try {
       if(currentUser.role!=="admin")throw new Error("เฉพาะแอดมินเท่านั้นที่กู้คืนจากถังขยะได้");
+      if(SECURE_LOGIN_PREVIEW){
+        const item=documents.find(d=>d.id===docId);
+        if(item?.type!=="หนังสือเข้า")
+          throw new Error("โหมดทดสอบกู้คืนได้เฉพาะหนังสือเข้า โดยไม่แก้ PDF คำสั่ง");
+        const response=await fetch("/api/secure-documents",{
+          method:"POST",credentials:"same-origin",cache:"no-store",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({action:"restore",docId})
+        });
+        if(!response.ok)throw new Error("กู้คืนไม่สำเร็จ หรือเลขรับหนังสือซ้ำกับรายการที่ใช้งาน");
+        const result=await response.json();
+        if(result?.success!==true||result.docId!==docId)
+          throw new Error("เซิร์ฟเวอร์ไม่ยืนยันการกู้คืน");
+        window.dispatchEvent(new Event("bhs-secure-data-refresh"));
+        showToast("กู้คืนหนังสือเข้าผ่านเซิร์ฟเวอร์สำเร็จ","success");
+        return;
+      }
       const item=documents.find(d=>d.id===docId);
       if(item?.trialArchived)
         throw new Error("รายการทดลองต้องกู้คืนที่เมนูเลขคำสั่งโรงเรียน เพื่อให้เลขและคำสั่งตรงกัน");
@@ -2728,6 +2745,10 @@ function TrashView({ documents, currentUser, dbUsers, showToast }) {
   };
 
   const handlePermanentDelete = async (docId) => {
+    if(SECURE_LOGIN_PREVIEW){
+      showToast("การลบเอกสารถาวรต้องตรวจไฟล์ Drive และทะเบียนที่เชื่อมโยงบนเซิร์ฟเวอร์ก่อน","error");
+      return;
+    }
     if(documents.find(d=>d.id===docId)?.reservationId){
       showToast("ลบคำสั่งที่เชื่อมทะเบียนจากเมนูเลขคำสั่งโรงเรียน เพื่อให้ลบทั้งสองจุด","error");return;
     }
