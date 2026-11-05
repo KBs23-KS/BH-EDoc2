@@ -28,19 +28,33 @@ small{color:#60748b}a{color:#174f91}
 (()=>{
  const $=id=>document.getElementById(id),msg=t=>$("message").textContent=t;
  const storageKey="bhs-push-lab-session-v1";
- let cfg=null,session=null;
+ let cfg=null,session=null,sending=false,nextSendAt=0;
  try{session=JSON.parse(localStorage.getItem(storageKey)||"null")}catch{}
+ nextSendAt=Number(session?.nextSendAt)||0;
  const isApple=/iPhone|iPad|iPod/.test(navigator.userAgent)||
    (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
  const standalone=matchMedia("(display-mode:standalone)").matches||navigator.standalone===true;
  const supported=isSecureContext&&"serviceWorker" in navigator&&
    "Notification" in window&&"PushManager" in window&&(!isApple||standalone);
  const status=t=>$("status").textContent=t;
+ const secondsUntilRetry=()=>Math.max(0,Math.ceil((nextSendAt-Date.now())/1000));
  const refresh=()=>{
+   const remaining=secondsUntilRetry();
    $("register").disabled=!cfg||!supported;
-   $("send").disabled=!cfg||!supported||!session;
-   $("remove").disabled=!cfg||!session;
+   $("send").disabled=!cfg||!supported||!session||sending||remaining>0;
+   $("send").textContent=remaining>0?
+     "2. ส่งซ้ำได้ใน "+remaining+" วินาที":
+     sending?"กำลังส่ง Push...":"2. ส่ง Push ทดสอบจริง";
+   $("remove").disabled=!cfg||!session||sending;
  };
+ const setCooldown=seconds=>{
+   nextSendAt=Date.now()+Math.max(1,Number(seconds)||60)*1000;
+   if(session){session.nextSendAt=nextSendAt;
+     localStorage.setItem(storageKey,JSON.stringify(session));}
+   refresh();
+ };
+ // Countdown is local UI feedback; the 60-second limit is enforced on the server.
+ setInterval(refresh,1000);
  const bytes=key=>{
    const value=atob(key.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-key.length%4)%4));
    return Uint8Array.from(value,c=>c.charCodeAt(0));
@@ -52,7 +66,12 @@ small{color:#60748b}a{color:#174f91}
      body:JSON.stringify(payload)
    });
    const x=await r.json();
-   if(!r.ok||!x.success)throw Error(x.error||"คำขอไม่สำเร็จ");
+   if(!r.ok||!x.success){
+     const error=new Error(x.error||"คำขอไม่สำเร็จ");
+     error.status=r.status;
+     error.retryAfterSeconds=x.retryAfterSeconds;
+     throw error;
+   }
    return x;
  };
  const initialize=async()=>{
@@ -79,24 +98,33 @@ small{color:#60748b}a{color:#174f91}
        userVisibleOnly:true,applicationServerKey:bytes(cfg.publicKey)
      });
      const result=await request({action:"register",subscription:sub.toJSON()});
-     session={deviceId:result.deviceId,token:result.token};
+     session={deviceId:result.deviceId,token:result.token,nextSendAt:0};
+     nextSendAt=0;
      localStorage.setItem(storageKey,JSON.stringify(session));
      refresh();msg("ลงทะเบียนอุปกรณ์ใน Firebase ทดสอบสำเร็จ (หมดอายุภายใน 24 ชั่วโมง)");
    }catch(e){msg("เปิดรับไม่ได้: "+(e.message||"ไม่ทราบสาเหตุ"));}
  });
  $("send").addEventListener("click",async()=>{
+   if(sending||secondsUntilRetry()>0)return;
+   sending=true;refresh();
    try{
      const x=await request({action:"send",...session});
-     msg(x.queued?"เซิร์ฟเวอร์ส่ง Push ออกไปแล้ว ลองดูการแจ้งเตือนของอุปกรณ์":
+     if(x.queued)setCooldown(x.retryAfterSeconds);
+     msg(x.queued?
+       "เซิร์ฟเวอร์ส่ง Push ใหม่ออกไปแล้ว ตรวจการแจ้งเตือนบนอุปกรณ์ และรอให้ตัวนับถอยหลังหมดก่อนส่งครั้งถัดไป":
        "ยังไม่ได้ส่งข้อความ");
-   }catch(e){msg("ยังส่งไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));}
+   }catch(e){
+     if(e.status===429&&Number(e.retryAfterSeconds)>0)
+       setCooldown(e.retryAfterSeconds);
+     msg("ยังส่งไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));
+   }finally{sending=false;refresh();}
  });
  $("remove").addEventListener("click",async()=>{
    try{await request({action:"remove",...session});
      const reg=await navigator.serviceWorker.ready;
      const sub=await reg.pushManager.getSubscription();
      if(sub)await sub.unsubscribe();
-     localStorage.removeItem(storageKey);session=null;refresh();
+     localStorage.removeItem(storageKey);session=null;nextSendAt=0;refresh();
      msg("ยกเลิกลงทะเบียนอุปกรณ์ทดสอบแล้ว");
    }catch(e){msg("ยกเลิกไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));}
  });

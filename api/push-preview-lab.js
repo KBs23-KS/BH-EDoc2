@@ -16,8 +16,23 @@ const RETENTION_MS=24*60*60*1000;
 const MAX_SENDS_PER_DEVICE=10;
 const MAX_SENDS_GLOBAL=60;
 const MAX_REGISTRATIONS_GLOBAL=40;
+const COOLDOWN_MS=60*1000;
 const hex=value=>createHash("sha256").update(value).digest("hex");
-const issue=(status,message)=>Object.assign(new Error(message),{status});
+const issue=(status,message,details={})=>Object.assign(new Error(message),{status,...details});
+export function labCooldownSeconds(now,lastSentAt) {
+  return Math.max(0,Math.ceil((COOLDOWN_MS-(now-Number(lastSentAt||0)))/1000));
+}
+export function makeLabPushPayload(){
+  return {
+    title:"BHS Push Test",
+    body:"Web Push ทดสอบจาก Firebase แยก (ไม่มีเอกสารจริง)",
+    url:"/push-preview-lab.html",
+    // Fresh tag for each accepted send. A fixed tag replaces the previous
+    // notification without showing a new popup in Chrome (renotify:false).
+    tag:"bhs-push-lab-"+randomBytes(8).toString("hex"),
+    badge:1
+  };
+}
 function safeCompare(left,right) {
   if(!/^[0-9a-f]{64}$/.test(String(left))||!/^[0-9a-f]{64}$/.test(String(right)))return false;
   return timingSafeEqual(Buffer.from(left,"hex"),Buffer.from(right,"hex"));
@@ -126,8 +141,10 @@ async function dispatch(db,data,key) {
        record.expiresAt<=now)throw issue(403,"อุปกรณ์ไม่ได้ลงทะเบียนหรือหมดอายุ");
     const count=await tx.get(quota);
     const sent=record.sendDay===day?record.sendCount||0:0;
-    if(now-(record.lastSentAt||0)<60000)
-      throw issue(429,"กรุณารออย่างน้อย 60 วินาทีระหว่างทดสอบ");
+    const remaining=labCooldownSeconds(now,record.lastSentAt);
+    if(remaining>0)
+      throw issue(429,"กรุณารออีก "+remaining+" วินาทีก่อนส่งซ้ำ",
+        {retryAfterSeconds:remaining});
     if(sent>=MAX_SENDS_PER_DEVICE||
        (count.data()?.count||0)>=MAX_SENDS_GLOBAL)
       throw issue(429,"โควตาการทดสอบวันนี้ครบแล้ว");
@@ -140,11 +157,10 @@ async function dispatch(db,data,key) {
     process.env.BHS_PUSH_LAB_VAPID_PUBLIC_KEY,
     process.env.BHS_PUSH_LAB_VAPID_PRIVATE_KEY);
   try{
-    await webpush.sendNotification(sub,JSON.stringify({
-      title:"BHS Push Test",body:"Web Push ทดสอบจาก Firebase แยก (ไม่มีเอกสารจริง)",
-      url:"/push-preview-lab.html",tag:"bhs-push-lab",badge:1
-    }),{TTL:120,urgency:"normal",timeout:9000});
-    return {success:true,queued:true};
+    await webpush.sendNotification(sub,JSON.stringify(makeLabPushPayload()),
+      {TTL:120,urgency:"normal",timeout:9000});
+    return {success:true,queued:true,
+      retryAfterSeconds:labCooldownSeconds(Date.now(),now)};
   }catch(error){
     if([404,410].includes(Number(error?.statusCode)))await dev.delete().catch(()=>{});
     throw issue(502,"บริการ Push ไม่รับข้อความทดสอบ โปรดสมัครอุปกรณ์ใหม่");
@@ -197,6 +213,8 @@ export default async function handler(req,res){
       status===404?"ไม่เปิดบริการนี้ในสภาพแวดล้อมนี้":
       status===429?err.message:
       status===403?"ไม่มีสิทธิ์ทดสอบอุปกรณ์นี้":
-      status===502?err.message:"คำขอทดสอบไม่สำเร็จ"});
+      status===502?err.message:"คำขอทดสอบไม่สำเร็จ",
+      ...(status===429&&Number.isInteger(err?.retryAfterSeconds)?
+        {retryAfterSeconds:err.retryAfterSeconds}:{})});
   }
 }
