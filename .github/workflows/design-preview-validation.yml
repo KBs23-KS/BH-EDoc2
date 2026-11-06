@@ -62,5 +62,9 @@ jobs:
         run: node tests/login-official-crest-regression-test.mjs
       - name: Original-name signed PDF and remembered username regression
         run: node tests/signed-pdf-filename-and-remember-username-test.mjs
+      - name: Free Web Push notifications, role checks, iPad support
+        run: npm run test:push
+      - name: Isolated Preview Web Push lab safety regression
+        run: node tests/push-preview-isolation-test.mjs
       - name: Vite production build
         run: npm run build

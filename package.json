@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "node tests/head-routing-tabs-test.mjs && node tests/assignment-broadcast-a4-test.mjs && node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:push": "node tests/push-events-test.mjs && node tests/push-notification-integration-test.mjs"
   },
   "dependencies": {
     "firebase": "^12.1.0",
@@ -17,7 +18,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwindcss": "^4.1.0",
-    "firebase-admin": "^13.4.0"
+    "firebase-admin": "^13.4.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.0",

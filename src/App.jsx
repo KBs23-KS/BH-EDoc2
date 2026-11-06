@@ -73,6 +73,21 @@ import OrgHeads from "./OrgHeads";
 import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
+import {
+  pushClientSupport,currentPushState,enableWebPush,disableWebPush
+} from "./webPushClient.js";
+import {clientNotificationCandidates} from "../shared/pushEvents.js";
+const PUSH_UI_ENABLED=import.meta.env.VITE_BHS_ENABLE_PUSH==="true";
+// Fire-and-forget AFTER a successful document commit. Does not delay school
+// workflows if push service or device subscription is not ready.
+function notifyPushAfterSave(docId,kind,eventId){
+  if(!PUSH_UI_ENABLED)return;
+  const body=JSON.stringify({docId,kind,...(eventId?{eventId}:{})});
+  void fetch("/api/push-dispatch",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    keepalive:true,headers:{"Content-Type":"application/json"},body
+  }).catch(()=>{});
+}
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -756,6 +771,47 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [changePasswordModal, setChangePasswordModal] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [pushDevice,setPushDevice]=useState({supported:false,enabled:false,reason:""});
+  const [pushBusy,setPushBusy]=useState(false);
+  const attemptedPushEvents=useRef(new Set());
+  useEffect(()=>{
+    if(!PUSH_UI_ENABLED)return;
+    let active=true;
+    void currentPushState().then(value=>{
+      if(active)setPushDevice(value);
+    }).catch(()=>{if(active)setPushDevice({
+      supported:false,enabled:false,
+      reason:"ยังไม่สามารถตรวจสถานะการแจ้งเตือนอุปกรณ์นี้"
+    })});
+    return()=>{active=false;};
+  },[currentUser.id]);
+  const toggleDevicePush=async()=>{
+    setPushBusy(true);
+    try{
+      if(pushDevice.enabled){
+        await disableWebPush();
+        setPushDevice({...pushDevice,enabled:false});
+        showToast("ปิดแจ้งเตือนบนอุปกรณ์นี้แล้ว","success");
+      }else{
+        await enableWebPush();
+        setPushDevice({supported:true,enabled:true,reason:"",permission:"granted"});
+        showToast("เปิดแจ้งเตือนบนอุปกรณ์นี้สำเร็จ","success");
+      }
+    }catch(e){showToast(e.message||"เปิดแจ้งเตือนไม่สำเร็จ","error")}
+    finally{setPushBusy(false)}
+  };
+  const logoutWithPush=()=>{
+    // Shared computers must not remain subscribed to the last user.
+    if(!PUSH_UI_ENABLED){onLogout();return;}
+    const removal=disableWebPush().catch(()=>{});
+    void Promise.race([
+      removal,new Promise(resolve=>setTimeout(resolve,2500))
+    ]).finally(()=>{
+      if(typeof navigator.clearAppBadge==="function")
+        Promise.resolve(navigator.clearAppBadge()).catch(()=>{});
+      onLogout();
+    });
+  };
   
   const [soundVolume,setSoundVolume]=useState(()=>{try{const v=localStorage.getItem("bhs-edoc-volume");return v===null?50:Math.max(0,Math.min(100,Number(v)||0))}catch{return 50}});
   const soundEnabled=soundVolume>0;
@@ -804,7 +860,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const managedGroups=headGroups(currentUser,systemSettings);
   const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
     db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
-    user:currentUser,users:dbUsers,settings:systemSettings,showToast
+    user:currentUser,users:dbUsers,settings:systemSettings,showToast,
+    onNotification:notifyPushAfterSave
   });
   const openDocument=id=>{
     const d=activeDocs.find(x=>x.id===id);
@@ -817,12 +874,6 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
     const id=new URLSearchParams(window.location.search).get("doc");
     if(id&&activeDocs.some(d=>d.id===id))openDocument(id);
   },[documents.length,currentUser.id]);
-  useEffect(()=>{
-    if(!("setAppBadge" in navigator))return;
-    const n=activeDocs.filter(d=>isFinalDoc(d)&&canViewRouted(currentUser,d,dbUsers,systemSettings)&&!(d.acknowledgedBy||[]).includes(currentUser.id)).length
-      +activeDocs.reduce((sum,d)=>sum+pendingAssignmentEvents(d,currentUser).length+pendingHeadGroups(d,currentUser,systemSettings).length,0);
-    Promise.resolve(navigator.setAppBadge(n)).catch(()=>{});
-  },[documents,currentUser.id,dbUsers,systemSettings]);
   const openedDoc=activeDocs.find(d=>d.id===focusDocId);
   const documentAlerts=routingAlerts(activeDocs,currentUser,systemSettings);
   const assignmentCount=activeDocs.reduce((n,d)=>n+pendingAssignmentEvents(d,currentUser).length,0);
@@ -878,6 +929,32 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }));
   notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
+  // Exact pending count when the app is open; background Web Push displays a
+  // temporary badge until this view recomputes the authoritative task list.
+  const pendingIconBadge=notifications.length;
+  useEffect(()=>{
+    if(!("setAppBadge" in navigator))return;
+    if(pendingIconBadge){
+      Promise.resolve(navigator.setAppBadge(pendingIconBadge)).catch(()=>{});
+    }else if("clearAppBadge" in navigator){
+      Promise.resolve(navigator.clearAppBadge()).catch(()=>{});
+    }
+    document.title=(pendingIconBadge?"("+pendingIconBadge+") ":"")+"BHS E-Document";
+  },[pendingIconBadge,currentUser.id]);
+  useEffect(()=>{
+    if(!PUSH_UI_ENABLED||!documents.length)return;
+    const recent=clientNotificationCandidates(documents,currentUser);
+    for(const event of recent){
+      const key=JSON.stringify(event);
+      if(attemptedPushEvents.current.has(key))continue;
+      attemptedPushEvents.current.add(key);
+      void fetch("/api/push-dispatch",{
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(event)
+      }).catch(()=>{/* An unavailable push service must never block school work. */});
+    }
+  },[documents,currentUser.id]);
   const notificationHistory=[
     ...routingHistory(activeDocs,currentUser,systemSettings),
     ...activeDocs.filter(d=>isFinalDoc(d)&&(canReadDoc(currentUser,d,dbUsers)||canViewRouted(currentUser,d,dbUsers,systemSettings)))
@@ -982,7 +1059,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
           <RoleIndicators user={currentUser} settings={systemSettings} compact/>
         </div>
         <button type="button" onClick={() => setChangePasswordModal(true)} className="bhs-luxury-account-control" title="เปลี่ยนรหัสผ่าน" aria-label="เปลี่ยนรหัสผ่าน"><KeyRound size={17}/></button>
-        <button type="button" onClick={onLogout} className="bhs-luxury-account-control" title="ออกจากระบบ" aria-label="ออกจากระบบ"><LogOut size={17}/></button>
+        <button type="button" onClick={logoutWithPush} className="bhs-luxury-account-control" title="ออกจากระบบ" aria-label="ออกจากระบบ"><LogOut size={17}/></button>
       </div>
     </>
   );
@@ -1032,6 +1109,23 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
                        {notifications.length > 0 && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full font-bold">{notifications.length} รายการ</span>}
                     </div>
                   </div>
+                  {PUSH_UI_ENABLED&&
+                    <div className="px-3 py-2 border-b bg-slate-50">
+                      <div className="flex justify-between items-center gap-3">
+                        <span className="text-xs font-semibold text-slate-700">การแจ้งเตือนบนอุปกรณ์นี้</span>
+                        <button type="button" disabled={pushBusy||(!pushDevice.supported&&!pushDevice.enabled)}
+                          onClick={toggleDevicePush}
+                          className={"text-xs font-bold rounded-lg px-3 py-1.5 "+(pushDevice.enabled?
+                            "bg-slate-200 text-slate-700":"bg-blue-700 text-white")}>
+                          {pushBusy?"กำลังดำเนินการ...":pushDevice.enabled?
+                            "ปิดแจ้งเตือน":"เปิดแจ้งเตือน"}
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        {pushDevice.enabled?"รับการแจ้งเตือนแม้ปิดหน้าเว็บ":
+                          pushDevice.reason||"กดเปิดและอนุญาตการแจ้งเตือนจากเบราว์เซอร์"}
+                      </p>
+                    </div>}
                   <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"],["history","ย้อนหลัง"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
                   <div className="px-3 py-2 border-b"><input aria-label="ค้นหาการแจ้งเตือน" placeholder="ค้นหาชื่อเรื่องหรือข้อความแจ้งเตือน..." value={notifQuery} onChange={e=>setNotifQuery(e.target.value)} className="w-full border px-3 py-2 text-xs rounded-lg"/></div>
                   <div className="max-h-[60vh] overflow-y-auto custom-scrollbar bg-white">
@@ -2630,6 +2724,8 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
       
       const actionText = actionType === "RETURN" ? "ส่งกลับแก้ไข" : isDeputyStage ? "เสนอผู้อำนวยการ" : "อนุมัติและเผยแพร่";
       await commitCheckedAction(currentUser, docObj, updates, actionText, docObj.subject);
+      notifyPushAfterSave(docObj.id,actionType==="RETURN"?"returned":
+        isDeputyStage?"director":"published");
       if (signedPdf) {
         signedUploads.current.delete(`${docObj.id}:${fileIdentity(docObj)}`);
         setSignDoc(null);
@@ -3482,6 +3578,7 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
         await batch.commit();
       }
       try{localStorage.removeItem(draftKey)}catch{}
+      notifyPushAfterSave(newDocId,"created");
       if (docType === "คำสั่งโรงเรียน") {
         setCreatedSummary({ number: newDoc.docNumber || "ไม่มีเลข", subject: newDoc.subject, status: "รอรองผู้อำนวยการ", id:newDocId });
       } else changeMenu(backMenu);

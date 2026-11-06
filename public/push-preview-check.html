@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#163250">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="ทดสอบการแสดงการแจ้งเตือนบนอุปกรณ์ โดยไม่เชื่อม Firebase หรือข้อมูลเอกสารโรงเรียน">
+<link rel="manifest" href="/push-preview-check.webmanifest">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<title>BHS E-Document — ทดสอบแจ้งเตือน (Preview)</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans Thai","Segoe UI",sans-serif;color:#18314d;background:#edf3fa}
+*{box-sizing:border-box}body{margin:0;padding:20px}main{max-width:630px;margin:25px auto}
+.card{background:white;border:1px solid #d9e4f1;border-radius:22px;padding:25px;box-shadow:0 12px 40px rgba(20,49,80,.06)}
+h1{font-size:1.45rem;margin:5px 0 12px}h2{font-size:1.02rem;margin:22px 0 10px}
+p,li{line-height:1.75}.subtle{color:#526a80}.eyebrow{color:#2763a4;font-weight:800;font-size:.8rem}
+.note{border:1px solid #f2d2a3;border-radius:13px;padding:12px 14px;background:#fff8eb;color:#7c4b17}
+.status{background:#f2f7fc;border-radius:12px;padding:14px;margin-top:16px;white-space:pre-line;line-height:1.8}
+button{font:inherit;font-weight:750;border-radius:12px;border:0;padding:13px 16px;cursor:pointer;margin:6px 7px 0 0}
+.primary{background:#164a80;color:white}.secondary{background:#e7eff9;color:#164a80}button:disabled{opacity:.55;cursor:not-allowed}
+small{color:#5c7186}a{color:#1b5b97}ol{padding-left:24px}footer{margin-top:20px}
+</style>
+</head>
+<body><main><section class="card">
+<div class="eyebrow">BHS E-DOCUMENT · PREVIEW เท่านั้น</div>
+<h1>ทดสอบการแจ้งเตือนบนอุปกรณ์</h1>
+<p class="subtle">หน้านี้ใช้ทดสอบว่าเบราว์เซอร์และเว็บแอปสามารถ <strong>แสดงการแจ้งเตือน</strong> และตัวเลขบนไอคอนได้หรือไม่ โดยไม่ต้องล็อกอิน ไม่อ่าน Firebase ไม่สร้างหรือแก้เอกสาร และไม่ส่งข้อมูลอุปกรณ์ไปยังเซิร์ฟเวอร์</p>
+<div class="note"><strong>ข้อจำกัด:</strong> การทดสอบนี้เป็นการแสดงแจ้งเตือนในเครื่อง ไม่ใช่ Web Push จากเซิร์ฟเวอร์ขณะปิดแอป การทดสอบ Push จริงจะทำภายหลังเมื่อแยกฐานข้อมูลทดสอบแล้ว อย่าเข้าหน้าแอปหลักของ Preview เพื่อแก้ไขเอกสารจริง</div>
+<h2>สถานะอุปกรณ์</h2><div id="status" class="status" aria-live="polite">กำลังตรวจสอบ...</div>
+<h2>ทดสอบ</h2>
+<button id="test" type="button" class="primary">ทดสอบแสดงการแจ้งเตือน</button>
+<button id="badge" type="button" class="secondary">ทดสอบตัวเลข 1</button>
+<button id="clear" type="button" class="secondary">ล้างตัวเลข</button>
+<div id="result" class="status" aria-live="polite">ยังไม่ได้ทดสอบ</div>
+<h2>วิธีใช้บน iPad / iPhone</h2>
+<ol><li>เปิดหน้านี้ใน Safari</li><li>แตะปุ่มแชร์ แล้วเลือก <strong>เพิ่มไปยังหน้าจอโฮม</strong> (Add to Home Screen)</li><li>เปิดไอคอน <strong>BHS Push Test</strong> จากหน้าจอโฮม และกดปุ่มทดสอบ</li></ol>
+<p class="subtle">บน Chrome คอมพิวเตอร์หรือ Android สามารถเปิดหน้านี้แล้วกดทดสอบได้ โดยอนุญาตให้เว็บไซต์แสดงการแจ้งเตือนเมื่อระบบถาม</p>
+<footer><small>หน้านี้สำหรับ PR #46 · ไม่ใช้ Firebase · ไม่เปิด Push server · ข้อมูลทดสอบไม่ถูกเก็บ</small></footer>
+</section></main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const apple=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const standalone=matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+const supported=window.isSecureContext&&("serviceWorker" in navigator)&&("Notification" in window);
+const explain=()=>[
+  "การเชื่อมต่อที่ปลอดภัย: "+(window.isSecureContext?"รองรับ":"ไม่รองรับ"),
+  "Service Worker: "+("serviceWorker" in navigator?"รองรับ":"ไม่รองรับ"),
+  "Notification: "+("Notification" in window?"รองรับ":"ไม่รองรับ"),
+  "สิทธิ์แจ้งเตือน: "+(window.Notification?.permission||"ไม่รองรับ"),
+  "เปิดแบบแอปจากหน้าจอโฮม: "+(standalone?"ใช่":"ไม่ใช่"),
+  "การทดสอบ: "+(apple&&!standalone?"iPad/iPhone ต้องติดตั้งลงหน้าจอโฮมก่อน":supported?"พร้อมขออนุญาตจากผู้ใช้":"เบราว์เซอร์ยังไม่รองรับ")
+].join("\n");
+$("status").textContent=explain();
+$("test").disabled=!supported||(apple&&!standalone);
+$("badge").disabled=typeof navigator.setAppBadge!=="function";
+$("clear").disabled=typeof navigator.clearAppBadge!=="function";
+const msg=s=>$("result").textContent=s;
+$("test").addEventListener("click",async()=>{
+  try{
+    // Request permission directly from a user click, as required by browsers.
+    const permission=await Notification.requestPermission();
+    $("status").textContent=explain().replace(/สิทธิ์แจ้งเตือน: .+/, "สิทธิ์แจ้งเตือน: "+permission);
+    if(permission!=="granted")return msg("ยังไม่ได้อนุญาตการแจ้งเตือน กรุณาอนุญาตในการตั้งค่าเบราว์เซอร์/แอป");
+    const registration=await navigator.serviceWorker.register("/sw.js");
+    const ready=await navigator.serviceWorker.ready;
+    await (ready||registration).showNotification("BHS E-Document · ทดสอบ",{
+      body:"นี่คือข้อความทดสอบในเครื่อง ไม่มีข้อมูลเอกสารโรงเรียน",
+      icon:"/icon-192.png",
+      badge:"/icon-192.png",
+      tag:"bhs-preview-device-test",
+      data:{url:"/push-preview-check.html"}
+    });
+    msg("ส่งคำสั่งแสดงการแจ้งเตือนในอุปกรณ์สำเร็จแล้ว ถ้าไม่เห็น ให้ตรวจ Focus / Do Not Disturb / การอนุญาตแจ้งเตือนของอุปกรณ์");
+  }catch(error){msg("ทดสอบไม่สำเร็จ: "+(error?.message||"ไม่ทราบสาเหตุ"))}
+});
+$("badge").addEventListener("click",async()=>{
+ try{await navigator.setAppBadge(1);msg("สั่งแสดงเลข 1 บนไอคอนแล้ว (บางอุปกรณ์ไม่รองรับการแสดงผล)")}
+ catch(e){msg("อุปกรณ์ไม่สามารถแสดงเลขบนไอคอนได้: "+(e?.message||""))}
+});
+$("clear").addEventListener("click",async()=>{
+ try{await navigator.clearAppBadge();msg("สั่งล้างตัวเลขบนไอคอนแล้ว")}
+ catch(e){msg("ล้างตัวเลขไม่สำเร็จ: "+(e?.message||""))}
+});
+})();
+</script>
+</body></html>
