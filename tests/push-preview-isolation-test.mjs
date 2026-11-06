@@ -5,7 +5,7 @@ import {demoNotificationEvent,demoRecipientEligible,TEST_SCENARIOS,TEST_RECEIVER
 const expected={
  created:["DEPUTY","ADMIN"],director:["DIRECTOR","ADMIN"],
  returned:["TEACHER_A"],published:["TEACHER_A","TEACHER_B","HEAD"],
- route:["TEACHER_B","HEAD"],head:["TEACHER_B"]
+ route:["TEACHER_A","TEACHER_B","HEAD"],head:["TEACHER_B"]
 };
 for(const item of TEST_SCENARIOS){
  const event=demoNotificationEvent(item.kind,Date.now());
