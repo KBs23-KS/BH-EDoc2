@@ -30,7 +30,7 @@ small{color:#60748b}a{color:#174f91}
 <h2>iPad / iPhone</h2>
 <p>เปิดลิงก์ใน Safari → แชร์ → เพิ่มไปยังหน้าจอโฮม → เปิดแอปจากหน้าจอโฮมก่อนทดสอบ Push</p>
 <p><strong>ทดสอบตอนปิดหน้าเว็บ:</strong> หลังเปิดรับ Push ให้สลับไปหน้าจออื่นหรือปิดแท็บก่อน แล้วกลับมาที่หน้านี้เพื่อกดส่งจากอีกอุปกรณ์ไม่ได้ เพราะการทดสอบส่งถูกล็อกให้ใช้เฉพาะอุปกรณ์ที่สมัครไว้ ทดสอบรับตอนแอปไม่อยู่เบื้องหน้าได้โดยกดส่งแล้วสลับออกอย่างรวดเร็ว</p>
-<p><small>การส่งแต่ละครั้งจำกัดเว้น 60 วินาที สูงสุด 10 ครั้งต่อเครื่องต่อวัน อายุการลงทะเบียน 24 ชั่วโมง ถ้า Firebase ทดสอบยังไม่พร้อม ปุ่มจะไม่เปิดใช้งาน</small></p>
+<p><small>การส่งแต่ละครั้งจำกัดเว้น 3 วินาที สูงสุด 10 ครั้งต่อเครื่องต่อวัน อายุการลงทะเบียน 24 ชั่วโมง ถ้า Firebase ทดสอบยังไม่พร้อม ปุ่มจะไม่เปิดใช้งาน</small></p>
 <p><a href="/push-preview-check.html">กลับไปหน้าทดสอบแจ้งเตือนในเครื่อง</a></p>
 </main>
 <script>
@@ -63,12 +63,12 @@ small{color:#60748b}a{color:#174f91}
      sending?"กำลังตรวจสิทธิ์...":"ทดลองเหตุการณ์และส่ง Push ไปเครื่องนี้";
  };
  const setCooldown=seconds=>{
-   nextSendAt=Date.now()+Math.max(1,Number(seconds)||60)*1000;
+   nextSendAt=Date.now()+Math.max(1,Number(seconds)||3)*1000;
    if(session){session.nextSendAt=nextSendAt;
      localStorage.setItem(storageKey,JSON.stringify(session));}
    refresh();
  };
- // Countdown is local UI feedback; the 60-second limit is enforced on the server.
+ // Countdown is local UI feedback; the 3-second limit is enforced on the server.
  setInterval(refresh,1000);
  const bytes=key=>{
    const value=atob(key.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-key.length%4)%4));

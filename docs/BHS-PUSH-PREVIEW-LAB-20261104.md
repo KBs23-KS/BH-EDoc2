@@ -8,7 +8,7 @@ This is an isolated test sender **only**, not school notifications.
 - Firestore: bhs_push_lab_devices, bhs_push_lab_counters
 - Data: encrypted subscriptions (AES-256-GCM), SHA-256 bearer capability, expires after 24 hours; no school document or staff data
 - Restriction: VERCEL_ENV=preview + Git branch=feature/free-pwa-push-notifications-20261104
-- Rate limit: 1 per 60 seconds, 10/day/device, global 60 sends/day, 40 registrations/day
+- Rate limit: 1 per 3 seconds, 10/day/device, global 60 sends/day, 40 registrations/day
 - Public UI: browser permission and own-device opt-in; no anonymous access to other users' subscriptions
 - Firestore Rules for both collections must deny browser read/write. Check *all* match statements, including catch-all; Rules grants are OR across matches.
 - No production project, no production environment variables, no Merge or Production deployment.
@@ -47,6 +47,6 @@ NOTE: Firestore rules are OR-combined; any broad catch-all allow may defeat thes
 - The Preview Lab includes 6 **fixed synthetic** workflows (created/director/returned/published/route/head) from `shared/pushPreviewFixtures.js`.
 - The API reuses `serverNotificationEvent` policy with fake users/documents ONLY. There is no Firestore read from the original school collections.
 - A tester can select a mock event and recipient role on the existing lab page. If the policy rejects that role, no Push is sent and the send quota is not consumed.
-- If eligible, the existing per-device capability token is checked server-side, the existing 60-second cooldown and daily limits apply, and Push goes ONLY to the tester's own subscribed device.
+- If eligible, the existing per-device capability token is checked server-side, the 3-second test-only cooldown and daily limits apply, and Push goes ONLY to the tester's own subscribed device.
 - The client cannot provide arbitrary document contents, target endpoints, recipient lists or message text; the server builds all scenarios and payloads.
 - This validates the routing policy + real Web Push transport to ONE opted-in device. It does NOT yet verify real account roles, multiple real devices, or guarantee that a school document write triggers a Push. Keep the original school notifications disabled.

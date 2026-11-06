@@ -17,7 +17,7 @@ const RETENTION_MS=24*60*60*1000;
 const MAX_SENDS_PER_DEVICE=10;
 const MAX_SENDS_GLOBAL=60;
 const MAX_REGISTRATIONS_GLOBAL=40;
-const COOLDOWN_MS=60*1000;
+const COOLDOWN_MS=3*1000;
 const hex=value=>createHash("sha256").update(value).digest("hex");
 const issue=(status,message,details={})=>Object.assign(new Error(message),{status,...details});
 export function labCooldownSeconds(now,lastSentAt) {
