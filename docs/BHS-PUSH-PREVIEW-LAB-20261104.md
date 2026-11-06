@@ -59,3 +59,14 @@ NOTE: Firestore rules are OR-combined; any broad catch-all allow may defeat thes
 - workflowStatus / workflowAdvance / workflowReset require the current device capability token. Unsupported or out-of-order transitions are rejected.
 - Eligible recipients receive Web Push on their own opted-in test device, preserving the 3-second cooldown and 10/day/device and 60/day/global limits. Ineligible recipients do not receive Push and do not consume send quota.
 - This is a durable, end-to-end MOCK workflow in the separate Firebase test project. It is NOT full integration of the school application or its real login, documents, Firebase project, or actual multi-user delivery.
+
+
+## Multi-device mock room (PR #46 Preview only)
+- Open /push-preview-room.html on exactly the same deployment URL on each device.
+- After each device opts in, the controller creates a room and privately copies a cryptographically random 144-bit room code (24 URL-safe characters). Up to 4 receiver devices enter that code and select a **fictional** role.
+- Room metadata is stored only in the already client-denied bhs_push_lab_counters collection (doc id room-<SHA-256 hash>); device links use the existing bhs_push_lab_devices collection. No new Firebase project, collection, or Rules changes.
+- Owner-only actions progress/reset 7 predefined synthetic document transitions. Each is validated by the same serverNotificationEvent policy as other tests; eligible joined devices receive a generic real Web Push. No user names, school document bodies, or secrets are sent.
+- Controller and receiver device capabilities are checked server-side; room membership is opt-in. Rooms expire logically after 24h and can be left; owner leaving closes the room.
+- Shared limits: 3-second recipient cooldown, 10 sends/device/day, 60 total/day, plus 10 rooms created globally per day. Test only; role selection does NOT prove real school user authentication.
+- The separate room PWA manifest is necessary for an iPad Home Screen web app. No real document or login endpoints are involved. Room code is not placed in a URL.
+- Browser Push acceptance does not guarantee a banner; device settings and browser background behavior control display.

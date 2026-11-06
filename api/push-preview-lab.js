@@ -24,11 +24,11 @@ const issue=(status,message,details={})=>Object.assign(new Error(message),{statu
 export function labCooldownSeconds(now,lastSentAt) {
   return Math.max(0,Math.ceil((COOLDOWN_MS-(now-Number(lastSentAt||0)))/1000));
 }
-export function makeLabPushPayload(message="Web Push ทดสอบจาก Firebase แยก (ไม่มีเอกสารจริง)"){
+export function makeLabPushPayload(message="Web Push ทดสอบจาก Firebase แยก (ไม่มีเอกสารจริง)",url="/push-preview-lab.html"){
   return {
     title:"BHS Push Test",
     body:message,
-    url:"/push-preview-lab.html",
+    url,
     // Fresh tag for each accepted send. A fixed tag replaces the previous
     // notification without showing a new popup in Chrome (renotify:false).
     tag:"bhs-push-lab-"+randomBytes(8).toString("hex"),
@@ -251,6 +251,13 @@ async function deregister(db,data) {
     await dev.delete();
   return {success:true};
 }
+function validDeviceRecord(record,data,now){
+  if(!record||!safeCompare(record.secretHash,hex(data.token))||
+     record.expiresAt<=now)throw issue(403,"อุปกรณ์ไม่ได้ลงทะเบียนหรือหมดอายุ");
+}
+export {configured,database,previewGuard,validDeviceRecord,validateIdAndToken,
+  safeCompare,hex,issue,rateRef,today,decrypt,DEVICES,COUNTERS,
+  MAX_SENDS_PER_DEVICE,MAX_SENDS_GLOBAL};
 export default async function handler(req,res){
   res.setHeader("Cache-Control","no-store, private");
   res.setHeader("X-Content-Type-Options","nosniff");

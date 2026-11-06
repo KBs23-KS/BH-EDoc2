@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#173a64">
+<link rel="manifest" href="/push-preview-room.webmanifest">
+<title>BHS Push Lab — ทดสอบหลายอุปกรณ์</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:#f0f5fb;color:#1d3552}
+*{box-sizing:border-box}body{margin:0;padding:18px}main{max-width:700px;margin:24px auto;padding:24px;background:white;border:1px solid #dce5f0;border-radius:20px}
+h1{font-size:1.5rem}p{line-height:1.7}small{color:#61758c}section{border-top:1px solid #dce5f0;margin-top:24px;padding-top:18px}
+.notice{background:#eef5ff;padding:12px;border-radius:12px}.status{white-space:pre-line;background:#f6f9fc;padding:12px;border-radius:12px;line-height:1.8;overflow-wrap:anywhere}
+button{border:0;background:#124b89;color:white;padding:13px 18px;border-radius:10px;font-size:1rem;font-weight:650;margin:5px 4px 5px 0;cursor:pointer}
+button.alt{background:#e6eef8;color:#124b89}button:disabled{opacity:.45;cursor:not-allowed}
+input,select{font:inherit;padding:12px;width:100%;border:1px solid #c2d1e3;border-radius:10px;margin:8px 0 14px}
+label{font-weight:650;display:block}code{overflow-wrap:anywhere;background:#edf4ff;padding:9px;display:inline-block;border-radius:8px}a{color:#174f91}
+</style></head>
+<body><main>
+<small>BHS E-DOCUMENT · PR #46 · PREVIEW ONLY</small>
+<h1>ทดสอบ Web Push ระหว่างคอมกับมือถือ</h1>
+<p class="notice">ห้องนี้ใช้ <strong>บัญชีและหนังสือจำลองเท่านั้น</strong>
+ข้อมูลเก็บใน Firebase <strong>bhs-edoc-security-test</strong> ไม่เชื่อมบัญชีหรือเอกสารโรงเรียนจริง
+ผู้สร้างห้องใช้คอมเป็นเครื่องควบคุม ส่วนมือถือ/iPad เข้าร่วมเป็นผู้รับแจ้งเตือน</p>
+<section><h2>1. เปิดรับ Web Push บนอุปกรณ์นี้</h2>
+<div id="connect" class="status" aria-live="polite">กำลังตรวจระบบ...</div>
+<button id="register" disabled>เปิดรับ Web Push บนเครื่องนี้</button>
+<p><small>ทุกอุปกรณ์ต้องเปิดหน้านี้ที่ URL เดียวกันและอนุญาตแจ้งเตือนของตนเอง
+บน iPad/iPhone ให้เพิ่มหน้าเว็บผ่าน Safari ไปที่หน้าจอโฮมก่อน</small></p></section>
+<section><h2>2. คอมพิวเตอร์สร้างห้องทดสอบ</h2>
+<button id="create" disabled>สร้างห้องทดสอบใหม่</button>
+<div id="codeBox" hidden><p>รหัสห้องสำหรับให้มือถือเข้าร่วม (เก็บเป็นความลับ)</p>
+<code id="roomCode"></code>
+<button id="copy" class="alt">คัดลอกรหัสห้อง</button></div></section>
+<section><h2>3. มือถือเข้าร่วมเป็นผู้รับ</h2>
+<label for="joinCode">รหัสห้องจากคอม</label>
+<input id="joinCode" placeholder="วางรหัสห้อง 24 ตัวอักษร" maxlength="24" spellcheck="false" autocomplete="off">
+<label for="role">บทบาทจำลองของมือถือ</label>
+<select id="role" disabled></select>
+<button id="join" disabled>เข้าร่วมห้องและรอรับ Push</button>
+<p><small>ตัวอย่าง: เลือก “รองผู้อำนวยการ” หากจะทดสอบว่า
+ครูส่งหนังสือจากคอมแล้วมือถือรอง ผอ. ได้รับแจ้งเตือนหรือไม่</small></p></section>
+<section><h2>4. คอมเดินเรื่องจำลองและส่งแจ้งเตือน</h2>
+<div id="roomStatus" class="status" aria-live="polite">ยังไม่ได้เข้าร่วมห้อง</div>
+<p><button id="refresh" class="alt" disabled>อัปเดตสถานะห้อง</button>
+<button id="advance" disabled>ทำขั้นตอนถัดไป</button>
+<button id="reset" class="alt" disabled>เริ่มกระบวนการใหม่</button>
+<button id="leave" class="alt" disabled>ออกจากห้อง</button></p>
+<div id="message" class="status" aria-live="polite">รอการตั้งค่าห้องทดสอบ</div>
+<p><small>สูงสุด 4 เครื่องรับต่อห้อง ห้องหมดอายุใน 24 ชั่วโมง
+ส่งห่างกันอย่างน้อย 3 วินาที และจำกัด 10 ครั้งต่ออุปกรณ์รับต่อวัน
+เครื่องควบคุมไม่ใช่เครื่องรับ Push ในห้องเดียวกัน</small></p></section>
+<p><a href="/push-preview-lab.html">กลับห้องทดสอบเดิม</a></p>
+</main>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const storageKey="bhs-push-lab-session-v1";
+const codeKey="bhs-push-lab-room-code-v1";
+let cfg=null,session=null,room=null,sending=false,deadline=0,roomCode="";
+try{session=JSON.parse(localStorage.getItem(storageKey)||"null");roomCode=localStorage.getItem(codeKey)||"";}catch{}
+const isApple=/iPhone|iPad|iPod/.test(navigator.userAgent)||
+  (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const standalone=matchMedia("(display-mode:standalone)").matches||navigator.standalone===true;
+const supported=isSecureContext&&"serviceWorker" in navigator&&
+  "Notification" in window&&"PushManager" in window&&(!isApple||standalone);
+const note=t=>$("message").textContent=t;
+const remaining=()=>Math.max(0,Math.ceil((deadline-Date.now())/1000));
+const refresh=()=>{
+  const active=Boolean(room?.inRoom),owner=active&&room.isController;
+  const r=remaining();
+  $("register").disabled=!cfg||!supported||sending;
+  $("create").disabled=!cfg||!session||sending||active;
+  $("join").disabled=!cfg||!session||sending||active;
+  $("refresh").disabled=!cfg||!session||sending;
+  $("advance").disabled=!cfg||!session||sending||!owner||room.workflow.done||r>0;
+  $("advance").textContent=r>0?"ส่งซ้ำได้ใน "+r+" วินาที":"ทำขั้นตอนถัดไปและส่ง Push";
+  $("reset").disabled=!cfg||!session||sending||!owner;
+  $("leave").disabled=!cfg||!session||sending||!active;
+  $("role").disabled=!cfg||active;
+  $("codeBox").hidden=!owner||!roomCode;
+  $("roomCode").textContent=owner?roomCode:"";
+  $("roomStatus").textContent=active?
+    (owner?"สถานะ: เครื่องควบคุม":"สถานะ: เครื่องรับ Push")+
+    "\nผู้รับที่เข้าร่วม: "+((room.members||[]).map(m=>m.label+" × "+m.count).join(", ")||"ยังไม่มี")+
+    "\nขั้นตอน: "+room.workflow.index+"/"+room.workflow.total+
+    "\nถัดไป: "+(room.workflow.next?.label||"เสร็จครบทุกขั้นตอน ✅")+
+    "\nอายุห้องคงเหลือประมาณ: "+room.expiresInMinutes+" นาที":
+    "ยังไม่ได้เข้าร่วมห้องทดสอบ";
+};
+setInterval(refresh,1000);
+const request=async(url,payload)=>{
+  const r=await fetch(url,{method:"POST",cache:"no-store",credentials:"same-origin",
+    headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+  const x=await r.json();
+  if(!r.ok||!x.success){const e=Error(x.error||"คำขอไม่สำเร็จ");
+    e.status=r.status;e.retryAfterSeconds=x.retryAfterSeconds;throw e;}
+  return x;
+};
+const roomReq=payload=>request("/api/push-preview-room",{...session,...payload});
+const bytes=key=>{
+  const s=atob(key.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-key.length%4)%4));
+  return Uint8Array.from(s,c=>c.charCodeAt(0));
+};
+const loadRoom=async()=>{
+  if(!session){room=null;refresh();return;}
+  try{
+    const x=await roomReq({action:"roomStatus"});
+    room=x.room;
+    if(!room.inRoom){roomCode="";localStorage.removeItem(codeKey);}
+    refresh();
+  }catch(e){room=null;note("ตรวจสถานะไม่ได้: "+e.message);refresh();}
+};
+const perform=async(fn)=>{
+  if(sending)return;
+  sending=true;refresh();
+  try{await fn();}catch(e){
+    if(e.status===429&&Number(e.retryAfterSeconds)>0)
+      deadline=Date.now()+Number(e.retryAfterSeconds)*1000;
+    note("ยังไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));
+  }finally{sending=false;refresh();}
+};
+$("register").addEventListener("click",()=>perform(async()=>{
+  if(await Notification.requestPermission()!=="granted")
+    throw Error("กรุณาอนุญาตการแจ้งเตือน");
+  const worker=await navigator.serviceWorker.register("/sw.js");
+  const reg=(await navigator.serviceWorker.ready)||worker;
+  let sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,
+    applicationServerKey:bytes(cfg.publicKey)});
+  const x=await request("/api/push-preview-lab",{action:"register",
+    subscription:sub.toJSON()});
+  session={deviceId:x.deviceId,token:x.token,nextSendAt:0};
+  localStorage.setItem(storageKey,JSON.stringify(session));
+  await loadRoom();
+  note("เปิดรับ Web Push สำเร็จ เลือกสร้างห้องหรือเข้าร่วมห้องได้เลย");
+}));
+$("create").addEventListener("click",()=>perform(async()=>{
+  const x=await roomReq({action:"roomCreate"});
+  room=x.room;roomCode=x.code;
+  localStorage.setItem(codeKey,roomCode);
+  refresh();note("สร้างห้องแล้ว ✅ ส่งรหัสให้มือถือเพื่อเข้าร่วม");
+}));
+$("copy").addEventListener("click",()=>perform(async()=>{
+  await navigator.clipboard.writeText(roomCode);note("คัดลอกรหัสห้องแล้ว");
+}));
+$("join").addEventListener("click",()=>perform(async()=>{
+  const x=await roomReq({action:"roomJoin",code:$("joinCode").value.trim(),role:$("role").value});
+  room=x.room;roomCode="";localStorage.removeItem(codeKey);
+  refresh();note("มือถือเข้าร่วมแล้ว ✅ กดออกจากหน้าไปแอปอื่นเพื่อรอรับ Push ได้");
+}));
+$("refresh").addEventListener("click",()=>perform(loadRoom));
+$("advance").addEventListener("click",()=>perform(async()=>{
+  if(!room?.isController||room.workflow.done||remaining()>0)return;
+  const x=await roomReq({action:"roomAdvance",expectedIndex:room.workflow.index});
+  room={...room,workflow:x.workflow};
+  if(x.queued>0)deadline=Date.now()+(Number(x.retryAfterSeconds)||3)*1000;
+  refresh();
+  note("บันทึกขั้นตอนแล้ว ✅ ผู้รับตามบทบาท: "+(x.eligibleRoles?.join(", ")||"ไม่มี")+
+    "\nส่ง Push สำเร็จที่ผู้ให้บริการ: "+x.queued+" เครื่อง"+
+    (x.failed?"\nส่งไม่สำเร็จ: "+x.failed+" เครื่อง":"")+
+    (x.queued===0?"\nไม่มีอุปกรณ์ที่ลงทะเบียนตรงบทบาทนี้":""));
+}));
+$("reset").addEventListener("click",()=>perform(async()=>{
+  const x=await roomReq({action:"roomReset"});
+  room={...room,workflow:x.workflow};refresh();note("เริ่มกระบวนการจำลองใหม่แล้ว");
+}));
+$("leave").addEventListener("click",()=>perform(async()=>{
+  await roomReq({action:"roomLeave"});
+  room={inRoom:false};roomCode="";localStorage.removeItem(codeKey);
+  refresh();note("ออกจากห้องแล้ว");
+}));
+(async()=>{
+  try{
+    const r=await fetch("/api/push-preview-lab",{cache:"no-store",credentials:"same-origin"});
+    const x=await r.json();
+    if(!r.ok||!x.ready)throw Error(x.error||"เซิร์ฟเวอร์ไม่พร้อม");
+    cfg=x;
+    $("connect").textContent="Firebase: "+x.project+
+      "\nอุปกรณ์: "+(supported?"รองรับ Web Push":"ต้องติดตั้งเป็นเว็บแอปหรือเปลี่ยนเบราว์เซอร์")+
+      "\nสิทธิ์แจ้งเตือน: "+Notification.permission+
+      "\nลงทะเบียนแล้วบนลิงก์นี้: "+(session?"ใช่":"ยัง");
+    for(const r of x.receivers||[]){
+      const option=document.createElement("option");option.value=r.id;option.textContent=r.label;
+      $("role").appendChild(option);
+    }
+    $("role").value="DEPUTY";
+    refresh();
+    if(session)await loadRoom();
+  }catch(e){$("connect").textContent="ห้องทดสอบยังไม่พร้อม: "+e.message;}
+})();
+})();
+</script></body></html>
