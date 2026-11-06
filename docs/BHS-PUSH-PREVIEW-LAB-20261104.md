@@ -41,3 +41,12 @@ NOTE: Firestore rules are OR-combined; any broad catch-all allow may defeat thes
 5. Opt in on the device, send own push, then move app into the background and try again after 60 s. iPad requires Home Screen PWA.
 6. Check subscription deletion/expiry, shared devices, and rate limits. Do not use real school credentials or documents.
 7. This is not end-to-end school event delivery. Keep the existing BHS_WEB_PUSH_ENABLED and VITE_BHS_ENABLE_PUSH disabled, until separately reviewed for real workflows.
+
+## Simulated workflow-event routing (PR #46 Preview)
+
+- The Preview Lab includes 6 **fixed synthetic** workflows (created/director/returned/published/route/head) from `shared/pushPreviewFixtures.js`.
+- The API reuses `serverNotificationEvent` policy with fake users/documents ONLY. There is no Firestore read from the original school collections.
+- A tester can select a mock event and recipient role on the existing lab page. If the policy rejects that role, no Push is sent and the send quota is not consumed.
+- If eligible, the existing per-device capability token is checked server-side, the existing 60-second cooldown and daily limits apply, and Push goes ONLY to the tester's own subscribed device.
+- The client cannot provide arbitrary document contents, target endpoints, recipient lists or message text; the server builds all scenarios and payloads.
+- This validates the routing policy + real Web Push transport to ONE opted-in device. It does NOT yet verify real account roles, multiple real devices, or guarantee that a school document write triggers a Push. Keep the original school notifications disabled.

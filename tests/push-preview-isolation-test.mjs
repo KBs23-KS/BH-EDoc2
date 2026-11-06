@@ -1,6 +1,26 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {labCooldownSeconds,makeLabPushPayload} from "../api/push-preview-lab.js";
+import {demoNotificationEvent,demoRecipientEligible,TEST_SCENARIOS,TEST_RECEIVERS} from "../shared/pushPreviewFixtures.js";
+const expected={
+ created:["DEPUTY","ADMIN"],director:["DIRECTOR","ADMIN"],
+ returned:["TEACHER_A"],published:["TEACHER_A","TEACHER_B","HEAD"],
+ route:["TEACHER_B","HEAD"],head:["TEACHER_B"]
+};
+for(const item of TEST_SCENARIOS){
+ const event=demoNotificationEvent(item.kind,Date.now());
+ assert.ok(event,"scenario must generate event: "+item.kind);
+ assert.deepEqual([...event.recipientIds].sort(),[...expected[item.kind]].sort(),
+   "correct sample recipients for "+item.kind);
+ assert.ok(!event.recipientIds.includes("DISABLED"),"inactive test user cannot receive");
+ for(const {id} of TEST_RECEIVERS){
+  const result=demoRecipientEligible(item.kind,id);
+  assert.equal(result.eligible,expected[item.kind].includes(id),
+    item.kind+" permission of "+id);
+ }
+}
+assert.equal(demoRecipientEligible("created","UNKNOWN"),null);
+assert.equal(demoRecipientEligible("fake","ADMIN"),null);
 const first=makeLabPushPayload(),second=makeLabPushPayload();
 assert.notEqual(first.tag,second.tag,"each test push must display a new notification");
 assert.match(first.tag,/^bhs-push-lab-[0-9a-f]{16}$/);
@@ -28,6 +48,11 @@ assert.match(page,/secondsUntilRetry\(\)>0/,"prevent rapid sends in browser");
 assert.match(page,/error\.retryAfterSeconds=x\.retryAfterSeconds/);
 assert.match(api,/retryAfterSeconds:labCooldownSeconds\(Date\.now\(\),now\)/);
 assert.match(api,/MAX_SENDS_PER_DEVICE=10/);
+assert.match(api,/data.action==="send"\|\|data.action==="simulateEvent"/);
+assert.match(api,/if\(demo&&!demo.eligible\)return/,"ineligible mock recipient must not send");
+assert.match(api,/demoRecipientEligible\(data.scenario,data.recipientId,now\)/);
+assert.match(page,/request\(\{action:"simulateEvent"/);
+assert.doesNotMatch(page,/MOCK_PUSH_LAB_|bhs_documents|bhs_users/);
 assert.match(api,/MAX_SENDS_GLOBAL=60/);
 assert.match(page,/Notification\.requestPermission/);
 assert.doesNotMatch(page,/bhs_documents|bhs_users|firebaseConfig|__firebase_config/);

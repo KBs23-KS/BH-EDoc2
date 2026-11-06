@@ -9,7 +9,7 @@
 h1{font-size:1.5rem}p,li{line-height:1.75}.notice{background:#eef5ff;padding:13px;border-radius:12px}
 .status{white-space:pre-line;background:#f6f9fc;padding:13px;border-radius:12px;line-height:1.7}
 button{border:none;background:#124b89;color:white;padding:13px 18px;border-radius:10px;font-size:1rem;font-weight:650;margin:5px;cursor:pointer}
-button:disabled{opacity:.45;cursor:not-allowed}button.alt{background:#e6eef8;color:#124b89}
+button:disabled{opacity:.45;cursor:not-allowed}button.alt{background:#e6eef8;color:#124b89}select{font:inherit;padding:11px;width:100%;border:1px solid #c2d1e3;border-radius:10px;margin:8px 0 14px}label{display:block;font-weight:600}section.demo{border-top:1px solid #dce5f0;margin-top:24px;padding-top:14px}
 small{color:#60748b}a{color:#174f91}
 </style></head><body><main>
 <small>BHS E-DOCUMENT · PR #46 · PREVIEW ONLY</small>
@@ -18,6 +18,15 @@ small{color:#60748b}a{color:#174f91}
 <div id="status" class="status" aria-live="polite">กำลังตรวจสอบความพร้อมของเซิร์ฟเวอร์ทดสอบ...</div>
 <p><button id="register" disabled>1. เปิดรับ Web Push</button><button id="send" disabled>2. ส่ง Push ทดสอบจริง</button><button id="remove" class="alt" disabled>ปิดรับแจ้งเตือนเครื่องนี้</button></p>
 <div id="message" class="status" aria-live="polite">ต้องอนุญาตการแจ้งเตือนก่อนทดลองส่งข้อความ</div>
+<section class="demo"><h2>3. ทดสอบเหตุการณ์เอกสารจำลอง</h2>
+<p>ทดลองตรวจสิทธิ์จากตัวอย่างเหตุการณ์ โดยส่ง Push <strong>เฉพาะเครื่องที่คุณลงทะเบียนไว้</strong> ไม่ส่งถึงผู้ใช้โรงเรียนจริง และไม่ได้สร้างเอกสารจริง</p>
+<label for="scenario">เลือกเหตุการณ์จำลอง</label>
+<select id="scenario" disabled></select>
+<label for="receiver">จำลองว่าอุปกรณ์ของฉันเป็นผู้รับบทบาทใด</label>
+<select id="receiver" disabled></select>
+<button id="simulate" disabled>ทดลองเหตุการณ์และส่ง Push ไปเครื่องนี้</button>
+<div id="demoResult" class="status" aria-live="polite">เลือกเหตุการณ์และผู้รับ แล้วกดทดสอบ</div>
+<p><small>ระบบใช้กติกาผู้รับเดียวกับ PR #46 แต่ใช้ผู้ใช้และเอกสารจำลองทั้งหมด หากเลือกผู้ไม่มีสิทธิ์จะไม่ส่ง Push และไม่ตัดโควตา การทดสอบนี้ไม่ใช่การตรวจบัญชีจริง</small></p></section>
 <h2>iPad / iPhone</h2>
 <p>เปิดลิงก์ใน Safari → แชร์ → เพิ่มไปยังหน้าจอโฮม → เปิดแอปจากหน้าจอโฮมก่อนทดสอบ Push</p>
 <p><strong>ทดสอบตอนปิดหน้าเว็บ:</strong> หลังเปิดรับ Push ให้สลับไปหน้าจออื่นหรือปิดแท็บก่อน แล้วกลับมาที่หน้านี้เพื่อกดส่งจากอีกอุปกรณ์ไม่ได้ เพราะการทดสอบส่งถูกล็อกให้ใช้เฉพาะอุปกรณ์ที่สมัครไว้ ทดสอบรับตอนแอปไม่อยู่เบื้องหน้าได้โดยกดส่งแล้วสลับออกอย่างรวดเร็ว</p>
@@ -46,6 +55,12 @@ small{color:#60748b}a{color:#174f91}
      "2. ส่งซ้ำได้ใน "+remaining+" วินาที":
      sending?"กำลังส่ง Push...":"2. ส่ง Push ทดสอบจริง";
    $("remove").disabled=!cfg||!session||sending;
+   $("scenario").disabled=!cfg;
+   $("receiver").disabled=!cfg;
+   $("simulate").disabled=!cfg||!supported||!session||sending||remaining>0;
+   $("simulate").textContent=remaining>0?
+     "ส่งเหตุการณ์ซ้ำได้ใน "+remaining+" วินาที":
+     sending?"กำลังตรวจสิทธิ์...":"ทดลองเหตุการณ์และส่ง Push ไปเครื่องนี้";
  };
  const setCooldown=seconds=>{
    nextSendAt=Date.now()+Math.max(1,Number(seconds)||60)*1000;
@@ -81,6 +96,16 @@ small{color:#60748b}a{color:#174f91}
      const x=await r.json();
      if(!r.ok||!x.ready){status("ยังไม่พร้อมส่ง Push จริง: "+(x.error||"รอการตั้งค่า Firebase ทดสอบ"));return;}
      cfg=x;
+     for(const [key,items] of [["scenario",x.scenarios],["receiver",x.receivers]]){
+       const select=$(key);
+       select.replaceChildren();
+       for(const item of items||[]){
+         const option=document.createElement("option");
+         option.value=key==="scenario"?item.kind:item.id;
+         option.textContent=item.label;
+         select.appendChild(option);
+       }
+     }
      status("เชื่อม API ทดสอบสำเร็จ\nFirebase: "+x.project+
        "\nอุปกรณ์นี้: "+(supported?"รองรับ":"กรุณาเปิดแบบแอปบนหน้าจอโฮม/ใช้เบราว์เซอร์ที่รองรับ")+
        "\nการอนุญาตแจ้งเตือน: "+Notification.permission);
@@ -117,6 +142,23 @@ small{color:#60748b}a{color:#174f91}
      if(e.status===429&&Number(e.retryAfterSeconds)>0)
        setCooldown(e.retryAfterSeconds);
      msg("ยังส่งไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));
+   }finally{sending=false;refresh();}
+ });
+ $("simulate").addEventListener("click",async()=>{
+   if(sending||secondsUntilRetry()>0)return;
+   sending=true;refresh();
+   try{
+     const x=await request({action:"simulateEvent",...session,
+       scenario:$("scenario").value,recipientId:$("receiver").value});
+     if(x.queued){
+       setCooldown(x.retryAfterSeconds);
+       $("demoResult").textContent="มีสิทธิ์รับเหตุการณ์จำลอง ✅ ส่ง Push ไปยังอุปกรณ์นี้แล้ว";
+     }else{
+       $("demoResult").textContent="ไม่มีสิทธิ์รับเหตุการณ์จำลอง ✅ ไม่ส่ง Push และไม่ตัดโควตา";
+     }
+   }catch(e){
+     if(e.status===429&&Number(e.retryAfterSeconds)>0)setCooldown(e.retryAfterSeconds);
+     $("demoResult").textContent="ทดสอบเหตุการณ์ยังไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ");
    }finally{sending=false;refresh();}
  });
  $("remove").addEventListener("click",async()=>{

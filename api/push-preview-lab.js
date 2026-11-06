@@ -7,6 +7,7 @@ import {createHash,randomBytes,createCipheriv,createDecipheriv,timingSafeEqual} 
 import {initializeApp,getApps,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import webpush from "web-push";
+import {demoRecipientEligible,TEST_SCENARIOS,TEST_RECEIVERS} from "../shared/pushPreviewFixtures.js";
 
 const BRANCH="feature/free-pwa-push-notifications-20261104";
 const PROJECT="bhs-edoc-security-test";
@@ -22,10 +23,10 @@ const issue=(status,message,details={})=>Object.assign(new Error(message),{statu
 export function labCooldownSeconds(now,lastSentAt) {
   return Math.max(0,Math.ceil((COOLDOWN_MS-(now-Number(lastSentAt||0)))/1000));
 }
-export function makeLabPushPayload(){
+export function makeLabPushPayload(message="Web Push ทดสอบจาก Firebase แยก (ไม่มีเอกสารจริง)"){
   return {
     title:"BHS Push Test",
-    body:"Web Push ทดสอบจาก Firebase แยก (ไม่มีเอกสารจริง)",
+    body:message,
     url:"/push-preview-lab.html",
     // Fresh tag for each accepted send. A fixed tag replaces the previous
     // notification without showing a new popup in Chrome (renotify:false).
@@ -133,12 +134,18 @@ async function dispatch(db,data,key) {
   validateIdAndToken(data);
   const dev=db.collection(DEVICES).doc(data.deviceId);
   const now=Date.now(),day=today(),quota=rateRef(db,"send",day);
+  const demo=data.action==="simulateEvent"?
+    demoRecipientEligible(data.scenario,data.recipientId,now):null;
+  if(data.action==="simulateEvent"&&!demo)
+    throw issue(400,"เหตุการณ์หรือผู้รับจำลองไม่ถูกต้อง");
   let subBlob;
   await db.runTransaction(async tx=>{
     const snapshot=await tx.get(dev);
     const record=snapshot.data();
     if(!record||!safeCompare(record.secretHash,hex(data.token))||
        record.expiresAt<=now)throw issue(403,"อุปกรณ์ไม่ได้ลงทะเบียนหรือหมดอายุ");
+    // Unauthorised mock recipients must not trigger a Push or use the daily quota.
+    if(demo&&!demo.eligible)return;
     const count=await tx.get(quota);
     const sent=record.sendDay===day?record.sendCount||0:0;
     const remaining=labCooldownSeconds(now,record.lastSentAt);
@@ -152,14 +159,18 @@ async function dispatch(db,data,key) {
     tx.update(dev,{lastSentAt:now,sendDay:day,sendCount:sent+1});
     tx.set(quota,{count:(count.data()?.count||0)+1,updatedAt:now},{merge:true});
   });
+  if(demo&&!demo.eligible)return {success:true,eligible:false,queued:false,
+    note:"ผู้รับจำลองนี้ไม่มีสิทธิ์ได้รับเหตุการณ์นี้"};
   const sub=decrypt(subBlob,key);
   webpush.setVapidDetails(process.env.BHS_PUSH_LAB_VAPID_CONTACT,
     process.env.BHS_PUSH_LAB_VAPID_PUBLIC_KEY,
     process.env.BHS_PUSH_LAB_VAPID_PRIVATE_KEY);
   try{
-    await webpush.sendNotification(sub,JSON.stringify(makeLabPushPayload()),
+    const message=demo?"จำลอง: "+demo.event.title:
+      "Web Push ทดสอบจาก Firebase แยก (ไม่มีเอกสารจริง)";
+    await webpush.sendNotification(sub,JSON.stringify(makeLabPushPayload(message)),
       {TTL:120,urgency:"normal",timeout:9000});
-    return {success:true,queued:true,
+    return {success:true,queued:true,eligible:true,
       retryAfterSeconds:labCooldownSeconds(Date.now(),now)};
   }catch(error){
     if([404,410].includes(Number(error?.statusCode)))await dev.delete().catch(()=>{});
@@ -196,12 +207,13 @@ export default async function handler(req,res){
     const {config,key}=configured();
     if(req.method==="GET")return respond(200,{
       success:true,ready:true,project:"bhs-edoc-security-test",
-      publicKey:process.env.BHS_PUSH_LAB_VAPID_PUBLIC_KEY
+      publicKey:process.env.BHS_PUSH_LAB_VAPID_PUBLIC_KEY,
+      scenarios:TEST_SCENARIOS,receivers:TEST_RECEIVERS
     });
     const db=database(config),data=req.body;
     if(data.action==="register")
       return respond(200,await registration(db,validSubscription(data.subscription),key));
-    if(data.action==="send")
+    if(data.action==="send"||data.action==="simulateEvent")
       return respond(200,await dispatch(db,data,key));
     if(data.action==="remove")
       return respond(200,await deregister(db,data));
