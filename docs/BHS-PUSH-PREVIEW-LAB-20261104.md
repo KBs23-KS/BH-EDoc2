@@ -50,3 +50,12 @@ NOTE: Firestore rules are OR-combined; any broad catch-all allow may defeat thes
 - If eligible, the existing per-device capability token is checked server-side, the 3-second test-only cooldown and daily limits apply, and Push goes ONLY to the tester's own subscribed device.
 - The client cannot provide arbitrary document contents, target endpoints, recipient lists or message text; the server builds all scenarios and payloads.
 - This validates the routing policy + real Web Push transport to ONE opted-in device. It does NOT yet verify real account roles, multiple real devices, or guarantee that a school document write triggers a Push. Keep the original school notifications disabled.
+
+## Sequential mock document lifecycle (PR #46 Preview only)
+
+- The new section 4 on /push-preview-lab.html progresses seven fixed mock document transitions, including a return for correction, resubmission, publication, and head assignment.
+- Mock workflow state is a field named workflow on the existing sandbox-only bhs_push_lab_devices record for the current subscribed device. No new Firestore collections or school documents are touched.
+- Only server-side predefined mock users, actors, subjects, statuses, and allowed recipients are used. Each transition is checked by the existing serverNotificationEvent policy.
+- workflowStatus / workflowAdvance / workflowReset require the current device capability token. Unsupported or out-of-order transitions are rejected.
+- Eligible recipients receive Web Push on their own opted-in test device, preserving the 3-second cooldown and 10/day/device and 60/day/global limits. Ineligible recipients do not receive Push and do not consume send quota.
+- This is a durable, end-to-end MOCK workflow in the separate Firebase test project. It is NOT full integration of the school application or its real login, documents, Firebase project, or actual multi-user delivery.

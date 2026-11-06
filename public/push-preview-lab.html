@@ -27,6 +27,20 @@ small{color:#60748b}a{color:#174f91}
 <button id="simulate" disabled>ทดลองเหตุการณ์และส่ง Push ไปเครื่องนี้</button>
 <div id="demoResult" class="status" aria-live="polite">เลือกเหตุการณ์และผู้รับ แล้วกดทดสอบ</div>
 <p><small>ระบบใช้กติกาผู้รับเดียวกับ PR #46 แต่ใช้ผู้ใช้และเอกสารจำลองทั้งหมด หากเลือกผู้ไม่มีสิทธิ์จะไม่ส่ง Push และไม่ตัดโควตา การทดสอบนี้ไม่ใช่การตรวจบัญชีจริง</small></p></section>
+<section class="demo">
+<h2>4. เดินกระบวนการหนังสือจำลองแบบต่อเนื่อง</h2>
+<p>สร้างหนังสือ → รอง ผอ. → ผอ. → ส่งกลับแก้ไข → เสนอใหม่ → เผยแพร่ → มอบหมายงาน
+สถานะของหนังสือจำลองเก็บเฉพาะใน Firebase ทดสอบของอุปกรณ์นี้</p>
+<div id="flowStatus" class="status" aria-live="polite">เปิดรับ Push ก่อนทดสอบ</div>
+<label for="flowReceiver">เลือกว่าบทบาทผู้รับบนเครื่องนี้เป็นใคร</label>
+<select id="flowReceiver" disabled></select>
+<p><button id="flowAdvance" disabled>ทำขั้นตอนถัดไป</button>
+<button id="flowReset" class="alt" disabled>เริ่มใหม่</button></p>
+<div id="flowMessage" class="status" aria-live="polite">ยังไม่ได้เริ่ม</div>
+<p><small>ทุกขั้นตอนใช้ผู้ใช้และข้อมูลเอกสารจำลองที่เซิร์ฟเวอร์กำหนดเอง
+หากเลือกบทบาทที่ไม่ใช่ผู้รับ ขั้นตอนจะยังดำเนินต่อ แต่ไม่มี Push และไม่ตัดโควตา
+ไม่ได้ใช้บัญชีครูหรือเอกสารจริง</small></p>
+</section>
 <h2>iPad / iPhone</h2>
 <p>เปิดลิงก์ใน Safari → แชร์ → เพิ่มไปยังหน้าจอโฮม → เปิดแอปจากหน้าจอโฮมก่อนทดสอบ Push</p>
 <p><strong>ทดสอบตอนปิดหน้าเว็บ:</strong> หลังเปิดรับ Push ให้สลับไปหน้าจออื่นหรือปิดแท็บก่อน แล้วกลับมาที่หน้านี้เพื่อกดส่งจากอีกอุปกรณ์ไม่ได้ เพราะการทดสอบส่งถูกล็อกให้ใช้เฉพาะอุปกรณ์ที่สมัครไว้ ทดสอบรับตอนแอปไม่อยู่เบื้องหน้าได้โดยกดส่งแล้วสลับออกอย่างรวดเร็ว</p>
@@ -37,7 +51,7 @@ small{color:#60748b}a{color:#174f91}
 (()=>{
  const $=id=>document.getElementById(id),msg=t=>$("message").textContent=t;
  const storageKey="bhs-push-lab-session-v1";
- let cfg=null,session=null,sending=false,nextSendAt=0;
+ let cfg=null,session=null,sending=false,nextSendAt=0,flow=null;
  try{session=JSON.parse(localStorage.getItem(storageKey)||"null")}catch{}
  nextSendAt=Number(session?.nextSendAt)||0;
  const isApple=/iPhone|iPad|iPod/.test(navigator.userAgent)||
@@ -46,6 +60,21 @@ small{color:#60748b}a{color:#174f91}
  const supported=isSecureContext&&"serviceWorker" in navigator&&
    "Notification" in window&&"PushManager" in window&&(!isApple||standalone);
  const status=t=>$("status").textContent=t;
+ const showFlow=()=>{
+   $("flowStatus").textContent=flow?
+     "ขั้นตอน "+flow.index+"/"+flow.total+"\nสถานะ: "+flow.status+
+     "\nขั้นตอนถัดไป: "+(flow.next?.label||"ครบทุกขั้นตอนแล้ว ✅"):
+     "กรุณาเปิดรับ Web Push ก่อน";
+   if(flow?.next)$("flowReceiver").value=flow.next.receiver;
+ };
+ const loadFlow=async()=>{
+   if(!session){flow=null;showFlow();refresh();return;}
+   try{
+     const x=await request({action:"workflowStatus",...session});
+     flow=x.workflow;showFlow();
+   }catch(e){flow=null;$("flowStatus").textContent="โหลดสถานะไม่ได้: "+e.message;}
+   refresh();
+ };
  const secondsUntilRetry=()=>Math.max(0,Math.ceil((nextSendAt-Date.now())/1000));
  const refresh=()=>{
    const remaining=secondsUntilRetry();
@@ -57,7 +86,13 @@ small{color:#60748b}a{color:#174f91}
    $("remove").disabled=!cfg||!session||sending;
    $("scenario").disabled=!cfg;
    $("receiver").disabled=!cfg;
+   $("flowReceiver").disabled=!cfg;
    $("simulate").disabled=!cfg||!supported||!session||sending||remaining>0;
+   $("flowAdvance").disabled=!cfg||!supported||!session||sending||remaining>0||!flow||flow.done;
+   $("flowAdvance").textContent=remaining>0?
+     "ส่งขั้นตอนถัดไปใน "+remaining+" วินาที":
+     sending?"กำลังทำขั้นตอน...":"ทำขั้นตอนถัดไป";
+   $("flowReset").disabled=!cfg||!session||sending;
    $("simulate").textContent=remaining>0?
      "ส่งเหตุการณ์ซ้ำได้ใน "+remaining+" วินาที":
      sending?"กำลังตรวจสิทธิ์...":"ทดลองเหตุการณ์และส่ง Push ไปเครื่องนี้";
@@ -96,7 +131,7 @@ small{color:#60748b}a{color:#174f91}
      const x=await r.json();
      if(!r.ok||!x.ready){status("ยังไม่พร้อมส่ง Push จริง: "+(x.error||"รอการตั้งค่า Firebase ทดสอบ"));return;}
      cfg=x;
-     for(const [key,items] of [["scenario",x.scenarios],["receiver",x.receivers]]){
+     for(const [key,items] of [["scenario",x.scenarios],["receiver",x.receivers],["flowReceiver",x.receivers]]){
        const select=$(key);
        select.replaceChildren();
        for(const item of items||[]){
@@ -110,6 +145,7 @@ small{color:#60748b}a{color:#174f91}
        "\nอุปกรณ์นี้: "+(supported?"รองรับ":"กรุณาเปิดแบบแอปบนหน้าจอโฮม/ใช้เบราว์เซอร์ที่รองรับ")+
        "\nการอนุญาตแจ้งเตือน: "+Notification.permission);
      refresh();
+     if(session)await loadFlow();
    }catch{status("ยังไม่สามารถเชื่อม API ห้องทดสอบได้");}
  };
  $("register").addEventListener("click",async()=>{
@@ -127,6 +163,7 @@ small{color:#60748b}a{color:#174f91}
      nextSendAt=0;
      localStorage.setItem(storageKey,JSON.stringify(session));
      refresh();msg("ลงทะเบียนอุปกรณ์ใน Firebase ทดสอบสำเร็จ (หมดอายุภายใน 24 ชั่วโมง)");
+     await loadFlow();
    }catch(e){msg("เปิดรับไม่ได้: "+(e.message||"ไม่ทราบสาเหตุ"));}
  });
  $("send").addEventListener("click",async()=>{
@@ -161,12 +198,39 @@ small{color:#60748b}a{color:#174f91}
      $("demoResult").textContent="ทดสอบเหตุการณ์ยังไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ");
    }finally{sending=false;refresh();}
  });
+ $("flowAdvance").addEventListener("click",async()=>{
+   if(sending||secondsUntilRetry()>0||!flow||flow.done)return;
+   sending=true;refresh();
+   try{
+     const x=await request({action:"workflowAdvance",...session,
+       recipientId:$("flowReceiver").value});
+     flow=x.workflow;showFlow();
+     if(x.queued)setCooldown(x.retryAfterSeconds);
+     $("flowMessage").textContent=x.queued?
+       "บันทึกขั้นตอนแล้ว ✅ ส่ง Push ถึงอุปกรณ์นี้":
+       "บันทึกขั้นตอนแล้ว ✅ ผู้รับจำลองนี้ไม่มีสิทธิ์รับ จึงไม่ส่ง Push";
+   }catch(e){
+     if(e.status===429&&Number(e.retryAfterSeconds)>0)setCooldown(e.retryAfterSeconds);
+     $("flowMessage").textContent="ไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ");
+     await loadFlow();
+   }finally{sending=false;refresh();}
+ });
+ $("flowReset").addEventListener("click",async()=>{
+   if(sending||!session)return;
+   sending=true;refresh();
+   try{
+     const x=await request({action:"workflowReset",...session});
+     flow=x.workflow;showFlow();
+     $("flowMessage").textContent="เริ่มกระบวนการจำลองใหม่แล้ว ไม่กระทบเอกสารจริง";
+   }catch(e){$("flowMessage").textContent="เริ่มใหม่ไม่สำเร็จ: "+e.message;}
+   finally{sending=false;refresh();}
+ });
  $("remove").addEventListener("click",async()=>{
    try{await request({action:"remove",...session});
      const reg=await navigator.serviceWorker.ready;
      const sub=await reg.pushManager.getSubscription();
      if(sub)await sub.unsubscribe();
-     localStorage.removeItem(storageKey);session=null;nextSendAt=0;refresh();
+     localStorage.removeItem(storageKey);session=null;nextSendAt=0;flow=null;showFlow();refresh();
      msg("ยกเลิกลงทะเบียนอุปกรณ์ทดสอบแล้ว");
    }catch(e){msg("ยกเลิกไม่สำเร็จ: "+(e.message||"ไม่ทราบสาเหตุ"));}
  });

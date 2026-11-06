@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {labCooldownSeconds,makeLabPushPayload} from "../api/push-preview-lab.js";
 import {demoNotificationEvent,demoRecipientEligible,TEST_SCENARIOS,TEST_RECEIVERS} from "../shared/pushPreviewFixtures.js";
+import {mockAdvance,mockSummary,mockEligible,MOCK_STEPS} from "../shared/pushPreviewWorkflow.js";
 const expected={
  created:["DEPUTY","ADMIN"],director:["DIRECTOR","ADMIN"],
  returned:["TEACHER_A"],published:["TEACHER_A","TEACHER_B","HEAD"],
@@ -21,6 +22,24 @@ for(const item of TEST_SCENARIOS){
 }
 assert.equal(demoRecipientEligible("created","UNKNOWN"),null);
 assert.equal(demoRecipientEligible("fake","ADMIN"),null);
+let fake=null;
+const now=Date.now();
+const expectedKinds=["created","director","returned","created","director","published","head"];
+for(let i=0;i<MOCK_STEPS.length;i++){
+  const result=mockAdvance(fake,now+i*5000);
+  assert.ok(result,"valid state transition "+i);
+  assert.equal(result.step.kind,expectedKinds[i]);
+  assert.equal(result.summary.index,i+1);
+  assert.equal(mockEligible(result.event,result.step.receiver),true);
+  assert.equal(mockEligible(result.event,"DISABLED"),false);
+  assert.equal(mockEligible(result.event,"NOT_A_ROLE"),false);
+  assert.ok(!JSON.stringify(result.event).includes("ข้อมูลจำลองเท่านั้น"));
+  fake=result.record;
+}
+assert.equal(mockSummary(fake).done,true);
+assert.equal(mockAdvance(fake,now+50000),null);
+assert.equal(mockSummary(null).index,0);
+assert.equal(mockAdvance({index:2,doc:{id:"WRONG_DOC"}},now),null);
 const first=makeLabPushPayload(),second=makeLabPushPayload();
 assert.notEqual(first.tag,second.tag,"each test push must display a new notification");
 assert.match(first.tag,/^bhs-push-lab-[0-9a-f]{16}$/);
@@ -53,6 +72,11 @@ assert.match(api,/const COOLDOWN_MS=3\*1000;/,"3-second server cooldown");
 assert.match(page,/จำกัดเว้น 3 วินาที/,"3-second user-visible cooldown");
 assert.match(page,/Number\(seconds\)\|\|3/,"3-second UI fallback");
 assert.match(api,/data.action==="send"\|\|data.action==="simulateEvent"/);
+assert.match(api,/\["workflowStatus","workflowAdvance","workflowReset"\]/);
+assert.match(api,/workflow:next.record/);
+assert.match(page,/action:"workflowAdvance"/);
+assert.match(page,/action:"workflowReset"/);
+assert.match(page,/action:"workflowStatus"/);
 assert.match(api,/if\(demo&&!demo.eligible\)return/,"ineligible mock recipient must not send");
 assert.match(api,/demoRecipientEligible\(data.scenario,data.recipientId,now\)/);
 assert.match(page,/request\(\{action:"simulateEvent"/);

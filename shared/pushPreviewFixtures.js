@@ -81,6 +81,9 @@ export function demoNotificationEvent(kind,now=Date.now()){
     users:USERS,settings:SETTINGS,now
   });
 }
+export function demoWorkflowNotification(doc,actorId,kind,now=Date.now(),eventId=""){
+  return serverNotificationEvent({doc,actor:user(actorId),kind,eventId,users:USERS,settings:SETTINGS,now});
+}
 export function demoRecipientEligible(kind,receiver,now=Date.now()){
   if(!TEST_RECEIVERS.some(item=>item.id===receiver))return null;
   const event=demoNotificationEvent(kind,now);

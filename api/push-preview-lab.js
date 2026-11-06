@@ -8,6 +8,7 @@ import {initializeApp,getApps,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import webpush from "web-push";
 import {demoRecipientEligible,TEST_SCENARIOS,TEST_RECEIVERS} from "../shared/pushPreviewFixtures.js";
+import {mockAdvance,mockSummary,mockEligible} from "../shared/pushPreviewWorkflow.js";
 
 const BRANCH="feature/free-pwa-push-notifications-20261104";
 const PROJECT="bhs-edoc-security-test";
@@ -177,6 +178,72 @@ async function dispatch(db,data,key) {
     throw issue(502,"บริการ Push ไม่รับข้อความทดสอบ โปรดสมัครอุปกรณ์ใหม่");
   }
 }
+/**
+ * Durable mock document transitions: only sandbox device record is updated.
+ * No real school collections, roles, or document IDs are read or written.
+ */
+async function mockProgress(db,data,key){
+  validateIdAndToken(data);
+  const dev=db.collection(DEVICES).doc(data.deviceId);
+  const now=Date.now(),day=today(),quota=rateRef(db,"send",day);
+  const mode=data.action;
+  if(mode==="workflowStatus"){
+    const snap=await dev.get(),record=snap.data();
+    if(!record||!safeCompare(record.secretHash,hex(data.token))||
+       record.expiresAt<=now)throw issue(403,"อุปกรณ์ไม่ได้ลงทะเบียนหรือหมดอายุ");
+    return {success:true,workflow:mockSummary(record.workflow)};
+  }
+  let result=null,subBlob=null,payload=null;
+  await db.runTransaction(async tx=>{
+    const snap=await tx.get(dev),record=snap.data();
+    if(!record||!safeCompare(record.secretHash,hex(data.token))||
+       record.expiresAt<=now)throw issue(403,"อุปกรณ์ไม่ได้ลงทะเบียนหรือหมดอายุ");
+    if(mode==="workflowReset"){
+      tx.update(dev,{workflow:null});
+      result={success:true,queued:false,workflow:mockSummary(null)};
+      return;
+    }
+    if(!TEST_RECEIVERS.some(r=>r.id===data.recipientId))
+      throw issue(400,"ผู้รับจำลองไม่ถูกต้อง");
+    const next=mockAdvance(record.workflow,now);
+    if(!next)throw issue(409,"กระบวนการจำลองจบแล้ว กรุณาเริ่มใหม่");
+    const eligible=mockEligible(next.event,data.recipientId);
+    if(eligible){
+      const count=await tx.get(quota);
+      const sent=record.sendDay===day?record.sendCount||0:0;
+      const remaining=labCooldownSeconds(now,record.lastSentAt);
+      if(remaining>0)
+        throw issue(429,"กรุณารออีก "+remaining+" วินาทีก่อนส่งซ้ำ",
+          {retryAfterSeconds:remaining});
+      if(sent>=MAX_SENDS_PER_DEVICE||(count.data()?.count||0)>=MAX_SENDS_GLOBAL)
+        throw issue(429,"โควตาการทดสอบวันนี้ครบแล้ว");
+      subBlob=record.encrypted;
+      payload=makeLabPushPayload("กระบวนการจำลอง: "+next.step.label);
+      tx.update(dev,{workflow:next.record,lastSentAt:now,
+        sendDay:day,sendCount:sent+1});
+      tx.set(quota,{count:(count.data()?.count||0)+1,updatedAt:now},{merge:true});
+    }else{
+      // Denied recipient: progress the fake document but do not send or charge quota.
+      tx.update(dev,{workflow:next.record});
+    }
+    result={success:true,queued:false,eligible,workflow:next.summary};
+  });
+  if(!subBlob)return result;
+  const sub=decrypt(subBlob,key);
+  webpush.setVapidDetails(process.env.BHS_PUSH_LAB_VAPID_CONTACT,
+    process.env.BHS_PUSH_LAB_VAPID_PUBLIC_KEY,
+    process.env.BHS_PUSH_LAB_VAPID_PRIVATE_KEY);
+  try{
+    await webpush.sendNotification(sub,JSON.stringify(payload),
+      {TTL:120,urgency:"normal",timeout:9000});
+    return {...result,queued:true,
+      retryAfterSeconds:labCooldownSeconds(Date.now(),now)};
+  }catch(error){
+    if([404,410].includes(Number(error?.statusCode)))
+      await dev.delete().catch(()=>{});
+    throw issue(502,"บันทึกขั้นตอนจำลองแล้ว แต่ส่ง Push ไม่สำเร็จ โปรดโหลดสถานะใหม่");
+  }
+}
 async function deregister(db,data) {
   validateIdAndToken(data);
   const dev=db.collection(DEVICES).doc(data.deviceId),snap=await dev.get();
@@ -215,17 +282,19 @@ export default async function handler(req,res){
       return respond(200,await registration(db,validSubscription(data.subscription),key));
     if(data.action==="send"||data.action==="simulateEvent")
       return respond(200,await dispatch(db,data,key));
+    if(["workflowStatus","workflowAdvance","workflowReset"].includes(data.action))
+      return respond(200,await mockProgress(db,data,key));
     if(data.action==="remove")
       return respond(200,await deregister(db,data));
     return respond(400,{success:false,error:"คำสั่งไม่ถูกต้อง"});
   }catch(err){
-    const status=[400,403,404,405,415,429,502,503].includes(err?.status)?err.status:503;
+    const status=[400,403,404,405,409,415,429,502,503].includes(err?.status)?err.status:503;
     return respond(status,{success:false,ready:false,error:
       status===503?"ห้องทดสอบยังไม่พร้อม: รอ Firebase ทดสอบและตรวจ Rules":
       status===404?"ไม่เปิดบริการนี้ในสภาพแวดล้อมนี้":
       status===429?err.message:
       status===403?"ไม่มีสิทธิ์ทดสอบอุปกรณ์นี้":
-      status===502?err.message:"คำขอทดสอบไม่สำเร็จ",
+      [409,502].includes(status)?err.message:"คำขอทดสอบไม่สำเร็จ",
       ...(status===429&&Number.isInteger(err?.retryAfterSeconds)?
         {retryAfterSeconds:err.retryAfterSeconds}:{})});
   }
