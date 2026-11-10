@@ -14,6 +14,7 @@ import {getApps,initializeApp,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import webpush from "web-push";
 import {incomingUnreadCount,recentIncomingAcknowledgement} from "../shared/incomingBadge.js";
+import {incomingCountText,incomingPublicationNotice} from "../shared/incomingPushText.js";
 import {readAppSession,userRef,appSessionReady,appSessionFingerprint}
   from "./_signatureServer.js";
 
@@ -194,15 +195,42 @@ export async function pushAcknowledgementBadge(user,docId){
   if(!claimed)return {success:true,duplicate:true,badgeCount:count};
   const result=await sendRecipient(db,user.id,{
     title:"BHS E-Document",
-    body:"จำนวนหนังสือเข้าค้างของคุณได้รับการอัปเดต",
-    url:"/",kind:"badge-sync",tag:"bhs-badge-sync",badgeCount:count
+    body:incomingCountText(count),
+    url:"/",kind:"badge-sync",tag:"bhs-unread-incoming",badgeCount:count
   });
   await marker.update({state:"complete",sent:result.sent,failed:result.failed,
     finishedAt:Date.now()});
   return {success:true,duplicate:false,badgeCount:count,...result};
 }
 
-export async function pushSchoolEvent(event,users=[]){
+// Self-test sends only to the signed-in user's registered devices.
+// Limit to 1/min and 12/day to avoid accidental repeated notifications.
+export async function pushSelfTest(user){
+  const db=database(),now=Date.now();
+  const active=await db.collection(COLLECTION)
+    .where("userId","==",user.id).limit(1).get();
+  if(active.empty)return {success:true,sent:0,failed:0,
+    badgeCount:await currentIncomingBadge(user)};
+  const day=new Date(now).toISOString().slice(0,10);
+  const ref=db.collection("bhs_private_webpush_test_limits")
+    .doc(sha("self-test:"+user.id+":"+day));
+  await db.runTransaction(async tx=>{
+    const snap=await tx.get(ref);
+    const prev=snap.exists?snap.data():{};
+    if(Number(prev.count||0)>=12||now-Number(prev.lastAt||0)<60000)
+      throw issue(429,"please_wait_before_testing_again");
+    tx.set(ref,{count:Number(prev.count||0)+1,lastAt:now,day});
+  });
+  const badgeCount=await currentIncomingBadge(user);
+  const result=await sendRecipient(db,user.id,{
+    title:"BHS E-Document",
+    body:"ทดสอบ Push: "+(incomingCountText(badgeCount)||"เปิดรับแจ้งเตือนแล้ว"),
+    url:"/",kind:"self-test",tag:"bhs-self-test",badgeCount
+  });
+  return {success:true,...result,badgeCount};
+}
+
+export async function pushSchoolEvent(event,users=[],docType=""){
   const db=database(),marker=db.collection(DISPATCHES)
     .doc(sha(event.key));
   // Server-computed event key. At-most-once to avoid notification spam or
@@ -232,8 +260,13 @@ export async function pushSchoolEvent(event,users=[]){
     const group=event.recipientIds.slice(i,i+10);
     const results=await Promise.all(group.map(uid=>{
       const user=byUser.get(uid);
-      const personalized=docs&&user?
-        {...payload,badgeCount:incomingUnreadCount(docs,user)}:payload;
+      const count=docs&&user?incomingUnreadCount(docs,user):null;
+      const incoming=incomingPublicationNotice(event.kind,docType,user,count);
+      const personalized={
+        ...payload,
+        ...(count!==null?{badgeCount:count}:{}),
+        ...(incoming||{})
+      };
       return sendRecipient(db,uid,personalized).catch(()=>({sent:0,failed:1}));
     }));
     for(const result of results){sent+=result.sent;failed+=result.failed;}
