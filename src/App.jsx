@@ -1189,7 +1189,7 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
               await runTransaction(db,async tx=>{
                 const ref=getDocumentRef(DOCS_PATH,item.id),current=await tx.get(ref);
                 if(!current.exists()||!Array.isArray(current.data().recipientsSnapshot)||![DOC_STATUS.PUBLISHED,DOC_STATUS.COMPLETED].includes(current.data().status))throw new Error("ข้อมูลเอกสารเปลี่ยนไป กรุณาลองใหม่");
-                if(current.data().recipientsSnapshot.some(x=>x.id===userId))throw new Error("รายชื่อนี้อยู่ในผู้รับแล้ว");
+                if(current.data().recipientsSnapshot.some(x=>x?.id===userId))throw new Error("รายชื่อนี้อยู่ในผู้รับแล้ว");
                 const entry={id:user.id,name:user.name,role:user.role,addedAt:Date.now(),addedBy:currentUser.id,reason};
                 tx.update(ref,{recipientsSnapshot:[...current.data().recipientsSnapshot,entry],history:arrayUnion({action:"เพิ่มผู้รับภายหลัง",by:currentUser.id,byName:currentUser.name,timestamp:Date.now(),detail:`${user.name}: ${reason}`})});
                 tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"เพิ่มรายชื่อผู้รับ","DOCUMENT",item.id,`${user.name}: ${reason}`));
