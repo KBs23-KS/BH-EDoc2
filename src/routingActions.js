@@ -66,7 +66,10 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
        lastEventAt:event.at});
      tx.set(auditRef(),audit(actionName,d.id,group));
      });
-     if(pushedEventId)try{onNotification(d.id,"head",pushedEventId)}catch{}
+     if(pushedEventId){
+       try{onNotification(d.id,"head",pushedEventId)}catch{}
+       try{onAcknowledgement(d.id,"head",pushedEventId)}catch{}
+     }
    },broadcastAllTeachers?"ประชาสัมพันธ์ถึงครูทุกคนสำเร็จ":reassign?"เปลี่ยนผู้รับมอบหมายแล้ว":userIds.length?"ส่งงานถึงครูแล้ว":"รับทราบและจบงานของหัวหน้าแล้ว");
  }
  async function acknowledge(d){
@@ -81,7 +84,8 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
    },"รับทราบหนังสือแล้ว");
  }
  async function acknowledgeAssignment(d,e){
-   return guarded(()=>runTransaction(db,async tx=>{
+   return guarded(async()=>{
+    await runTransaction(db,async tx=>{
     const ref=item(d.id),snap=await tx.get(ref);if(!snap.exists())throw new Error("ไม่พบเอกสาร");
     const fresh=snap.data(),actual=[...(fresh.routingEntries||[]),...(fresh.headActions||[])].find(x=>x.id===e.id&&(x.userIds||[]).includes(user.id));
     if(!actual)throw new Error("คุณไม่ได้รับมอบหมายรายการนี้");
@@ -90,7 +94,9 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
     tx.update(ref,{assignmentAcknowledged:[...old,key],
       history:arrayUnion({action:"รับทราบงานที่ได้รับมอบหมาย",by:user.id,byName:user.name,timestamp:Date.now(),detail:actual.message||""})});
     tx.set(auditRef(),audit("รับทราบงานมอบหมาย",d.id,e.id));
-   }),"รับทราบงานมอบหมายแล้ว");
+    });
+    try{onAcknowledgement(d.id,"assignment",e.id)}catch{}
+   },"รับทราบงานมอบหมายแล้ว");
  }
  return {route,headAction,acknowledge,acknowledgeAssignment};
 }
