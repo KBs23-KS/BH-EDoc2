@@ -162,6 +162,62 @@ async function sendRecipient(db,userId,payload){
   return {sent:responses.filter(Boolean).length,
     failed:responses.filter(x=>!x).length};
 }
+/**
+ * A local browser subscription is not proof of registration for this account.
+ * Resolve the endpoint hash from PRIVATE Firestore, never trust a userId from
+ * the client, and never return the push endpoint or encrypted subscription.
+ */
+export async function checkOwnedPushDevice(user,endpoint){
+  if(typeof endpoint!=="string"||endpoint.length>2048||!isPushEndpoint(endpoint))
+    throw issue(400,"invalid_endpoint");
+  const snap=await database().collection(COLLECTION).doc(deviceKey(endpoint)).get();
+  return {success:true,registered:snap.exists&&snap.data()?.userId===user.id};
+}
+
+export async function selfTestOwnedPushDevice(user,endpoint){
+  if(typeof endpoint!=="string"||endpoint.length>2048||!isPushEndpoint(endpoint))
+    throw issue(400,"invalid_endpoint");
+  const db=database(),device=db.collection(COLLECTION).doc(deviceKey(endpoint));
+  const snap=await device.get();
+  if(!snap.exists||snap.data()?.userId!==user.id)
+    throw issue(403,"device_not_registered_to_account");
+
+  // A self-test may only send to THIS user's current endpoint. Rate limits
+  // are kept server-side to prevent notification abuse.
+  const limiter=db.collection("bhs_private_webpush_self_tests")
+    .doc(sha(user.id+":"+endpoint));
+  const now=Date.now(),day=Math.floor(now/86400000);
+  await db.runTransaction(async tx=>{
+    const old=await tx.get(limiter),data=old.data()||{};
+    if(Number(data.lastSentAt||0)+60000>now)
+      throw issue(429,"self_test_cooldown");
+    if(data.day===day&&Number(data.dailyCount||0)>=6)
+      throw issue(429,"self_test_daily_limit");
+    tx.set(limiter,{day,dailyCount:data.day===day?
+      Number(data.dailyCount||0)+1:1,lastSentAt:now});
+  });
+
+  const badgeCount=await currentIncomingBadge(user).catch(()=>null);
+  const payload={
+    title:"BHS E-Document",
+    body:badgeCount===null?"ทดสอบ Web Push ถึงอุปกรณ์นี้":
+      "ทดสอบ Web Push — หนังสือเข้าค้าง "+badgeCount+" เรื่อง",
+    tag:"bhs-selftest-"+sha(user.id+":"+now).slice(0,18),
+    url:"/",...(badgeCount===null?{}:{badgeCount})
+  };
+  webpush.setVapidDetails(process.env.BHS_WEB_PUSH_CONTACT,
+    process.env.BHS_WEB_PUSH_PUBLIC_KEY,process.env.BHS_WEB_PUSH_PRIVATE_KEY);
+  try{
+    await webpush.sendNotification(decrypt(snap.data().encrypted),
+      JSON.stringify(payload),{TTL:120,urgency:"normal",timeout:9000});
+    return {success:true,sent:1,badgeCount};
+  }catch(err){
+    if([404,410].includes(Number(err?.statusCode)))
+      await device.delete().catch(()=>{});
+    throw issue(503,"self_test_provider_failed");
+  }
+}
+
 async function incomingDocs(db){
   const snap=await db.collection(DOCS_COLLECTION)
     .where("type","==","หนังสือเข้า").get();
