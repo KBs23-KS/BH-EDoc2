@@ -25,7 +25,7 @@ export default async function handler(req,res){
        JSON.stringify(data).length>350||
        Object.keys(data).some(k=>!["docId","kind","eventId"].includes(k))||
        typeof data.docId!=="string"||
-       (data.kind!==undefined&&!["receipt","assignment"].includes(data.kind))||
+       (data.kind!==undefined&&!["receipt","assignment","head"].includes(data.kind))||
        (data.eventId!==undefined&&typeof data.eventId!=="string"))
       return fail(res,400,"ข้อมูลคำขอไม่ถูกต้อง");
     const result=await pushAcknowledgementBadge(user,data.docId,data.kind||"receipt",data.eventId||"");
