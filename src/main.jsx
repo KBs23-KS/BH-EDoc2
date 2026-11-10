@@ -57,8 +57,8 @@ const incoming=Array.from({length:5},(_,i)=>({
 // Authenticated Chromium fixture also mixes orders/circulars with incoming.
 const mixed=window.location.search.includes("mixed=1");
 const extra= mixed?[
-  {...incoming[0],id:"badge-smoke-order",type:"คำสั่งโรงเรียน"},
-  {...incoming[0],id:"badge-smoke-circular",type:"หนังสือเวียนแจ้งรับทราบ"}
+  {...incoming[0],id:"badge-smoke-order",type:"คำสั่งโรงเรียน",acknowledgedBy:[]},
+  {...incoming[0],id:"badge-smoke-circular",type:"หนังสือเวียนแจ้งรับทราบ",acknowledgedBy:[]}
 ]:[];
 const malformed={...incoming[0],id:"bad-legacy-snapshot",
   recipientsSnapshot:[null],acknowledgedBy:[]};
