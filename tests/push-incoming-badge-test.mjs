@@ -85,7 +85,9 @@ assert.ok(server.includes('where("type","==","หนังสือเข้า"
 assert.ok(api.includes("verifiedPushUser(req)"));
 assert.ok(!api.includes("data.userId"),"no client-supplied user ID");
 assert.ok(api.includes('Object.keys(data).some(k=>k!=="docId")'));
-assert.ok(app.includes("pendingIconBadge=incomingUnreadCount(activeDocs,currentUser)"));
+assert.ok(app.includes("const pendingIconBadge=notifications.filter("));
+assert.ok(app.includes('n?.targetMenu==="incoming"'));
+assert.ok(!app.includes("import {incomingUnreadCount}"));
 assert.ok(app.includes("notifyBadgeAfterAcknowledge(docId)"));
 assert.ok(routing.includes("onAcknowledgement(d.id)"));
 assert.ok(dispatch.includes("pushSchoolEvent(event,users)"));
