@@ -141,7 +141,7 @@ const isSinglePdfDocument = type => ["คำสั่งโรงเรียน
 const isPdfUpload = file => Boolean(file && (file.type === "application/pdf" || String(file.name || "").toLowerCase().endsWith(".pdf")));
 const isSameUpload = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
 
-const DEFAULT_SETTINGS = {
+export const DEFAULT_SETTINGS = {
   schoolName: "โรงเรียนบ้านแฮดศึกษา",
   schoolLogoText: "บ.ศ.",
   academicYear: "2567",
@@ -759,8 +759,8 @@ export default function App() {
   );
 }
 
-function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast }) {
-  const [documents, setDocuments] = useState([]);
+export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast, smokeDocuments=[] }) {
+  const [documents, setDocuments] = useState(smokeDocuments);
   const [orderReservations, setOrderReservations] = useState([]);
   const [outgoingReservations, setOutgoingReservations] = useState([]);
   const [reminders,setReminders] = useState([]);
