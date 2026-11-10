@@ -4,7 +4,8 @@ import {
   sanitizeSubscription,deviceKey
 } from "../api/_webPushServer.js";
 import {
-  vapidBytes,enableWebPush,disableWebPush,pushClientSupport
+  vapidBytes,enableWebPush,disableWebPush,pushClientSupport,
+  currentPushState,testCurrentDevicePush
 } from "../src/webPushClient.js";
 import {readFileSync} from "node:fs";
 
@@ -40,7 +41,7 @@ assert.throws(()=>vapidBytes("NOT-A-REAL-VAPID-KEY"),/คีย์/);
 const original={
   pushManager:globalThis.PushManager,
   secure:globalThis.isSecureContext,
-  matchMedia:globalThis.matchMedia
+  matchMedia:globalThis.matchMedia,notification:globalThis.Notification
 };
 globalThis.PushManager=class FakePushManager{};
 globalThis.isSecureContext=true;
@@ -88,6 +89,30 @@ try{
   assert.equal(enabled.enabled,true);
   assert.equal(permissionRequested,1,"Permission must be explicit opt-in");
   assert.deepEqual(requests.map(x=>x.opts.method),["GET","POST"]);
+  globalThis.Notification={permission:"granted"};
+  let deviceOwned=true,testCalls=0;
+  const deviceFetcher=async(url,opts)=>{
+    assert.equal(url,"/api/push-device-check");
+    assert.equal(opts.credentials,"same-origin");
+    const payload=JSON.parse(opts.body);
+    assert.deepEqual(Object.keys(payload).sort(),["action","endpoint"]);
+    assert.equal(payload.endpoint,sub.endpoint);
+    if(payload.action==="status")return {ok:true,
+      async json(){return {success:true,registered:deviceOwned};}};
+    assert.equal(payload.action,"test");
+    testCalls++;
+    return {ok:true,async json(){return {success:true,sent:1,badgeCount:5};}};
+  };
+  const positive=await currentPushState(nav,deviceFetcher);
+  assert.equal(positive.enabled,true);
+  assert.equal(positive.registered,true);
+  deviceOwned=false;
+  const negative=await currentPushState(nav,deviceFetcher);
+  assert.equal(negative.enabled,false,"A local Chrome subscription alone is not registration");
+  assert.match(negative.reason,/ผูกกับบัญชี/);
+  const tested=await testCurrentDevicePush({nav,fetcher:deviceFetcher});
+  assert.equal(tested.sent,1);
+  assert.equal(testCalls,1,"Test push only to this device");
   const disabled=await disableWebPush({nav,fetcher});
   assert.equal(disabled.enabled,false);
   assert.equal(unsubscribeCount,1);
@@ -104,10 +129,14 @@ try{
   else globalThis.isSecureContext=original.secure;
   if(original.matchMedia===undefined)delete globalThis.matchMedia;
   else globalThis.matchMedia=original.matchMedia;
+  if(original.notification===undefined)delete globalThis.Notification;
+  else globalThis.Notification=original.notification;
 }
 const sw=readFileSync(new URL("../public/sw.js",import.meta.url),"utf8");
 const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
 const api=readFileSync(new URL("../api/push-dispatch.js",import.meta.url),"utf8");
+const deviceAPI=readFileSync(new URL("../api/push-device-check.js",import.meta.url),"utf8");
+const server=readFileSync(new URL("../api/_webPushServer.js",import.meta.url),"utf8");
 assert.match(sw,/addEventListener\("push"/);
 assert.match(sw,/registration\.showNotification/);
 assert.match(sw,/addEventListener\("notificationclick"/);
@@ -120,4 +149,16 @@ assert.match(api,/verifiedPushUser\(req\)/);
 assert.match(api,/serverNotificationEvent/);
 assert.doesNotMatch(api,/recipientIds\s*:\s*data\./,
   "Never trust a browser-supplied list of notification recipients");
+
+assert.match(deviceAPI,/verifiedPushUser\(req\)/);
+assert.match(deviceAPI,/Object\.keys\(data\)\.some\(k=>!\["action","endpoint"\]/);
+assert.doesNotMatch(deviceAPI,/data\.userId|data\.role/);
+assert.match(server,/deviceKey\(endpoint\)/);
+assert.match(server,/snap\.data\(\)\?\.userId===user\.id/);
+assert.match(server,/data\.lastSentAt\|\|0/);
+assert.match(server,/MAX_DEVICES=8/);
+assert.match(app,/last-push-dispatch/);
+assert.match(app,/lastPushDispatch\.status==="sent"/);
+assert.match(app,/testCurrentDevicePush\(\)/);
+assert.match(app,/executive-pending-count/);
 console.log("PASS: free Web Push device opt-in, VAPID key, iPad installation, privacy and server rights");

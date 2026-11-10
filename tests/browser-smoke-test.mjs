@@ -94,12 +94,36 @@ try{
     assert.equal(await pill.innerText(),String(expected),
       "Android in-app number must match unread incoming "+expected+" at "+route);
     assert.ok(await testPage.getByRole("button",{
-      name:new RegExp("หนังสือเข้ายังไม่รับทราบ "+expected+" เรื่อง")
+      name:new RegExp("หนังสือเข้าค้าง "+expected+" เรื่อง")
     }).isVisible(),"Incoming badge must be visible and readable");
 
     await testPage.close();
   }
   console.log("PASS: authenticated Chromium layout displays accurate badge 5 -> 4");
+  // Different roles must have a useful app-visible number, not a permanently
+  // absent incoming badge; exercise real MainLayout in actual Chromium.
+  for(const role of ["deputy","director","admin"]){
+    const executive=await browser.newPage();
+    const errors=[];
+    executive.on("pageerror",err=>errors.push(String(err)));
+    await executive.goto("http://127.0.0.1:"+port+
+      "/__badge_smoke?role="+role,{waitUntil:"domcontentloaded",timeout:30000});
+    await delay(1800);
+    const badge=executive.getByTestId("executive-pending-count");
+    const value=await badge.innerText();
+    const label=await executive.getByRole("button",{
+      name:/งานรอพิจารณา 1 เรื่อง/
+    }).isVisible();
+    const renderError=await executive.evaluate(()=>
+      window.__bhsSmokeRenderError||null);
+    console.log("EXECUTIVE BROWSER:",JSON.stringify({role,value,label,renderError,errors}));
+    assert.deepEqual(errors,[],"Executive dashboard JS error");
+    assert.equal(renderError,null,"Executive dashboard failed to mount");
+    assert.equal(value,"1","Wrong role-aware pending review count for "+role);
+    assert.ok(label,"Executive pending-work badge not visible");
+    await executive.close();
+  }
+  console.log("PASS: executive/deputy/admin pending-review badges display without white screen");
 }finally{
   if(browser)await browser.close();
   server.kill("SIGTERM");
