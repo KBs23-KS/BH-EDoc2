@@ -1126,7 +1126,7 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
           </div>
           
           <div className="flex items-center relative gap-2">
-            <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="relative p-2 text-gray-500 hover:text-blue-600 transition-colors rounded-full hover:bg-blue-50 outline-none focus:ring-2 focus:ring-blue-100">
+            <button aria-label={`การแจ้งเตือนค้าง ${notifications.length} รายการ`} onClick={() => setIsNotifOpen(!isNotifOpen)} className="relative p-2 text-gray-500 hover:text-blue-600 transition-colors rounded-full hover:bg-blue-50 outline-none focus:ring-2 focus:ring-blue-100">
               <Bell size={22} />
               {notifications.length > 0 && (
                 <span className="absolute top-1 right-1 flex h-4 w-4">
