@@ -70,7 +70,7 @@ try{
     }));
     console.log("AUTHENTICATED BROWSER:",JSON.stringify({route,expected,...info,errors:runtimeErrors}));
     if(info.renderError?.stack){
-      const match=info.renderError.stack.match(/assets\\/([^:\\s)]+\\.js):(\\d+):(\\d+)/);
+      const match=info.renderError.stack.match(/assets\/([^:\s)]+\.js):(\d+):(\d+)/);
       if(match){
         const sourceMap=JSON.parse(readFileSync(join("dist","assets",match[1]+".map"),"utf8"));
         const orig=originalPositionFor(new TraceMap(sourceMap),{
@@ -78,9 +78,9 @@ try{
         });
         let context="";
         if(orig.source){
-          const sourceFile=orig.source.replace(/^\\.\\.\\//,"");
-          try{const lines=readFileSync(sourceFile,"utf8").split("\\n");
-            context=lines.slice(Math.max(0,orig.line-4),orig.line+3).join("\\n");
+          const sourceFile=orig.source.replace(/^\.\.\//,"");
+          try{const lines=readFileSync(sourceFile,"utf8").split("\n");
+            context=lines.slice(Math.max(0,orig.line-4),orig.line+3).join("\n");
           }catch{}
         }
         console.log("MAPPED RENDER ERROR:",JSON.stringify({source:orig.source,
