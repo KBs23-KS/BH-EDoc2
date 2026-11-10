@@ -29,7 +29,11 @@ export function recipientSnapshot(doc,users,time=Date.now()) {
   return targetUsers(doc,users).map(u=>({id:u.id,name:u.name,role:u.role,addedAt:time,addedBy:"publication",reason:"ผู้รับเมื่อเผยแพร่"}));
 }
 export function recipientsOf(doc,users) {
-  return Array.isArray(doc.recipientsSnapshot)?doc.recipientsSnapshot:targetUsers(doc,users).map(u=>({id:u.id,name:u.name}));
+  // Legacy snapshots can contain nulls/invalid entries. Never let malformed
+  // recipient data crash the entire app or authorize a nonexistent recipient.
+  return Array.isArray(doc.recipientsSnapshot)
+    ? doc.recipientsSnapshot.filter(entry=>entry&&typeof entry.id==="string"&&entry.id.length>0)
+    : targetUsers(doc,users).map(u=>({id:u.id,name:u.name}));
 }
 export function isRecipient(doc,user,users) {
   return recipientsOf(doc,users).some(u=>u.id===user.id);
