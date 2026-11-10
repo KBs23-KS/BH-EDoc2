@@ -36,16 +36,10 @@ self.addEventListener("push",event=>{
       data:{url},
       renotify:false
     });
-    // Only a verified per-recipient count may update the app icon.
-    // The Preview lab has no badgeCount and leaves the real badge alone.
-    if(Number.isSafeInteger(data.badgeCount)&&data.badgeCount>=0&&
-       data.badgeCount<=999999){
-      try{
-        if(data.badgeCount===0&&typeof self.navigator?.clearAppBadge==="function")
-          await self.navigator.clearAppBadge();
-        else if(typeof self.navigator?.setAppBadge==="function")
-          await self.navigator.setAppBadge(data.badgeCount);
-      }catch{/* The platform may expose only an indicator dot. */}
+    // While the application is open it will replace this temporary badge
+    // with the exact outstanding-work count from its existing UI.
+    if(typeof self.navigator?.setAppBadge==="function"){
+      try{await self.navigator.setAppBadge(1)}catch{}
     }
   })());
 });

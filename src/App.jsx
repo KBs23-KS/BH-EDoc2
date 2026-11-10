@@ -77,7 +77,6 @@ import {
   pushClientSupport,currentPushState,enableWebPush,disableWebPush
 } from "./webPushClient.js";
 import {clientNotificationCandidates} from "../shared/pushEvents.js";
-import {incomingUnreadCount} from "../shared/incomingBadge.js";
 const PUSH_UI_ENABLED=import.meta.env.VITE_BHS_ENABLE_PUSH==="true";
 // Fire-and-forget AFTER a successful document commit. Does not delay school
 // workflows if push service or device subscription is not ready.
@@ -87,15 +86,6 @@ function notifyPushAfterSave(docId,kind,eventId){
   void fetch("/api/push-dispatch",{
     method:"POST",credentials:"same-origin",cache:"no-store",
     keepalive:true,headers:{"Content-Type":"application/json"},body
-  }).catch(()=>{});
-}
-// The document save already succeeded. A failed badge sync must not block it.
-function notifyBadgeAfterAcknowledge(docId){
-  if(!PUSH_UI_ENABLED)return;
-  void fetch("/api/push-badge",{
-    method:"POST",credentials:"same-origin",cache:"no-store",keepalive:true,
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({docId})
   }).catch(()=>{});
 }
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
@@ -871,8 +861,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
     db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
     user:currentUser,users:dbUsers,settings:systemSettings,showToast,
-    onNotification:notifyPushAfterSave,
-    onAcknowledgement:notifyBadgeAfterAcknowledge
+    onNotification:notifyPushAfterSave
   });
   const openDocument=id=>{
     const d=activeDocs.find(x=>x.id===id);
@@ -940,9 +929,9 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }));
   notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
-  // Show only unacknowledged incoming letters, not all bell notifications.
-  // Background Web Push receives this same count from the trusted server.
-  const pendingIconBadge=incomingUnreadCount(activeDocs,currentUser);
+  // Exact pending count when the app is open; background Web Push displays a
+  // temporary badge until this view recomputes the authoritative task list.
+  const pendingIconBadge=notifications.length;
   useEffect(()=>{
     if(!("setAppBadge" in navigator))return;
     if(pendingIconBadge){
@@ -951,7 +940,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
       Promise.resolve(navigator.clearAppBadge()).catch(()=>{});
     }
     document.title=(pendingIconBadge?"("+pendingIconBadge+") ":"")+"BHS E-Document";
-  },[pendingIconBadge,currentUser.id,pushDevice.enabled]);
+  },[pendingIconBadge,currentUser.id]);
   useEffect(()=>{
     if(!PUSH_UI_ENABLED||!documents.length)return;
     const recent=clientNotificationCandidates(documents,currentUser);
@@ -2936,7 +2925,6 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
       const latest=await getDoc(getDocumentRef(DOCS_PATH,docId));
       if(!latest.exists()||!isRecipient(latest.data(),currentUser,dbUsers))throw new Error("คุณไม่ได้อยู่ในรายชื่อผู้รับเอกสารนี้");
       await commitDocumentWithAudit(currentUser, docId, { acknowledgedBy: arrayUnion(currentUser.id),[`acknowledgedAt.${currentUser.id}`]:Date.now() }, "รับทราบเอกสาร", "ผู้ใช้กดรับทราบเอกสาร");
-      notifyBadgeAfterAcknowledge(docId);
       showToast("รับทราบเอกสารเรียบร้อย", "success");
     } catch (err) {
       showToast("Error: " + err.message, "error");

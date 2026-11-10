@@ -7,7 +7,7 @@
     "dev": "vite --host",
     "build": "node tests/head-routing-tabs-test.mjs && node tests/assignment-broadcast-a4-test.mjs && node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && vite build",
     "preview": "vite preview",
-    "test:push": "node tests/push-events-test.mjs && node tests/push-notification-integration-test.mjs && node tests/push-incoming-badge-test.mjs"
+    "test:push": "node tests/push-events-test.mjs && node tests/push-notification-integration-test.mjs"
   },
   "dependencies": {
     "firebase": "^12.1.0",
