@@ -90,6 +90,9 @@ try{
     assert.deepEqual(runtimeErrors,[],"Logged-in layout error at "+route);
     assert.ok(info.rootChildren>0&&info.body.trim(),"White screen after login: "+route);
     assert.ok(info.calls.includes(expected),"Expected real app badge "+expected+" at "+route);
+    assert.equal(await testPage.locator('[data-testid="incoming-badge-chip"]')
+      .getAttribute("aria-label"),"หนังสือเข้าค้างรับทราบ "+expected+" เรื่อง",
+      "Visible badge chip must match the actual pending incoming count");
     await testPage.close();
   }
   console.log("PASS: authenticated Chromium layout displays accurate badge 5 -> 4");
