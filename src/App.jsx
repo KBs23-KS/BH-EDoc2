@@ -809,6 +809,23 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
     }catch(e){showToast(e.message||"เปิดแจ้งเตือนไม่สำเร็จ","error")}
     finally{setPushBusy(false)}
   };
+  const testOwnWebPush=async()=>{
+    if(!pushDevice.enabled)return showToast("กรุณาเปิดแจ้งเตือนบนเครื่องนี้ก่อน","error");
+    setPushBusy(true);
+    try{
+      const response=await fetch("/api/push-self-test",{
+        method:"POST",credentials:"same-origin",cache:"no-store",
+        headers:{"Content-Type":"application/json"},body:"{}"
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||"ทดสอบแจ้งเตือนไม่สำเร็จ");
+      if(result.sent>0)
+        showToast("ส่ง Push ทดสอบไป "+result.sent+
+          " อุปกรณ์แล้ว กรุณาตรวจการแจ้งเตือนบนมือถือ","success");
+      else showToast("ยังไม่พบอุปกรณ์ที่ลงทะเบียนรับ Push กรุณาปิดแล้วเปิดแจ้งเตือนอีกครั้ง","error");
+    }catch(e){showToast(e.message||"ทดสอบแจ้งเตือนไม่สำเร็จ","error")}
+    finally{setPushBusy(false)}
+  };
   const logoutWithPush=()=>{
     // Shared computers must not remain subscribed to the last user.
     if(!PUSH_UI_ENABLED){onLogout();return;}
@@ -1101,6 +1118,20 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
           </div>
           
           <div className="flex items-center relative">
+            {isAcknowledgeRole&&(
+              <button type="button" data-testid="incoming-badge-chip"
+                aria-label={"หนังสือเข้าค้างรับทราบ "+pendingIconBadge+" เรื่อง"}
+                onClick={()=>{setActiveMenu("incoming");setIsNotifOpen(false)}}
+                className="mr-2 inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100"
+                title={"หนังสือเข้ารอรับทราบ "+pendingIconBadge+" เรื่อง"}>
+                <Inbox size={15}/>
+                <span className="hidden sm:inline">หนังสือเข้าค้าง</span>
+                <span className="sm:hidden">ค้าง</span>
+                <span className={"min-w-5 rounded-full px-1.5 py-0.5 text-center text-[11px] font-extrabold "+(pendingIconBadge>0?"bg-red-600 text-white":"bg-slate-200 text-slate-600")}>
+                  {pendingIconBadge>99?"99+":pendingIconBadge}
+                </span>
+              </button>
+            )}
             <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="relative p-2 text-gray-500 hover:text-blue-600 transition-colors rounded-full hover:bg-blue-50 outline-none focus:ring-2 focus:ring-blue-100">
               <Bell size={22} />
               {notifications.length > 0 && (
@@ -1138,6 +1169,14 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
                         {pushDevice.enabled?"รับการแจ้งเตือนแม้ปิดหน้าเว็บ":
                           pushDevice.reason||"กดเปิดและอนุญาตการแจ้งเตือนจากเบราว์เซอร์"}
                       </p>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-600">หนังสือเข้าค้างรับทราบ <strong className="text-blue-800">{pendingIconBadge}</strong> เรื่อง</span>
+                        <button type="button" onClick={testOwnWebPush}
+                          disabled={pushBusy||!pushDevice.enabled}
+                          className="rounded-lg bg-blue-700 px-2.5 py-1.5 text-[11px] font-bold text-white disabled:opacity-40">
+                          {pushBusy?"กำลังทดสอบ...":"ทดสอบ Push"}
+                        </button>
+                      </div>
                     </div>}
                   <div className="px-3 py-2 flex gap-2 border-b">{[["all","ทั้งหมด"],["unread","รอรับทราบ"],["tasks","งานมอบหมาย"],["history","ย้อนหลัง"]].map(([k,v])=><button key={k} onClick={()=>setNotifFilter(k)} className={"px-2 py-1 rounded text-xs "+(notifFilter===k?"bg-blue-100 text-blue-700 font-bold":"text-slate-500")}>{v}</button>)}</div>
                   <div className="px-3 py-2 border-b"><input aria-label="ค้นหาการแจ้งเตือน" placeholder="ค้นหาชื่อเรื่องหรือข้อความแจ้งเตือน..." value={notifQuery} onChange={e=>setNotifQuery(e.target.value)} className="w-full border px-3 py-2 text-xs rounded-lg"/></div>
