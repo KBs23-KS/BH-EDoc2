@@ -7,7 +7,8 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="description" content="ทดสอบการแสดงการแจ้งเตือนบนอุปกรณ์ โดยไม่เชื่อม Firebase หรือข้อมูลเอกสารโรงเรียน">
 <link rel="manifest" href="/push-preview-check.webmanifest">
-<link rel="icon" type="image/png" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/bhs-school-crest.png">
+<link rel="icon" type="image/png" href="/bhs-school-crest.png">
 <title>BHS E-Document — ทดสอบแจ้งเตือน (Preview)</title>
 <style>
 :root{font-family:system-ui,-apple-system,"Noto Sans Thai","Segoe UI",sans-serif;color:#18314d;background:#edf3fa}
@@ -67,8 +68,8 @@ $("test").addEventListener("click",async()=>{
     const ready=await navigator.serviceWorker.ready;
     await (ready||registration).showNotification("BHS E-Document · ทดสอบ",{
       body:"นี่คือข้อความทดสอบในเครื่อง ไม่มีข้อมูลเอกสารโรงเรียน",
-      icon:"/icon-192.png",
-      badge:"/icon-192.png",
+      icon:"/bhs-school-crest.png",
+      badge:"/bhs-school-crest.png",
       tag:"bhs-preview-device-test",
       data:{url:"/push-preview-check.html"}
     });
