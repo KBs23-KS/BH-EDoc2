@@ -232,8 +232,15 @@ export async function pushSchoolEvent(event,users=[]){
     const group=event.recipientIds.slice(i,i+10);
     const results=await Promise.all(group.map(uid=>{
       const user=byUser.get(uid);
-      const personalized=docs&&user?
-        {...payload,badgeCount:incomingUnreadCount(docs,user)}:payload;
+      const badgeCount=docs&&user?incomingUnreadCount(docs,user):null;
+      const personalized=badgeCount!==null?{
+        ...payload,
+        badgeCount,
+        // Display a useful count in Android's notification shade because
+        // Chrome-installed PWAs cannot force a numeric launcher icon badge.
+        body:event.incomingPublished&&badgeCount>0?
+          "มีหนังสือเข้ารอรับทราบ "+badgeCount+" เรื่อง":payload.body
+      }:payload;
       return sendRecipient(db,uid,personalized).catch(()=>({sent:0,failed:1}));
     }));
     for(const result of results){sent+=result.sent;failed+=result.failed;}
