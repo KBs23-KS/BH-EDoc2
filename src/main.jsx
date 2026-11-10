@@ -9,6 +9,12 @@ class RenderBoundary extends React.Component {
   constructor(props){super(props);this.state={failed:false};}
   static getDerivedStateFromError(){return {failed:true};}
   componentDidCatch(error){
+    if(import.meta.env.VITE_BHS_BROWSER_SMOKE==="true")
+      window.__bhsSmokeRenderError={
+        name:String(error?.name||"Error"),
+        message:String(error?.message||"unknown"),
+        stack:String(error?.stack||"").slice(0,1200)
+      };
     console.error("BHS E-Document rendering error:",error?.name||"Error");
   }
   render(){
