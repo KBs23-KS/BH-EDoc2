@@ -13,7 +13,7 @@ import {createHash,createCipheriv,createDecipheriv,randomBytes}
 import {getApps,initializeApp,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import webpush from "web-push";
-import {totalPendingNotifications,recentSchoolAcknowledgement,recentAssignmentAcknowledgement} from "../shared/notificationBadge.js";
+import {totalPendingNotifications,recentSchoolAcknowledgement,recentAssignmentAcknowledgement,recentHeadAction} from "../shared/notificationBadge.js";
 import {readAppSession,userRef,appSessionReady,appSessionFingerprint}
   from "./_signatureServer.js";
 
@@ -250,20 +250,23 @@ export async function currentNotificationBadge(user){
 // A spoofed account ID or unrelated document cannot request a badge refresh.
 export async function pushAcknowledgementBadge(user,docId,kind="receipt",eventId=""){
   if(typeof docId!=="string"||!/^[A-Za-z0-9_-]{1,160}$/.test(docId)||
-     !["receipt","assignment"].includes(kind)||
+     !["receipt","assignment","head"].includes(kind)||
      typeof eventId!=="string"||eventId.length>160)
     throw issue(400,"invalid_badge_refresh");
   const db=database(),snap=await db.doc(DOCS_COLLECTION+"/"+docId).get();
   const doc=snap.exists?{id:snap.id,...snap.data()}:null;
+  const context=await pendingBadgeContext(db);
   const allowed=kind==="assignment"?
     recentAssignmentAcknowledgement(doc,user,eventId):
-    recentSchoolAcknowledgement(doc,user);
+    kind==="head"?
+      recentHeadAction(doc,user,eventId,context.settings):
+      recentSchoolAcknowledgement(doc,user);
   if(!allowed)throw issue(403,"not_your_recent_acknowledgement");
 
-  const context=await pendingBadgeContext(db);
   const count=badgeCountFromContext(context,user);
   const stamp=kind==="receipt"?
-    Number(doc.acknowledgedAt[user.id]):
+    Number(doc.acknowledgedAt[user.id]):kind==="head"?
+    Number((doc.headActions||[]).find(h=>h?.id===eventId)?.at||0):
     (doc.history||[]).filter(h=>h?.action==="รับทราบงานที่ได้รับมอบหมาย"&&
       h?.by===user.id).reduce((max,h)=>Math.max(max,Number(h.timestamp)||0),0);
   const marker=db.collection(DISPATCHES)
@@ -286,7 +289,7 @@ export async function pushAcknowledgementBadge(user,docId,kind="receipt",eventId
   return {success:true,duplicate:false,badgeCount:count,...result};
 }
 
-export async function pushSchoolEvent(event,users=[]){
+export async function pushSchoolEvent(event,users=[],actorId=""){
   const db=database(),marker=db.collection(DISPATCHES)
     .doc(sha(event.key));
   // Server-computed event key. At-most-once to avoid notification spam or
@@ -329,8 +332,26 @@ export async function pushSchoolEvent(event,users=[]){
     }));
     for(const result of results){sent+=result.sent;failed+=result.failed;}
   }
-  await marker.update({state:"complete",sent,failed,finishedAt:Date.now()});
-  return {success:true,duplicate:false,sent,failed};
+  // The actor's OWN pending count can drop after sending/reviewing.
+  // Refresh their subscribed devices too without changing the recipient
+  // delivery count. Never trust an actorId supplied by the browser.
+  let actorBadgeUpdated=false;
+  if(context&&actorId&&
+     ["created","director","returned","published"].includes(event.kind)){
+    const actor=byUser.get(actorId);
+    if(actor){
+      const count=badgeCountFromContext(context,actor);
+      const self=await sendRecipient(db,actorId,{
+        title:"BHS E-Document",
+        body:"ยอดแจ้งเตือนค้างของคุณเหลือ "+count+" รายการ",
+        tag:"bhs-badge-sync",url:"/",badgeCount:count
+      }).catch(()=>({sent:0,failed:1}));
+      actorBadgeUpdated=self.sent>0;
+    }
+  }
+  await marker.update({state:"complete",sent,failed,actorBadgeUpdated,
+    finishedAt:Date.now()});
+  return {success:true,duplicate:false,sent,failed,actorBadgeUpdated};
 }
 export async function loadEventDocument(docId){
   if(typeof docId!=="string"||!/^[A-Za-z0-9_-]{1,160}$/.test(docId))
