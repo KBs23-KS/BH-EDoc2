@@ -77,7 +77,6 @@ import {
   pushClientSupport,currentPushState,enableWebPush,disableWebPush
 } from "./webPushClient.js";
 import {clientNotificationCandidates} from "../shared/pushEvents.js";
-import {incomingUnreadCount} from "../shared/incomingBadge.js";
 const PUSH_UI_ENABLED=import.meta.env.VITE_BHS_ENABLE_PUSH==="true";
 // Fire-and-forget AFTER a successful document commit. Does not delay school
 // workflows if push service or device subscription is not ready.
@@ -942,7 +941,10 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
   notifications.sort((a, b) => b.time - a.time);
   // Show only unacknowledged incoming letters, not all bell notifications.
   // Background Web Push receives this same count from the trusted server.
-  const pendingIconBadge=incomingUnreadCount(activeDocs,currentUser);
+  const pendingIconBadge=notifications.filter(n=>
+    n?.targetMenu==="incoming"&&typeof n.id==="string"&&
+    n.id.startsWith("inc-")
+  ).length;
   useEffect(()=>{
     if(!("setAppBadge" in navigator))return;
     if(pendingIconBadge){
