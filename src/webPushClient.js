@@ -36,14 +36,46 @@ async function registration(nav=globalThis.navigator){
   // register() resolves even before activation.
   return (await nav.serviceWorker.ready)||worker;
 }
-export async function currentPushState(nav=globalThis.navigator){
+// Server-side ownership check: Chrome alone cannot prove a device has been
+// registered for the CURRENT school username/password session.
+async function ownedDeviceRequest(endpoint,action,fetcher=globalThis.fetch){
+  const response=await fetcher("/api/push-device-check",{
+    method:"POST",credentials:"same-origin",cache:"no-store",
+    headers:JSON_HEADERS,body:JSON.stringify({action,endpoint})
+  });
+  if(response.status===429)throw new Error("ส่งทดสอบได้ไม่เกิน 1 ครั้งต่อนาที และ 6 ครั้งต่อวัน");
+  return requireOK(response);
+}
+export async function currentPushState(nav=globalThis.navigator,
+  fetcher=globalThis.fetch){
   const support=pushClientSupport(nav);
-  if(!support.supported)return {...support,enabled:false};
+  if(!support.supported)return {...support,enabled:false,registered:false};
   if(Notification.permission!=="granted")
-    return {supported:true,enabled:false,permission:Notification.permission};
+    return {supported:true,enabled:false,registered:false,
+      permission:Notification.permission};
   const worker=await registration(nav);
   const sub=await worker.pushManager.getSubscription();
-  return {supported:true,enabled:Boolean(sub),permission:Notification.permission};
+  if(!sub)return {supported:true,enabled:false,registered:false,
+    permission:"granted",reason:"ยังไม่ได้ลงทะเบียนอุปกรณ์นี้"};
+  try{
+    const result=await ownedDeviceRequest(sub.endpoint,"status",fetcher);
+    const registered=result.registered===true;
+    return {supported:true,enabled:registered,registered,
+      permission:"granted",reason:registered?"":"เครื่องนี้ยังไม่ได้ผูกกับบัญชีปัจจุบัน กดเปิดแจ้งเตือนอีกครั้ง"};
+  }catch{
+    return {supported:true,enabled:false,registered:false,
+      permission:"granted",reason:"ยังไม่สามารถยืนยันอุปกรณ์กับเซิร์ฟเวอร์ได้ กดเปิดแจ้งเตือนใหม่"};
+  }
+}
+export async function testCurrentDevicePush({
+  nav=globalThis.navigator,fetcher=globalThis.fetch
+}={}){
+  if(Notification.permission!=="granted")
+    throw new Error("กรุณาอนุญาตการแจ้งเตือนก่อน");
+  const reg=await registration(nav);
+  const sub=await reg.pushManager.getSubscription();
+  if(!sub)throw new Error("ยังไม่ได้ลงทะเบียน Push บนอุปกรณ์นี้");
+  return ownedDeviceRequest(sub.endpoint,"test",fetcher);
 }
 export async function enableWebPush({
   nav=globalThis.navigator,fetcher=fetch,
