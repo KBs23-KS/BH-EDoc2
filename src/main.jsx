@@ -37,8 +37,11 @@ class RenderBoundary extends React.Component {
 // Vite removes this path from ordinary Preview / Production builds.
 const smoke = import.meta.env.VITE_BHS_BROWSER_SMOKE === "true" &&
   window.location.pathname === "/__badge_smoke";
+const smokeRole=new URLSearchParams(window.location.search).get("role");
+const actorRole=["director","deputy","admin"].includes(smokeRole)?
+  smokeRole:"teacher";
 const actor={id:"badge-smoke-teacher",username:"badge-smoke-teacher",
-  name:"ครูทดสอบระบบ",role:"teacher",status:"active",adminDept:"ฝ่ายวิชาการ",
+  name:"บัญชีทดสอบระบบ",role:actorRole,status:"active",adminDept:"ฝ่ายวิชาการ",
   subjectArea:"วิทยาศาสตร์"};
 const incoming=Array.from({length:5},(_,i)=>({
   id:"badge-smoke-"+i,createdBy:"badge-smoke-clerk",
@@ -53,11 +56,15 @@ const incoming=Array.from({length:5},(_,i)=>({
 // They must not make the app render a blank page or inflate the exact count.
 const malformed={...incoming[0],id:"bad-legacy-snapshot",
   recipientsSnapshot:[null],acknowledgedBy:[]};
+const executiveDoc={...incoming[0],
+  status:actorRole==="director"?"รอผู้อำนวยการ":"รอรองผู้อำนวยการ",
+  acknowledgedBy:[]};
 const fixture=smoke?
   <MainLayout firebaseUser={null} currentUser={actor} dbUsers={[actor]}
     systemSettings={DEFAULT_SETTINGS} onLogout={()=>{}}
     showToast={msg=>console.info("Fixture toast:",msg)}
-    smokeDocuments={[...incoming,malformed]}/>:
+    smokeDocuments={actorRole==="teacher"?
+      [...incoming,malformed]:[executiveDoc]}/>:
   <App/>;
 createRoot(document.getElementById('root')).render(
   <React.StrictMode><RenderBoundary>{fixture}</RenderBoundary></React.StrictMode>
