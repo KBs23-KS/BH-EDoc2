@@ -1,7 +1,7 @@
 import {doc,runTransaction,arrayUnion,getDoc,writeBatch} from "firebase/firestore";
 import {audienceSnapshot,canHeadAct,isFinalDoc,isRoutingEligibleDoc,routeMessage,assignmentKey,headGroups,broadcastTeacherIds} from "./routing";
 import {recipientsOf} from "./workflow";
-export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,user,users,settings,showToast}) {
+export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,user,users,settings,showToast,onNotification=()=>{}}) {
  const audit=(name,id,detail)=>({action:name,userId:user.id,userName:user.name,role:user.role,targetType:"DOCUMENT",targetId:id,detail,timestamp:Date.now()});
  const item=(id)=>getDocumentRef(paths.documents,id);
  const auditRef=()=>doc(getCollectionRef(paths.audit));
@@ -11,7 +11,9 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
  async function route(d,{groups=[],userIds=[],all=false,message="",supersedes=""}){
    if(!["admin","director"].includes(user.role))throw new Error("ไม่มีสิทธิ์เกษียณเอกสาร");
    if(!all&&!groups.length&&!userIds.length)throw new Error("กรุณาเลือกกลุ่มหรือครูผู้รับ");
-   return guarded(()=>runTransaction(db,async tx=>{
+   let pushedEventId=null;
+   return guarded(async()=>{
+     await runTransaction(db,async tx=>{
      const ref=item(d.id),snap=await tx.get(ref);
      if(!snap.exists()||!isRoutingEligibleDoc(snap.data()))throw new Error("เกษียณและมอบหมายต่อได้เฉพาะหนังสือเข้าที่อนุมัติแล้ว");
      const fresh=snap.data();
@@ -24,11 +26,14 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
      if(supersedes&&(fresh.routingEntries||[]).some(e=>e.supersedes===supersedes))throw new Error("การมอบหมายนี้ถูกเปลี่ยนไปแล้ว");
      if(supersedes&&!userIds.length)throw new Error("กรุณาเลือกผู้รับมอบหมายใหม่");
      const event={...routeMessage("director",user,d),groups,userIds,all,message,...(supersedes?{supersedes}:{})};
+     pushedEventId=event.id;
      tx.update(ref,{routingEntries:[...(fresh.routingEntries||[]),event],
        recipientsSnapshot:audienceSnapshot({groups,users:userIds,all},users,previousRecipients(fresh),user.id,event.at),
        history:arrayUnion({action:"ผอ. เกษียณหนังสือ",by:user.id,byName:user.name,timestamp:event.at,detail:message||"แจ้งเพื่อทราบ"}),lastEventAt:event.at});
      tx.set(auditRef(),audit("เกษียณหนังสือ",d.id,message||"เพิ่มผู้รับ"));
-   }),"เกษียณหนังสือสำเร็จ");
+     });
+     if(pushedEventId)try{onNotification(d.id,"route",pushedEventId)}catch{}
+   },"เกษียณหนังสือสำเร็จ");
  }
  async function headAction(d,{group,userIds=[],message="",reassign=false,broadcastAllTeachers=false}){
    if(!canHeadAct(user,settings,group))throw new Error("ไม่ใช่หัวหน้ากลุ่มที่ได้รับแต่งตั้ง");
@@ -39,7 +44,9 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
    if(userIds.some(id=>!active.some(u=>u.id===id&&(!subject||u.subjectArea===group))))throw new Error("เลือกผู้รับนอกขอบเขต");
    const broadcastRecipients=broadcastAllTeachers?broadcastTeacherIds(users):[];
    if(broadcastAllTeachers&&!broadcastRecipients.length)throw new Error("ไม่มีบัญชีครูที่เปิดใช้งานสำหรับประชาสัมพันธ์");
-   return guarded(()=>runTransaction(db,async tx=>{
+   let pushedEventId=null;
+   return guarded(async()=>{
+     await runTransaction(db,async tx=>{
      const ref=item(d.id),snap=await tx.get(ref);
      if(!snap.exists()||!isRoutingEligibleDoc(snap.data()))throw new Error("เกษียณต่อได้เฉพาะหนังสือเข้าที่อนุมัติแล้ว");
      const fresh=snap.data();
@@ -51,13 +58,16 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
      if(reassign&&!old)throw new Error("ไม่พบรายการเกษียณเดิมที่จะแก้ไข");
      if(reassign&&!userIds.length&&!broadcastAllTeachers)throw new Error("กรุณาเลือกครูผู้รับมอบหมายใหม่ หรือประชาสัมพันธ์ครูทุกคน");
      const event={...routeMessage("head",user,d),group,userIds,message,broadcastAllTeachers,...(old?{supersedes:old.id}:{})};
+     pushedEventId=event.id;
      const actionName=broadcastAllTeachers?"หัวหน้าประชาสัมพันธ์ครูทุกคน":reassign?"หัวหน้าเปลี่ยนผู้รับมอบหมาย":userIds.length?"หัวหน้าเกษียณต่อ":"หัวหน้ารับทราบ";
      tx.update(ref,{headActions:[...(fresh.headActions||[]),event],
        recipientsSnapshot:audienceSnapshot({users:broadcastAllTeachers?broadcastRecipients:userIds},users,previousRecipients(fresh),user.id,event.at),
        history:arrayUnion({action:actionName,by:user.id,byName:user.name,timestamp:event.at,detail:group+" "+message}),
        lastEventAt:event.at});
      tx.set(auditRef(),audit(actionName,d.id,group));
-   }),broadcastAllTeachers?"ประชาสัมพันธ์ถึงครูทุกคนสำเร็จ":reassign?"เปลี่ยนผู้รับมอบหมายแล้ว":userIds.length?"ส่งงานถึงครูแล้ว":"รับทราบและจบงานของหัวหน้าแล้ว");
+     });
+     if(pushedEventId)try{onNotification(d.id,"head",pushedEventId)}catch{}
+   },broadcastAllTeachers?"ประชาสัมพันธ์ถึงครูทุกคนสำเร็จ":reassign?"เปลี่ยนผู้รับมอบหมายแล้ว":userIds.length?"ส่งงานถึงครูแล้ว":"รับทราบและจบงานของหัวหน้าแล้ว");
  }
  async function acknowledge(d){
    return guarded(async()=>{
