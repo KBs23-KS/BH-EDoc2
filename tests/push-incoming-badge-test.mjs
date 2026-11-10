@@ -29,6 +29,11 @@ assert.equal(incomingUnreadCount([...five,...ignored],clerk),6);
 assert.equal(incomingUnreadCount([...five,...ignored],{...teacher,status:"inactive"}),0);
 assert.equal(incomingUnreadCount([...five,...ignored],{...teacher,role:"admin"}),0);
 assert.equal(incomingUnreadCount(null,teacher),0);
+assert.equal(incomingUnreadCount([
+  doc("legacy-bad",{recipientsSnapshot:[null]}),
+  doc("legacy-valid",{recipientsSnapshot:[null,{id:"T1"}]}),
+  doc("legacy-strange",{recipientsSnapshot:["not a recipient"]})
+],teacher),1,"malformed snapshots must never crash or inflate icon badge");
 const legacy=doc("legacy",{recipientsSnapshot:null,assignedTo:"ทุกคน"});
 assert.equal(incomingUnreadCount([legacy],teacher),1);
 assert.equal(incomingUnreadCount([legacy],other),1);
