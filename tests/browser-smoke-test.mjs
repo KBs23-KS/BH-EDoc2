@@ -6,6 +6,9 @@ import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {setTimeout as delay} from "node:timers/promises";
 import {chromium} from "playwright";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
+import {TraceMap,originalPositionFor} from "@jridgewell/trace-mapping";
 
 const port="4174";
 const server=spawn(process.execPath,[
@@ -66,6 +69,24 @@ try{
       renderError:window.__bhsSmokeRenderError||null
     }));
     console.log("AUTHENTICATED BROWSER:",JSON.stringify({route,expected,...info,errors:runtimeErrors}));
+    if(info.renderError?.stack){
+      const match=info.renderError.stack.match(/assets\\/([^:\\s)]+\\.js):(\\d+):(\\d+)/);
+      if(match){
+        const sourceMap=JSON.parse(readFileSync(join("dist","assets",match[1]+".map"),"utf8"));
+        const orig=originalPositionFor(new TraceMap(sourceMap),{
+          line:Number(match[2]),column:Number(match[3])-1
+        });
+        let context="";
+        if(orig.source){
+          const sourceFile=orig.source.replace(/^\\.\\.\\//,"");
+          try{const lines=readFileSync(sourceFile,"utf8").split("\\n");
+            context=lines.slice(Math.max(0,orig.line-4),orig.line+3).join("\\n");
+          }catch{}
+        }
+        console.log("MAPPED RENDER ERROR:",JSON.stringify({source:orig.source,
+          line:orig.line,column:orig.column,name:orig.name,context}));
+      }
+    }
     assert.deepEqual(runtimeErrors,[],"Logged-in layout error at "+route);
     assert.ok(info.rootChildren>0&&info.body.trim(),"White screen after login: "+route);
     assert.ok(info.calls.includes(expected),"Expected real app badge "+expected+" at "+route);
