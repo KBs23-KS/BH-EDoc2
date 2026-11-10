@@ -1,10 +1,10 @@
 /**
  * Per-user, server-verified badge for the installed PWA.
- * GET returns this account's current unread incoming count.
- * POST refreshes that account's other devices after a recent acknowledgement.
+ * GET returns this account's pending count across all bell categories.
+ * POST updates this account's other devices after a verified recent acknowledgement.
  */
 import {fail,forbidCrossSite,setupResponse} from "./_signatureServer.js";
-import {verifiedPushUser,currentIncomingBadge,pushAcknowledgementBadge}
+import {verifiedPushUser,currentNotificationBadge,pushAcknowledgementBadge}
   from "./_webPushServer.js";
 
 export default async function handler(req,res){
@@ -19,14 +19,16 @@ export default async function handler(req,res){
     const user=await verifiedPushUser(req);
     if(req.method==="GET")
       return res.status(200).json({success:true,
-        badgeCount:await currentIncomingBadge(user)});
+        badgeCount:await currentNotificationBadge(user)});
     const data=req.body;
     if(!data||typeof data!=="object"||Array.isArray(data)||
-       JSON.stringify(data).length>240||
-       Object.keys(data).some(k=>k!=="docId")||
-       typeof data.docId!=="string")
+       JSON.stringify(data).length>350||
+       Object.keys(data).some(k=>!["docId","kind","eventId"].includes(k))||
+       typeof data.docId!=="string"||
+       (data.kind!==undefined&&!["receipt","assignment","head"].includes(data.kind))||
+       (data.eventId!==undefined&&typeof data.eventId!=="string"))
       return fail(res,400,"ข้อมูลคำขอไม่ถูกต้อง");
-    const result=await pushAcknowledgementBadge(user,data.docId);
+    const result=await pushAcknowledgementBadge(user,data.docId,data.kind||"receipt",data.eventId||"");
     return res.status(200).json(result);
   }catch(err){
     const code=[400,401,403,503].includes(err?.status)?err.status:503;

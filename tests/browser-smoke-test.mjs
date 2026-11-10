@@ -48,7 +48,7 @@ try{
   console.log("PASS: real Chromium renders login without a blank screen");
   // Exercise the real logged-in MainLayout (CI-only fixture, zero Firebase
   // writes). This route reproduces the previous blank screen after login.
-  for(const [route,expected] of [["/__badge_smoke",5],["/__badge_smoke?ack=1",4]]){
+  for(const [route,expected] of [["/__badge_smoke",5],["/__badge_smoke?ack=1",4],["/__badge_smoke?mixed=1",7],["/__badge_smoke?mixed=1&ack=1",6]]){
     const testPage=await browser.newPage();
     const runtimeErrors=[];
     testPage.on("pageerror",err=>runtimeErrors.push(String(err)));
@@ -90,16 +90,17 @@ try{
     assert.deepEqual(runtimeErrors,[],"Logged-in layout error at "+route);
     assert.ok(info.rootChildren>0&&info.body.trim(),"White screen after login: "+route);
     assert.ok(info.calls.includes(expected),"Expected real app badge "+expected+" at "+route);
-    const pill=testPage.getByTestId("incoming-unread-count");
-    assert.equal(await pill.innerText(),String(expected),
-      "Android in-app number must match unread incoming "+expected+" at "+route);
+    // The old duplicate header pill must be gone. The single bell should
+    // match the exact number requested for the installed-app icon.
+    assert.equal(await testPage.getByTestId("incoming-unread-count").count(),0);
+    assert.equal(await testPage.getByTestId("executive-pending-count").count(),0);
     assert.ok(await testPage.getByRole("button",{
-      name:new RegExp("หนังสือเข้าค้าง "+expected+" เรื่อง")
-    }).isVisible(),"Incoming badge must be visible and readable");
+      name:new RegExp("การแจ้งเตือนค้าง "+expected+" รายการ")
+    }).isVisible(),"Only bell badge should remain visible");
 
     await testPage.close();
   }
-  console.log("PASS: authenticated Chromium layout displays accurate badge 5 -> 4");
+  console.log("PASS: authenticated Chromium bell + icon display 5→4 and mixed incoming/order/circular 7→6");
   // Different roles must have a useful app-visible number, not a permanently
   // absent incoming badge; exercise real MainLayout in actual Chromium.
   for(const role of ["deputy","director","admin"]){
@@ -109,21 +110,23 @@ try{
     await executive.goto("http://127.0.0.1:"+port+
       "/__badge_smoke?role="+role,{waitUntil:"domcontentloaded",timeout:30000});
     await delay(1800);
-    const badge=executive.getByTestId("executive-pending-count");
-    const value=await badge.innerText();
+    const value=await executive.evaluate(()=>
+      document.title.startsWith("(1) ")?"1":"0");
     const label=await executive.getByRole("button",{
-      name:/งานรอพิจารณา 1 เรื่อง/
+      name:/การแจ้งเตือนค้าง 1 รายการ/
     }).isVisible();
+    assert.equal(await executive.getByTestId("executive-pending-count").count(),0,
+      "No duplicate executive header pill");
     const renderError=await executive.evaluate(()=>
       window.__bhsSmokeRenderError||null);
     console.log("EXECUTIVE BROWSER:",JSON.stringify({role,value,label,renderError,errors}));
     assert.deepEqual(errors,[],"Executive dashboard JS error");
     assert.equal(renderError,null,"Executive dashboard failed to mount");
     assert.equal(value,"1","Wrong role-aware pending review count for "+role);
-    assert.ok(label,"Executive pending-work badge not visible");
+    assert.ok(label,"Executive pending-work count must appear on the bell");
     await executive.close();
   }
-  console.log("PASS: executive/deputy/admin pending-review badges display without white screen");
+  console.log("PASS: executive/deputy/admin counts appear on single bell, no redundant header pill, no white screen");
 }finally{
   if(browser)await browser.close();
   server.kill("SIGTERM");

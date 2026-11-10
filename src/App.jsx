@@ -74,7 +74,7 @@ import DashboardHomePanels,{RoleIndicators} from "./DashboardHomePanels";
 import {countDocumentTypes} from "./dashboardDocumentCounts.js";
 import {playNotification} from "./notificationSound";
 import {
-  pushClientSupport,currentPushState,enableWebPush,disableWebPush,testCurrentDevicePush
+  pushClientSupport,currentPushState,enableWebPush,disableWebPush
 } from "./webPushClient.js";
 import {clientNotificationCandidates} from "../shared/pushEvents.js";
 const PUSH_UI_ENABLED=import.meta.env.VITE_BHS_ENABLE_PUSH==="true";
@@ -108,12 +108,12 @@ function notifyPushAfterSave(docId,kind,eventId){
   void dispatchSchoolPush({docId,kind,...(eventId?{eventId}:{})});
 }
 // The document save already succeeded. A failed badge sync must not block it.
-function notifyBadgeAfterAcknowledge(docId){
+function notifyBadgeAfterAcknowledge(docId,kind="receipt",eventId=""){
   if(!PUSH_UI_ENABLED)return;
   void fetch("/api/push-badge",{
     method:"POST",credentials:"same-origin",cache:"no-store",keepalive:true,
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({docId})
+    body:JSON.stringify({docId,kind,...(eventId?{eventId}:{})})
   }).catch(()=>{});
 }
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
@@ -801,7 +801,6 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [pushDevice,setPushDevice]=useState({supported:false,enabled:false,reason:""});
   const [pushBusy,setPushBusy]=useState(false);
-  const [pushTestBusy,setPushTestBusy]=useState(false);
   const [lastPushDispatch,setLastPushDispatch]=useState(null);
   const attemptedPushEvents=useRef(new Set());
   useEffect(()=>{
@@ -840,28 +839,6 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
       }
     }catch(e){showToast(e.message||"เปิดแจ้งเตือนไม่สำเร็จ","error")}
     finally{setPushBusy(false)}
-  };
-  const checkDevicePush=async()=>{
-    setPushBusy(true);
-    try{
-      const result=await currentPushState();
-      setPushDevice(result);
-      showToast(result.registered?
-        "เซิร์ฟเวอร์ยืนยันว่าอุปกรณ์นี้ผูกกับบัญชีแล้ว":
-        result.reason||"ยังไม่ได้ผูกอุปกรณ์กับบัญชีนี้",
-        result.registered?"success":"error");
-    }catch(e){showToast(e.message||"ตรวจสอบอุปกรณ์ไม่สำเร็จ","error")}
-    finally{setPushBusy(false)}
-  };
-  const testDevicePush=async()=>{
-    setPushTestBusy(true);
-    try{
-      const result=await testCurrentDevicePush();
-      showToast(result.sent===1?
-        "ผู้ให้บริการรับ Web Push ทดสอบแล้ว ตรวจแถบแจ้งเตือนของเครื่อง":
-        "ยังส่ง Push ทดสอบไม่สำเร็จ",result.sent===1?"success":"error");
-    }catch(e){showToast(e.message||"ส่งทดสอบไม่สำเร็จ","error")}
-    finally{setPushTestBusy(false)}
   };
   const logoutWithPush=()=>{
     // Shared computers must not remain subscribed to the last user.
@@ -993,18 +970,10 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
   }));
   notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
-  // Show only unacknowledged incoming letters, not all bell notifications.
-  // Background Web Push receives this same count from the trusted server.
-  const pendingIconBadge=notifications.filter(n=>
-    n?.targetMenu==="incoming"&&typeof n.id==="string"&&
-    n.id.startsWith("inc-")
-  ).length;
-  // This summary is deliberately distinct from the bell (all alert types).
-  // For executives count pending reviews, not unacknowledged incoming letters.
-  const executiveWorkRole=["director","deputy","admin"].includes(currentUser.role);
-  const roleWorkBadge=executiveWorkRole?pendingTasks.length:pendingIconBadge;
-  const roleWorkMenu=executiveWorkRole?"tasks":"incoming";
-  const roleWorkLabel=executiveWorkRole?"งานรอพิจารณา":"หนังสือเข้าค้าง";
+  // One number for all pending bell alerts: incoming, orders, circulars,
+  // review, returned documents, reminders, head work and assignments.
+  // No extra pill: the existing bell and left navigation own the visible UI.
+  const pendingIconBadge=notifications.length;
   useEffect(()=>{
     if(!("setAppBadge" in navigator))return;
     if(pendingIconBadge){
@@ -1157,20 +1126,7 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
           </div>
           
           <div className="flex items-center relative gap-2">
-            {(isAcknowledgeRole||executiveWorkRole) && (
-              <button type="button"
-                aria-label={`${roleWorkLabel} ${roleWorkBadge} เรื่อง เปิดรายการ`}
-                onClick={() => {setActiveMenu(roleWorkMenu);setIsNotifOpen(false);}}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-                <Inbox size={15} className="shrink-0" aria-hidden="true"/>
-                <span className="hidden sm:inline">{roleWorkLabel}</span>
-                <span className="sm:hidden">{executiveWorkRole?"งานค้าง":"หนังสือเข้า"}</span>
-                <span data-testid={executiveWorkRole?"executive-pending-count":"incoming-unread-count"}
-                  className="min-w-5 rounded-full bg-blue-800 px-1.5 py-0.5 text-center text-xs font-extrabold text-white"
-                  aria-live="polite">{roleWorkBadge}</span>
-              </button>
-            )}
-            <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="relative p-2 text-gray-500 hover:text-blue-600 transition-colors rounded-full hover:bg-blue-50 outline-none focus:ring-2 focus:ring-blue-100">
+            <button aria-label={`การแจ้งเตือนค้าง ${notifications.length} รายการ`} onClick={() => setIsNotifOpen(!isNotifOpen)} className="relative p-2 text-gray-500 hover:text-blue-600 transition-colors rounded-full hover:bg-blue-50 outline-none focus:ring-2 focus:ring-blue-100">
               <Bell size={22} />
               {notifications.length > 0 && (
                 <span className="absolute top-1 right-1 flex h-4 w-4">
@@ -1203,22 +1159,10 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
                             "ปิดแจ้งเตือน":"เปิดแจ้งเตือน"}
                         </button>
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        {pushDevice.enabled?"เซิร์ฟเวอร์ยืนยันว่าผูกอุปกรณ์กับบัญชีนี้แล้ว":
-                          pushDevice.reason||"กดเปิดและอนุญาตการแจ้งเตือนจากเบราว์เซอร์"}
-                      </p>
-                      <div className="flex gap-2 flex-wrap mt-2">
-                        <button type="button" disabled={pushBusy}
-                          onClick={checkDevicePush}
-                          className="text-xs font-semibold text-blue-700 underline disabled:opacity-50">
-                          ตรวจสถานะกับเซิร์ฟเวอร์
-                        </button>
-                        <button type="button" disabled={!pushDevice.enabled||pushTestBusy}
-                          onClick={testDevicePush}
-                          className="text-xs font-semibold px-2 py-1 rounded bg-blue-100 text-blue-900 disabled:opacity-50">
-                          {pushTestBusy?"กำลังส่ง...":"ส่งทดสอบถึงเครื่องนี้"}
-                        </button>
-                      </div>
+                      {!pushDevice.enabled&&
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          {pushDevice.reason||"กดเปิดและอนุญาตการแจ้งเตือนจากเบราว์เซอร์"}
+                        </p>}
                       {lastPushDispatch&&
                         <p data-testid="last-push-dispatch" className="text-[11px] mt-2 text-slate-700">
                           ผลส่ง Push ล่าสุด: {lastPushDispatch.status==="sent"?

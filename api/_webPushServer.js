@@ -13,7 +13,7 @@ import {createHash,createCipheriv,createDecipheriv,randomBytes}
 import {getApps,initializeApp,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import webpush from "web-push";
-import {incomingUnreadCount,recentIncomingAcknowledgement} from "../shared/incomingBadge.js";
+import {totalPendingNotifications,recentSchoolAcknowledgement,recentAssignmentAcknowledgement,recentHeadAction} from "../shared/notificationBadge.js";
 import {readAppSession,userRef,appSessionReady,appSessionFingerprint}
   from "./_signatureServer.js";
 
@@ -197,11 +197,11 @@ export async function selfTestOwnedPushDevice(user,endpoint){
       Number(data.dailyCount||0)+1:1,lastSentAt:now});
   });
 
-  const badgeCount=await currentIncomingBadge(user).catch(()=>null);
+  const badgeCount=await currentNotificationBadge(user).catch(()=>null);
   const payload={
     title:"BHS E-Document",
     body:badgeCount===null?"ทดสอบ Web Push ถึงอุปกรณ์นี้":
-      "ทดสอบ Web Push — หนังสือเข้าค้าง "+badgeCount+" เรื่อง",
+      "ทดสอบ Web Push — แจ้งเตือนค้างรวม "+badgeCount+" รายการ",
     tag:"bhs-selftest-"+sha(user.id+":"+now).slice(0,18),
     url:"/",...(badgeCount===null?{}:{badgeCount})
   };
@@ -218,39 +218,70 @@ export async function selfTestOwnedPushDevice(user,endpoint){
   }
 }
 
-async function incomingDocs(db){
-  const snap=await db.collection(DOCS_COLLECTION)
-    .where("type","==","หนังสือเข้า").get();
-  return snap.docs.map(d=>({id:d.id,...d.data()}));
+/**
+ * Read a single consistent set of all bell-relevant school data. The previous
+ * count queried only incoming letters and therefore could never include the
+ * executive, orders, circulars and assignment counts from the bell.
+ */
+async function pendingBadgeContext(db){
+  const [docsSnap,usersSnap,settingsSnap,remindersSnap]=await Promise.all([
+    db.collection(DOCS_COLLECTION).get(),
+    db.collection("artifacts/bhs-edoc-app/public/data/bhs_users").get(),
+    db.doc("artifacts/bhs-edoc-app/public/data/bhs_settings/system").get(),
+    db.collection("artifacts/bhs-edoc-app/public/data/bhs_reminders").get()
+  ]);
+  return {
+    documents:docsSnap.docs.map(d=>({id:d.id,...d.data()})),
+    users:usersSnap.docs.map(d=>({id:d.id,...d.data()})),
+    settings:settingsSnap.exists?settingsSnap.data():{},
+    reminders:remindersSnap.docs.map(d=>({id:d.id,...d.data()}))
+  };
 }
-export async function currentIncomingBadge(user){
-  return incomingUnreadCount(await incomingDocs(database()),user);
+function badgeCountFromContext(context,user){
+  return totalPendingNotifications(context.documents,user,context.users,
+    context.settings,context.reminders);
+}
+export async function currentNotificationBadge(user){
+  const db=database();
+  return badgeCountFromContext(await pendingBadgeContext(db),user);
 }
 
-// The server determines actor, document, acknowledgement age and exact count.
-// Refresh every subscribed device of this user (including closed PWA windows).
-export async function pushAcknowledgementBadge(user,docId){
-  if(typeof docId!=="string"||!/^[A-Za-z0-9_-]{1,160}$/.test(docId))
-    throw issue(400,"invalid_document_id");
+// Refresh ALL logged-in devices after this account's recent, verified receipt.
+// A spoofed account ID or unrelated document cannot request a badge refresh.
+export async function pushAcknowledgementBadge(user,docId,kind="receipt",eventId=""){
+  if(typeof docId!=="string"||!/^[A-Za-z0-9_-]{1,160}$/.test(docId)||
+     !["receipt","assignment","head"].includes(kind)||
+     typeof eventId!=="string"||eventId.length>160)
+    throw issue(400,"invalid_badge_refresh");
   const db=database(),snap=await db.doc(DOCS_COLLECTION+"/"+docId).get();
-  const document=snap.exists?{id:snap.id,...snap.data()}:null;
-  if(!recentIncomingAcknowledgement(document,user))
-    throw issue(403,"not_your_recent_incoming_acknowledgement");
-  const count=incomingUnreadCount(await incomingDocs(db),user);
-  const ack=Number(document.acknowledgedAt[user.id]);
+  const doc=snap.exists?{id:snap.id,...snap.data()}:null;
+  const context=await pendingBadgeContext(db);
+  const allowed=kind==="assignment"?
+    recentAssignmentAcknowledgement(doc,user,eventId):
+    kind==="head"?
+      recentHeadAction(doc,user,eventId,context.settings):
+      recentSchoolAcknowledgement(doc,user);
+  if(!allowed)throw issue(403,"not_your_recent_acknowledgement");
+
+  const count=badgeCountFromContext(context,user);
+  const stamp=kind==="receipt"?
+    Number(doc.acknowledgedAt[user.id]):kind==="head"?
+    Number((doc.headActions||[]).find(h=>h?.id===eventId)?.at||0):
+    (doc.history||[]).filter(h=>h?.action==="รับทราบงานที่ได้รับมอบหมาย"&&
+      h?.by===user.id).reduce((max,h)=>Math.max(max,Number(h.timestamp)||0),0);
   const marker=db.collection(DISPATCHES)
-    .doc(sha("badge-ack:"+user.id+":"+docId+":"+ack));
+    .doc(sha("badge-ack:"+kind+":"+user.id+":"+docId+":"+eventId+":"+stamp));
   const claimed=await db.runTransaction(async tx=>{
     const old=await tx.get(marker);
     if(old.exists)return false;
-    tx.create(marker,{createdAt:Date.now(),kind:"badge-ack",
+    tx.create(marker,{createdAt:Date.now(),kind:"badge-sync",
       recipientCount:1,state:"claimed"});
     return true;
   });
   if(!claimed)return {success:true,duplicate:true,badgeCount:count};
   const result=await sendRecipient(db,user.id,{
     title:"BHS E-Document",
-    body:"จำนวนหนังสือเข้าค้างของคุณได้รับการอัปเดต",
+    body:"ยอดแจ้งเตือนค้างของคุณเหลือ "+count+" รายการ",
     url:"/",kind:"badge-sync",tag:"bhs-badge-sync",badgeCount:count
   });
   await marker.update({state:"complete",sent:result.sent,failed:result.failed,
@@ -258,7 +289,7 @@ export async function pushAcknowledgementBadge(user,docId){
   return {success:true,duplicate:false,badgeCount:count,...result};
 }
 
-export async function pushSchoolEvent(event,users=[]){
+export async function pushSchoolEvent(event,users=[],actorId=""){
   const db=database(),marker=db.collection(DISPATCHES)
     .doc(sha(event.key));
   // Server-computed event key. At-most-once to avoid notification spam or
@@ -277,10 +308,10 @@ export async function pushSchoolEvent(event,users=[]){
     url:"/?doc="+encodeURIComponent(event.docId),
     tag:"bhs-event-"+sha(event.key).slice(0,20)
   };
-  // One Firestore document query for all recipients, not one per device.
-  // If the badge query fails, normal Web Push delivery still proceeds.
-  let docs=null;
-  try{docs=await incomingDocs(db)}catch{}
+  // One school-data read across all recipients. If counting fails,
+  // keep ordinary Web Push working instead of blocking document delivery.
+  let context=null;
+  try{context=await pendingBadgeContext(db)}catch{}
   const byUser=new Map(users.map(u=>[u.id,u]));
   let sent=0,failed=0;
   // Avoid noisy spikes from accidental routing to many people at once.
@@ -288,21 +319,39 @@ export async function pushSchoolEvent(event,users=[]){
     const group=event.recipientIds.slice(i,i+10);
     const results=await Promise.all(group.map(uid=>{
       const user=byUser.get(uid);
-      const badgeCount=docs&&user?incomingUnreadCount(docs,user):null;
+      const badgeCount=context&&user?
+        badgeCountFromContext(context,user):null;
       const personalized=badgeCount!==null?{
-        ...payload,
-        badgeCount,
-        // Display a useful count in Android's notification shade because
-        // Chrome-installed PWAs cannot force a numeric launcher icon badge.
-        body:event.incomingPublished&&badgeCount>0?
-          "มีหนังสือเข้ารอรับทราบ "+badgeCount+" เรื่อง":payload.body
+        ...payload,badgeCount,
+        // The message covers ALL pending bell categories, not only incoming
+        // letters. Android's launcher may show just a notification dot.
+        body:badgeCount>0?event.title+" — ค้างรวม "+badgeCount+" รายการ":
+          payload.body
       }:payload;
       return sendRecipient(db,uid,personalized).catch(()=>({sent:0,failed:1}));
     }));
     for(const result of results){sent+=result.sent;failed+=result.failed;}
   }
-  await marker.update({state:"complete",sent,failed,finishedAt:Date.now()});
-  return {success:true,duplicate:false,sent,failed};
+  // The actor's OWN pending count can drop after sending/reviewing.
+  // Refresh their subscribed devices too without changing the recipient
+  // delivery count. Never trust an actorId supplied by the browser.
+  let actorBadgeUpdated=false;
+  if(context&&actorId&&
+     ["created","director","returned","published"].includes(event.kind)){
+    const actor=byUser.get(actorId);
+    if(actor){
+      const count=badgeCountFromContext(context,actor);
+      const self=await sendRecipient(db,actorId,{
+        title:"BHS E-Document",
+        body:"ยอดแจ้งเตือนค้างของคุณเหลือ "+count+" รายการ",
+        tag:"bhs-badge-sync",url:"/",badgeCount:count
+      }).catch(()=>({sent:0,failed:1}));
+      actorBadgeUpdated=self.sent>0;
+    }
+  }
+  await marker.update({state:"complete",sent,failed,actorBadgeUpdated,
+    finishedAt:Date.now()});
+  return {success:true,duplicate:false,sent,failed,actorBadgeUpdated};
 }
 export async function loadEventDocument(docId){
   if(typeof docId!=="string"||!/^[A-Za-z0-9_-]{1,160}$/.test(docId))

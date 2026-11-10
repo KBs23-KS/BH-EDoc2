@@ -30,7 +30,7 @@ export default async function handler(req,res){
       users,settings
     });
     if(!event)return fail(res,403,"ไม่พบเหตุการณ์ที่มีสิทธิ์แจ้งเตือน");
-    const result=await pushSchoolEvent({...event,incomingPublished:doc.type==="หนังสือเข้า"&&event.kind==="published"},users);
+    const result=await pushSchoolEvent({...event,incomingPublished:doc.type==="หนังสือเข้า"&&event.kind==="published"},users,actor.id);
     return res.status(200).json(result);
   }catch(error){
     const status=[400,401,403,404,503].includes(error?.status)?error.status:503;
