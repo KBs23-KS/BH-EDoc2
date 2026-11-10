@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
+import {recipientsOf,isRecipient} from "../src/workflow.js";
 import {incomingUnreadCount,recentIncomingAcknowledgement,validBadgeCount}
   from "../shared/incomingBadge.js";
 
@@ -12,6 +13,12 @@ const doc=(id,rest={})=>({
   recipientsSnapshot:[{id:"T1"},{id:"C1"}],acknowledgedBy:[],...rest
 });
 const five=Array.from({length:5},(_,i)=>doc("inc-"+i));
+assert.deepEqual(recipientsOf(doc("malformed",{
+  recipientsSnapshot:[null,"not-a-profile",{id:"T1"}]
+}),[teacher]).map(x=>x.id),["T1"]);
+assert.equal(isRecipient(doc("malformed",{
+  recipientsSnapshot:[null]
+}),teacher,[teacher]),false);
 const ignored=[
   doc("order",{type:"คำสั่งโรงเรียน"}),
   doc("circular",{type:"หนังสือเวียนแจ้งรับทราบ"}),
