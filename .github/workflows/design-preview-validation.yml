@@ -67,7 +67,7 @@ jobs:
       - name: Isolated Preview Web Push lab safety regression
         run: node tests/push-preview-isolation-test.mjs
       - name: Vite production build
-        run: npm run build
+        run: VITE_BHS_BROWSER_SMOKE=true npm run build
       - name: Real Chromium blank-screen smoke test
         run: |
           npm install --no-save --no-audit --no-fund playwright@1.56.1
