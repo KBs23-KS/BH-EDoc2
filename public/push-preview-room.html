@@ -94,7 +94,10 @@ const request=async(url,payload)=>{
     e.status=r.status;e.retryAfterSeconds=x.retryAfterSeconds;throw e;}
   return x;
 };
-const roomReq=payload=>request("/api/push-preview-room",{...session,...payload});
+// Session also keeps nextSendAt for the UI; the room API accepts ONLY device credentials.
+const roomReq=payload=>request("/api/push-preview-room",{
+  deviceId:session?.deviceId,token:session?.token,...payload
+});
 const bytes=key=>{
   const s=atob(key.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-key.length%4)%4));
   return Uint8Array.from(s,c=>c.charCodeAt(0));

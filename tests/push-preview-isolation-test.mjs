@@ -109,6 +109,14 @@ assert.match(roomAPI,/MAX_SENDS_GLOBAL/);
 assert.match(roomAPI,/ROOM_TTL_MS/);
 assert.match(roomPage,/Notification\.requestPermission/);
 assert.match(roomPage,/action:"roomCreate"/);
+// roomReq must NOT pass the locally stored nextSendAt into the strict API allowlist.
+// This regression caused roomStatus/roomCreate to return HTTP 400 with no room code.
+assert.match(roomPage,/deviceId:session\?\.deviceId,token:session\?\.token,\.\.\.payload/,
+  "room requests send only deviceId/token and explicitly authorized action fields");
+assert.doesNotMatch(roomPage,/roomReq=payload=>request\([^\n]*\.\.\.session/,
+  "room requests must never spread the complete session object");
+assert.match(roomAPI,/Object\.keys\(data\)\.some\(k=>!\[/,
+  "server must preserve the strict API request allowlist");
 assert.match(roomPage,/action:"roomJoin"/);
 assert.match(roomPage,/action:"roomAdvance"/);
 assert.match(roomPage,/action:"roomLeave"/);
