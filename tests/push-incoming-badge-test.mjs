@@ -94,5 +94,5 @@ assert.ok(app.includes('n?.targetMenu==="incoming"'));
 assert.ok(!app.includes("import {incomingUnreadCount}"));
 assert.ok(app.includes("notifyBadgeAfterAcknowledge(docId)"));
 assert.ok(routing.includes("onAcknowledgement(d.id)"));
-assert.ok(dispatch.includes("pushSchoolEvent(event,users)"));
+assert.ok(dispatch.includes("pushSchoolEvent(event,users,doc.type)"));
 console.log("PASS: exact incoming PWA badges 5 -> 4 -> 0, isolation, authorization, multi-device ACK updates");
