@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {recipientsOf,isRecipient} from "../src/workflow.js";
+import {canViewRouted} from "../src/routing.js";
 import {incomingUnreadCount,recentIncomingAcknowledgement,validBadgeCount}
   from "../shared/incomingBadge.js";
 
@@ -16,6 +17,9 @@ const five=Array.from({length:5},(_,i)=>doc("inc-"+i));
 assert.deepEqual(recipientsOf(doc("malformed",{
   recipientsSnapshot:[null,"not-a-profile",{id:"T1"}]
 }),[teacher]).map(x=>x.id),["T1"]);
+assert.equal(canViewRouted(teacher,doc("bad-routing",{
+  recipientsSnapshot:[null]
+}),[teacher],{}),false,"malformed routing snapshot must not crash dashboard");
 assert.equal(isRecipient(doc("malformed",{
   recipientsSnapshot:[null]
 }),teacher,[teacher]),false);
