@@ -90,6 +90,13 @@ try{
     assert.deepEqual(runtimeErrors,[],"Logged-in layout error at "+route);
     assert.ok(info.rootChildren>0&&info.body.trim(),"White screen after login: "+route);
     assert.ok(info.calls.includes(expected),"Expected real app badge "+expected+" at "+route);
+    const pill=testPage.getByTestId("incoming-unread-count");
+    assert.equal(await pill.innerText(),String(expected),
+      "Android in-app number must match unread incoming "+expected+" at "+route);
+    assert.ok(await testPage.getByRole("button",{
+      name:new RegExp("หนังสือเข้ายังไม่รับทราบ "+expected+" เรื่อง")
+    }).isVisible(),"Incoming badge must be visible and readable");
+
     await testPage.close();
   }
   console.log("PASS: authenticated Chromium layout displays accurate badge 5 -> 4");

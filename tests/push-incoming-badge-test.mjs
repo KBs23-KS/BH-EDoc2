@@ -94,5 +94,10 @@ assert.ok(app.includes('n?.targetMenu==="incoming"'));
 assert.ok(!app.includes("import {incomingUnreadCount}"));
 assert.ok(app.includes("notifyBadgeAfterAcknowledge(docId)"));
 assert.ok(routing.includes("onAcknowledgement(d.id)"));
-assert.ok(dispatch.includes("pushSchoolEvent(event,users)"));
+assert.ok(dispatch.includes('incomingPublished:doc.type==="หนังสือเข้า"'));
+assert.ok(dispatch.includes("pushSchoolEvent({...event,incomingPublished"));
+assert.ok(server.includes('"มีหนังสือเข้ารอรับทราบ "+badgeCount+" เรื่อง"'));
+assert.ok(app.includes('data-testid="incoming-unread-count"'));
+assert.ok(app.includes("หนังสือเข้ายังไม่รับทราบ"));
+
 console.log("PASS: exact incoming PWA badges 5 -> 4 -> 0, isolation, authorization, multi-device ACK updates");

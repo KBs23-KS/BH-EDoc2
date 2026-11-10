@@ -1100,7 +1100,20 @@ export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings,
             <h2 className="text-lg font-semibold text-[#17324a] truncate md:hidden">{allowedMenus.find((m) => m.id === activeMenu)?.label}</h2><div className="hidden md:flex items-center gap-3"><span className="bhs-luxury-topbar-kicker">BHS / E-DOCUMENT</span><span className="bhs-luxury-topbar-divider"></span><span className="bhs-luxury-topbar-title">{allowedMenus.find((m) => m.id === activeMenu)?.label || "ระบบสารบรรณ"}</span></div>
           </div>
           
-          <div className="flex items-center relative">
+          <div className="flex items-center relative gap-2">
+            {isAcknowledgeRole && (
+              <button type="button"
+                aria-label={`หนังสือเข้ายังไม่รับทราบ ${pendingIconBadge} เรื่อง เปิดทะเบียนหนังสือเข้า`}
+                onClick={() => {setActiveMenu("incoming");setIsNotifOpen(false);}}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                <Inbox size={15} className="shrink-0" aria-hidden="true"/>
+                <span className="hidden sm:inline">หนังสือเข้าค้าง</span>
+                <span className="sm:hidden">หนังสือเข้า</span>
+                <span data-testid="incoming-unread-count"
+                  className="min-w-5 rounded-full bg-blue-800 px-1.5 py-0.5 text-center text-xs font-extrabold text-white"
+                  aria-live="polite">{pendingIconBadge}</span>
+              </button>
+            )}
             <button onClick={() => setIsNotifOpen(!isNotifOpen)} className="relative p-2 text-gray-500 hover:text-blue-600 transition-colors rounded-full hover:bg-blue-50 outline-none focus:ring-2 focus:ring-blue-100">
               <Bell size={22} />
               {notifications.length > 0 && (
