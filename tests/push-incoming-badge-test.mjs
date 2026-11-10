@@ -97,7 +97,7 @@ assert.ok(routing.includes("onAcknowledgement(d.id)"));
 assert.ok(dispatch.includes('incomingPublished:doc.type==="หนังสือเข้า"'));
 assert.ok(dispatch.includes("pushSchoolEvent({...event,incomingPublished"));
 assert.ok(server.includes('"มีหนังสือเข้ารอรับทราบ "+badgeCount+" เรื่อง"'));
-assert.ok(app.includes('data-testid="incoming-unread-count"'));
-assert.ok(app.includes("หนังสือเข้ายังไม่รับทราบ"));
+assert.ok(app.includes('executiveWorkRole?"executive-pending-count":"incoming-unread-count"'));
+assert.ok(app.includes('"หนังสือเข้าค้าง"'));
 
 console.log("PASS: exact incoming PWA badges 5 -> 4 -> 0, isolation, authorization, multi-device ACK updates");
