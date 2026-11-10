@@ -62,7 +62,8 @@ try{
     const info=await testPage.evaluate(()=>({
       body:document.body.innerText.slice(0,650),
       rootChildren:document.querySelector("#root")?.children.length||0,
-      calls:window.__badgeCalls||[]
+      calls:window.__badgeCalls||[],
+      renderError:window.__bhsSmokeRenderError||null
     }));
     console.log("AUTHENTICATED BROWSER:",JSON.stringify({route,expected,...info,errors:runtimeErrors}));
     assert.deepEqual(runtimeErrors,[],"Logged-in layout error at "+route);
