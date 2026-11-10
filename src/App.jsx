@@ -88,6 +88,15 @@ function notifyPushAfterSave(docId,kind,eventId){
     keepalive:true,headers:{"Content-Type":"application/json"},body
   }).catch(()=>{});
 }
+// The document save already succeeded. A failed badge sync must not block it.
+function notifyBadgeAfterAcknowledge(docId){
+  if(!PUSH_UI_ENABLED)return;
+  void fetch("/api/push-badge",{
+    method:"POST",credentials:"same-origin",cache:"no-store",keepalive:true,
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({docId})
+  }).catch(()=>{});
+}
 import {normalizeUsername,findUniqueUsernameAccount,usernameTakenByAnother} from "../shared/username.js";
 
 const firebaseConfig = typeof __firebase_config !== 'undefined'
@@ -141,7 +150,7 @@ const isSinglePdfDocument = type => ["คำสั่งโรงเรียน
 const isPdfUpload = file => Boolean(file && (file.type === "application/pdf" || String(file.name || "").toLowerCase().endsWith(".pdf")));
 const isSameUpload = (a, b) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
 
-const DEFAULT_SETTINGS = {
+export const DEFAULT_SETTINGS = {
   schoolName: "โรงเรียนบ้านแฮดศึกษา",
   schoolLogoText: "บ.ศ.",
   academicYear: "2567",
@@ -759,8 +768,8 @@ export default function App() {
   );
 }
 
-function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast }) {
-  const [documents, setDocuments] = useState([]);
+export function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogout, showToast, smokeDocuments=[] }) {
+  const [documents, setDocuments] = useState(smokeDocuments);
   const [orderReservations, setOrderReservations] = useState([]);
   const [outgoingReservations, setOutgoingReservations] = useState([]);
   const [reminders,setReminders] = useState([]);
@@ -861,7 +870,8 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   const {route:routeDocument,headAction,acknowledge:ackDocument,acknowledgeAssignment:ackAssignment}=makeRoutingActions({
     db,getDocumentRef,getCollectionRef,paths:{documents:DOCS_PATH,audit:AUDIT_LOG_PATH},
     user:currentUser,users:dbUsers,settings:systemSettings,showToast,
-    onNotification:notifyPushAfterSave
+    onNotification:notifyPushAfterSave,
+    onAcknowledgement:notifyBadgeAfterAcknowledge
   });
   const openDocument=id=>{
     const d=activeDocs.find(x=>x.id===id);
@@ -929,9 +939,12 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
   }));
   notifications.push(...documentAlerts);
   notifications.sort((a, b) => b.time - a.time);
-  // Exact pending count when the app is open; background Web Push displays a
-  // temporary badge until this view recomputes the authoritative task list.
-  const pendingIconBadge=notifications.length;
+  // Show only unacknowledged incoming letters, not all bell notifications.
+  // Background Web Push receives this same count from the trusted server.
+  const pendingIconBadge=notifications.filter(n=>
+    n?.targetMenu==="incoming"&&typeof n.id==="string"&&
+    n.id.startsWith("inc-")
+  ).length;
   useEffect(()=>{
     if(!("setAppBadge" in navigator))return;
     if(pendingIconBadge){
@@ -940,7 +953,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
       Promise.resolve(navigator.clearAppBadge()).catch(()=>{});
     }
     document.title=(pendingIconBadge?"("+pendingIconBadge+") ":"")+"BHS E-Document";
-  },[pendingIconBadge,currentUser.id]);
+  },[pendingIconBadge,currentUser.id,pushDevice.enabled]);
   useEffect(()=>{
     if(!PUSH_UI_ENABLED||!documents.length)return;
     const recent=clientNotificationCandidates(documents,currentUser);
@@ -1176,7 +1189,7 @@ function MainLayout({ firebaseUser, currentUser, dbUsers, systemSettings, onLogo
               await runTransaction(db,async tx=>{
                 const ref=getDocumentRef(DOCS_PATH,item.id),current=await tx.get(ref);
                 if(!current.exists()||!Array.isArray(current.data().recipientsSnapshot)||![DOC_STATUS.PUBLISHED,DOC_STATUS.COMPLETED].includes(current.data().status))throw new Error("ข้อมูลเอกสารเปลี่ยนไป กรุณาลองใหม่");
-                if(current.data().recipientsSnapshot.some(x=>x.id===userId))throw new Error("รายชื่อนี้อยู่ในผู้รับแล้ว");
+                if(current.data().recipientsSnapshot.some(x=>x?.id===userId))throw new Error("รายชื่อนี้อยู่ในผู้รับแล้ว");
                 const entry={id:user.id,name:user.name,role:user.role,addedAt:Date.now(),addedBy:currentUser.id,reason};
                 tx.update(ref,{recipientsSnapshot:[...current.data().recipientsSnapshot,entry],history:arrayUnion({action:"เพิ่มผู้รับภายหลัง",by:currentUser.id,byName:currentUser.name,timestamp:Date.now(),detail:`${user.name}: ${reason}`})});
                 tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"เพิ่มรายชื่อผู้รับ","DOCUMENT",item.id,`${user.name}: ${reason}`));
@@ -2925,6 +2938,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
       const latest=await getDoc(getDocumentRef(DOCS_PATH,docId));
       if(!latest.exists()||!isRecipient(latest.data(),currentUser,dbUsers))throw new Error("คุณไม่ได้อยู่ในรายชื่อผู้รับเอกสารนี้");
       await commitDocumentWithAudit(currentUser, docId, { acknowledgedBy: arrayUnion(currentUser.id),[`acknowledgedAt.${currentUser.id}`]:Date.now() }, "รับทราบเอกสาร", "ผู้ใช้กดรับทราบเอกสาร");
+      notifyBadgeAfterAcknowledge(docId);
       showToast("รับทราบเอกสารเรียบร้อย", "success");
     } catch (err) {
       showToast("Error: " + err.message, "error");

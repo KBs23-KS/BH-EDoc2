@@ -13,11 +13,14 @@ import {createHash,createCipheriv,createDecipheriv,randomBytes}
 import {getApps,initializeApp,cert} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import webpush from "web-push";
+import {incomingUnreadCount,recentIncomingAcknowledgement} from "../shared/incomingBadge.js";
 import {readAppSession,userRef,appSessionReady,appSessionFingerprint}
   from "./_signatureServer.js";
 
 const PROJECT="bhs-edoc-2";
 const COLLECTION="bhs_private_webpush";
+const DOCS_COLLECTION="artifacts/bhs-edoc-app/public/data/bhs_documents";
+const DISPATCHES="bhs_private_webpush_dispatches";
 const MAX_DEVICES=8;
 const ALLOWED_PUSH_HOSTS=new Set([
   "fcm.googleapis.com","android.googleapis.com",
@@ -159,8 +162,48 @@ async function sendRecipient(db,userId,payload){
   return {sent:responses.filter(Boolean).length,
     failed:responses.filter(x=>!x).length};
 }
-export async function pushSchoolEvent(event){
-  const db=database(),marker=db.collection("bhs_private_webpush_dispatches")
+async function incomingDocs(db){
+  const snap=await db.collection(DOCS_COLLECTION)
+    .where("type","==","หนังสือเข้า").get();
+  return snap.docs.map(d=>({id:d.id,...d.data()}));
+}
+export async function currentIncomingBadge(user){
+  return incomingUnreadCount(await incomingDocs(database()),user);
+}
+
+// The server determines actor, document, acknowledgement age and exact count.
+// Refresh every subscribed device of this user (including closed PWA windows).
+export async function pushAcknowledgementBadge(user,docId){
+  if(typeof docId!=="string"||!/^[A-Za-z0-9_-]{1,160}$/.test(docId))
+    throw issue(400,"invalid_document_id");
+  const db=database(),snap=await db.doc(DOCS_COLLECTION+"/"+docId).get();
+  const document=snap.exists?{id:snap.id,...snap.data()}:null;
+  if(!recentIncomingAcknowledgement(document,user))
+    throw issue(403,"not_your_recent_incoming_acknowledgement");
+  const count=incomingUnreadCount(await incomingDocs(db),user);
+  const ack=Number(document.acknowledgedAt[user.id]);
+  const marker=db.collection(DISPATCHES)
+    .doc(sha("badge-ack:"+user.id+":"+docId+":"+ack));
+  const claimed=await db.runTransaction(async tx=>{
+    const old=await tx.get(marker);
+    if(old.exists)return false;
+    tx.create(marker,{createdAt:Date.now(),kind:"badge-ack",
+      recipientCount:1,state:"claimed"});
+    return true;
+  });
+  if(!claimed)return {success:true,duplicate:true,badgeCount:count};
+  const result=await sendRecipient(db,user.id,{
+    title:"BHS E-Document",
+    body:"จำนวนหนังสือเข้าค้างของคุณได้รับการอัปเดต",
+    url:"/",kind:"badge-sync",tag:"bhs-badge-sync",badgeCount:count
+  });
+  await marker.update({state:"complete",sent:result.sent,failed:result.failed,
+    finishedAt:Date.now()});
+  return {success:true,duplicate:false,badgeCount:count,...result};
+}
+
+export async function pushSchoolEvent(event,users=[]){
+  const db=database(),marker=db.collection(DISPATCHES)
     .doc(sha(event.key));
   // Server-computed event key. At-most-once to avoid notification spam or
   // charging up accidental repeated broadcasts across many browser tabs.
@@ -176,15 +219,23 @@ export async function pushSchoolEvent(event){
     title:"BHS E-Document",
     body:event.title,
     url:"/?doc="+encodeURIComponent(event.docId),
-    tag:"bhs-event-"+sha(event.key).slice(0,20),
-    badge:1
+    tag:"bhs-event-"+sha(event.key).slice(0,20)
   };
+  // One Firestore document query for all recipients, not one per device.
+  // If the badge query fails, normal Web Push delivery still proceeds.
+  let docs=null;
+  try{docs=await incomingDocs(db)}catch{}
+  const byUser=new Map(users.map(u=>[u.id,u]));
   let sent=0,failed=0;
   // Avoid noisy spikes from accidental routing to many people at once.
   for(let i=0;i<event.recipientIds.length;i+=10){
     const group=event.recipientIds.slice(i,i+10);
-    const results=await Promise.all(group.map(uid=>
-      sendRecipient(db,uid,payload).catch(()=>({sent:0,failed:1}))));
+    const results=await Promise.all(group.map(uid=>{
+      const user=byUser.get(uid);
+      const personalized=docs&&user?
+        {...payload,badgeCount:incomingUnreadCount(docs,user)}:payload;
+      return sendRecipient(db,uid,personalized).catch(()=>({sent:0,failed:1}));
+    }));
     for(const result of results){sent+=result.sent;failed+=result.failed;}
   }
   await marker.update({state:"complete",sent,failed,finishedAt:Date.now()});
