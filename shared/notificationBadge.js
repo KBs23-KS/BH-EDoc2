@@ -9,7 +9,7 @@
  * own Firestore reads; the browser cannot choose or spoof recipient IDs.
  */
 import {FINAL_STATES,isRecipient} from "../src/workflow.js";
-import {routingAlerts} from "../src/routing.js";
+import {routingAlerts,headGroups} from "../src/routing.js";
 
 const ACK_TYPES=new Set([
   "หนังสือเข้า","คำสั่งโรงเรียน","หนังสือเวียนแจ้งรับทราบ"
@@ -78,4 +78,15 @@ export function recentAssignmentAcknowledgement(doc,user,eventId,now=Date.now())
     return e?.action==="รับทราบงานที่ได้รับมอบหมาย"&&e.by===user.id&&
       t>0&&t<=now+10000&&now-t<=180000;
   });
+}
+
+export function recentHeadAction(doc,user,eventId,settings={},now=Date.now()){
+  if(!doc||!user?.id||user.status==="inactive"||doc.isDeleted||
+     !FINAL_STATES.includes(doc.status)||typeof eventId!=="string")
+    return false;
+  const entry=(doc.headActions||[]).find(e=>e?.id===eventId);
+  if(!entry||entry.by!==user.id||!entry.group||
+     !headGroups(user,settings).some(g=>g.group===entry.group))return false;
+  const t=Number(entry.at);
+  return Number.isFinite(t)&&t>0&&t<=now+10000&&now-t<=180000;
 }
