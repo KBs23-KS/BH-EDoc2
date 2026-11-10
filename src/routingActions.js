@@ -1,7 +1,7 @@
 import {doc,runTransaction,arrayUnion,getDoc,writeBatch} from "firebase/firestore";
 import {audienceSnapshot,canHeadAct,isFinalDoc,isRoutingEligibleDoc,routeMessage,assignmentKey,headGroups,broadcastTeacherIds} from "./routing";
 import {recipientsOf} from "./workflow";
-export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,user,users,settings,showToast,onNotification=()=>{}}) {
+export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,user,users,settings,showToast,onNotification=()=>{},onAcknowledgement=()=>{}}) {
  const audit=(name,id,detail)=>({action:name,userId:user.id,userName:user.name,role:user.role,targetType:"DOCUMENT",targetId:id,detail,timestamp:Date.now()});
  const item=(id)=>getDocumentRef(paths.documents,id);
  const auditRef=()=>doc(getCollectionRef(paths.audit));
@@ -77,6 +77,7 @@ export function makeRoutingActions({db,getDocumentRef,getCollectionRef,paths,use
     const b=writeBatch(db);
     b.update(item(d.id),{acknowledgedBy:arrayUnion(user.id),["acknowledgedAt."+user.id]:Date.now()});
     b.set(auditRef(),audit("รับทราบเอกสาร",d.id,"รับทราบจากรายละเอียด"));await b.commit();
+    try{onAcknowledgement(d.id)}catch{}
    },"รับทราบหนังสือแล้ว");
  }
  async function acknowledgeAssignment(d,e){
