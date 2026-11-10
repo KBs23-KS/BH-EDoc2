@@ -30,7 +30,9 @@ self.addEventListener("push",event=>{
     await self.registration.showNotification("BHS E-Document",{
       body:typeof data.body==="string"&&data.body.length<120?
         data.body:"มีเอกสารหรืองานใหม่ กรุณาเปิดระบบสารบรรณ",
-      icon:"/icon-192.png",badge:"/icon-192.png",
+      // Use the existing authentic school crest for every event category.
+      // Android may render badge as a monochrome silhouette.
+      icon:"/bhs-school-crest.png",badge:"/bhs-school-crest.png",
       tag:typeof data.tag==="string"&&data.tag.length<100?
         data.tag:"bhs-new-doc",
       data:{url},
