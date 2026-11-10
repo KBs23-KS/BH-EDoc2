@@ -54,6 +54,12 @@ const incoming=Array.from({length:5},(_,i)=>({
 }));
 // Legacy/malformed documents were a plausible source of the crash.
 // They must not make the app render a blank page or inflate the exact count.
+// Authenticated Chromium fixture also mixes orders/circulars with incoming.
+const mixed=window.location.search.includes("mixed=1");
+const extra= mixed?[
+  {...incoming[0],id:"badge-smoke-order",type:"คำสั่งโรงเรียน"},
+  {...incoming[0],id:"badge-smoke-circular",type:"หนังสือเวียนแจ้งรับทราบ"}
+]:[];
 const malformed={...incoming[0],id:"bad-legacy-snapshot",
   recipientsSnapshot:[null],acknowledgedBy:[]};
 const executiveDoc={...incoming[0],
@@ -64,7 +70,7 @@ const fixture=smoke?
     systemSettings={DEFAULT_SETTINGS} onLogout={()=>{}}
     showToast={msg=>console.info("Fixture toast:",msg)}
     smokeDocuments={actorRole==="teacher"?
-      [...incoming,malformed]:[executiveDoc]}/>:
+      [...incoming,...extra,malformed]:[executiveDoc]}/>:
   <App/>;
 createRoot(document.getElementById('root')).render(
   <React.StrictMode><RenderBoundary>{fixture}</RenderBoundary></React.StrictMode>
