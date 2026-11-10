@@ -26,15 +26,21 @@ self.addEventListener("push",event=>{
       if(target.origin===self.location.origin&&["/","/push-preview-check.html","/push-preview-lab.html","/push-preview-room.html"].includes(target.pathname))
         url=target.pathname+target.search;
     }catch{/* fallback */}
-    // Always visibly notify. Apple revokes silent Web Push subscriptions.
-    await self.registration.showNotification("BHS E-Document",{
+    // Incoming-letter pushes replace their previous count notification,
+    // so Android can show one meaningful unread alert instead of duplicates.
+    // A numeric badge on the Android launcher is NOT controlled by this API.
+    const incomingNotice=data.tag==="bhs-unread-incoming"&&
+      (data.kind==="incoming-count"||data.kind==="badge-sync");
+    // Always visibly notify. Apple/Chrome may revoke silent Web Push.
+    await self.registration.showNotification(
+      incomingNotice?"BHS E-Document • หนังสือเข้า":"BHS E-Document",{
       body:typeof data.body==="string"&&data.body.length<120?
         data.body:"มีเอกสารหรืองานใหม่ กรุณาเปิดระบบสารบรรณ",
       icon:"/icon-192.png",badge:"/icon-192.png",
       tag:typeof data.tag==="string"&&data.tag.length<100?
         data.tag:"bhs-new-doc",
       data:{url},
-      renotify:false
+      renotify:incomingNotice&&Number.isSafeInteger(data.badgeCount)&&data.badgeCount>0
     });
     // Only a verified per-recipient count may update the app icon.
     // The Preview lab has no badgeCount and leaves the real badge alone.
