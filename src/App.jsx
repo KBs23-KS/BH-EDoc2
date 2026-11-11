@@ -64,7 +64,7 @@ import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
 import { eventTime, recipientSnapshot, recipientsOf, isRecipient, URGENCY, sortUrgency, canReadDoc } from "./workflow";
-import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routingHistory,canViewRouted,isFinalDoc,audienceSnapshot,routeMessage} from "./routing";
+import {headGroups,pendingHeadGroups,pendingAssignmentEvents,routingAlerts,routingHistory,canViewRouted,isFinalDoc,audienceSnapshot,routeMessage,headBroadcastSummaries} from "./routing";
 import {makeRoutingActions} from "./routingActions";
 import {RoutingWorkspace,DocumentDetail,RoutingPicker} from "./RoutingWorkspace";
 import AssignmentsWorkspace from "./AssignmentsWorkspace";
@@ -2817,11 +2817,11 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
             <div key={docObj.id} className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-200 w-full overflow-hidden">
               <div className="mb-3">
                 <div className="flex flex-wrap gap-2 mb-2 items-center">
-                  <span className="text-[10px] md:text-[11px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">{docObj.type}</span>
-                  <span className="text-[10px] md:text-[11px] font-bold px-2 py-0.5 bg-yellow-100 text-yellow-800 border border-yellow-200 rounded">{docObj.status}</span>
+                  <span className="inline-flex min-h-[34px] items-center justify-center rounded-lg border border-blue-200 bg-blue-100 px-3 py-1.5 text-sm font-bold leading-5 text-blue-800">{docObj.type}</span>
+                  <span className={`inline-flex min-h-[34px] items-center justify-center rounded-lg border px-3 py-1.5 text-sm font-bold leading-5 ${docObj.status === DOC_STATUS.WAITING_DEPUTY ? "border-sky-300 bg-sky-100 text-sky-900" : "border-amber-300 bg-amber-100 text-amber-900"}`}>{docObj.status}</span>
                   <DocumentVersionBadge docObj={docObj} />
                   {docObj.urgency && docObj.urgency !== "ปกติ" && (
-                     <span className={`text-[10px] md:text-[11px] font-bold px-2 py-0.5 rounded text-white ${docObj.urgency === 'ด่วนที่สุด' ? 'bg-red-600' : docObj.urgency === 'ด่วนมาก' ? 'bg-red-500' : 'bg-orange-500'}`}>
+                     <span className={`inline-flex min-h-[34px] items-center justify-center rounded-lg border border-transparent px-3 py-1.5 text-sm font-bold leading-5 text-white ${docObj.urgency === 'ด่วนที่สุด' ? 'bg-red-600' : docObj.urgency === 'ด่วนมาก' ? 'bg-red-500' : 'bg-orange-500'}`}>
                        {docObj.urgency}
                      </span>
                   )}
@@ -3183,6 +3183,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
               const ackCount = docTargetUsers.filter(u => docObj.acknowledgedBy?.includes(u.id)).length;
               const totalCount = docTargetUsers.length;
               const currentUserAcked = docObj.acknowledgedBy?.includes(currentUser.id);
+              const headBroadcasts = docObj.type === "หนังสือเข้า" ? headBroadcastSummaries(docObj) : [];
 
               return (
                 <tr key={docObj.id} className="bhs-document-record hover:bg-blue-50/30 transition-colors">
@@ -3244,6 +3245,26 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                       {docObj.directorCommand && <div className="bg-green-50 border border-green-100 p-2 rounded"><span className="font-bold text-green-800">ผอ.:</span> <span className="text-green-700 break-words">{docObj.directorCommand}</span></div>}
                       {docObj.deputyComment && <div className="bg-blue-50 border border-blue-100 p-2 rounded"><span className="font-bold text-blue-800">รองฯ:</span> <span className="text-blue-700 break-words">{docObj.deputyComment}</span></div>}
                       {docObj.rejectReason && <div className="bg-red-50 border border-red-100 p-2 rounded"><span className="font-bold text-red-800">ส่งกลับแก้ไข:</span> <span className="text-red-700 break-words">{docObj.rejectReason}</span></div>}
+                      {headBroadcasts.map(head => (
+                        <div key={head.id} className="min-w-0 rounded-lg border border-violet-200 bg-violet-50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <span className="font-bold text-violet-900 break-words">ความเห็นหัวหน้า: {head.group}</span>
+                            <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-100 px-2.5 py-1 text-[10px] font-bold text-violet-900">ประชาสัมพันธ์ครูทุกคน</span>
+                          </div>
+                          {head.message ? (
+                            <p className="mt-1 whitespace-pre-wrap break-words text-violet-900">{head.message}</p>
+                          ) : (
+                            <p className="mt-1 break-words text-violet-800">หัวหน้ากลุ่มงานประชาสัมพันธ์ครูทุกคนแล้ว</p>
+                          )}
+                          {(head.byName || head.at>0) && (
+                            <p className="mt-1 text-[10px] text-violet-700 break-words">
+                              {head.byName && <>โดย: {head.byName}</>}
+                              {head.byName && head.at>0 && <span> • </span>}
+                              {head.at>0 && <>วันที่ดำเนินการ: {formatDateTime(head.at)}</>}
+                            </p>
+                          )}
+                        </div>
+                      ))}
                     </div>
                     
                     {allowAcknowledge && (docObj.status === DOC_STATUS.COMPLETED || docObj.status === DOC_STATUS.PUBLISHED) && (
