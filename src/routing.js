@@ -42,6 +42,28 @@ export function routingGroups(doc) {
 export function headCompleted(doc,group) {
   return (doc?.headActions||[]).some(e=>e.group===group);
 }
+
+/**
+ * Counts actionable head-group hand-offs for a director/admin dashboard.
+ * Only groups with an active, authorized head are counted. A book sent to two
+ * heads counts as two group tasks; a direct-to-teacher book counts as neither.
+ * This avoids presenting every approved incoming book as pending work.
+ */
+export function directorHeadRoutingProgress(documents,users,settings) {
+  const accountableGroups=new Set((users||[])
+    .filter(activeUser)
+    .flatMap(user=>headGroups(user,settings).map(entry=>entry.group)));
+  let pending=0, completed=0;
+  for (const document of documents||[]) {
+    if(!isRoutingEligibleDoc(document))continue;
+    for(const group of routingGroups(document)) {
+      if(!accountableGroups.has(group))continue;
+      if(headCompleted(document,group))completed++;
+      else pending++;
+    }
+  }
+  return {pending,completed};
+}
 /**
  * Read-only summaries for incoming-letter public broadcasts.
  * Only the latest non-superseded action for each group is visible. A later
