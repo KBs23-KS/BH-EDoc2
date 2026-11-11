@@ -56,8 +56,8 @@ assert.deepEqual(headBroadcastSummaries(doc([action("e1","กลุ่มบร�
 
 const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
 const taskView=app.slice(app.indexOf("function TasksView("),app.indexOf("function AdvancedSearchTable("));
-assert.ok(taskView.includes("min-h-[34px]"),"Task badge height increased to ~34px");
-assert.ok(taskView.includes("px-3 py-1.5 text-sm"),"Task badge font and padding increased");
+assert.equal(taskView.split("min-h-[30px]").length-1,3,"All task badges compacted from 34px to 30px");
+assert.equal(taskView.split("px-2.5 py-1 text-[13px]").length-1,3,"All three task badges use an intermediate font size and padding");
 assert.ok(taskView.includes('DOC_STATUS.WAITING_DEPUTY ? "border-sky-300 bg-sky-100 text-sky-900" : "border-amber-300 bg-amber-100 text-amber-900"'),
   "Deputy and director waiting badges use distinct blue and amber colors");
 assert.ok(taskView.includes("'bg-red-600'"),"Highest urgency stays red");
@@ -70,4 +70,10 @@ assert.ok(register.includes("ประชาสัมพันธ์ครูท
 assert.ok(register.includes("head.message ?"),"Saved free-text comment shown only when provided");
 assert.ok(register.includes("head.byName"),"Show the real acting head name");
 assert.ok(register.includes("formatDateTime(head.at)"),"Display the saved action time");
+const deputyAt=register.indexOf('{docObj.deputyComment && <div className="bg-blue-50');
+const directorAt=register.indexOf('{docObj.directorCommand && <div className="bg-green-50');
+const assignedAt=register.indexOf('{docObj.assignedTo && <div className="bg-yellow-50');
+const broadcastAt=register.indexOf('{headBroadcasts.map(head => (');
+assert.ok(deputyAt>=0&&directorAt>deputyAt&&assignedAt>directorAt&&broadcastAt>assignedAt,
+  "Incoming register displays deputy > director > assignment > latest head opinion in workflow order");
 console.log("PASS: distinct readable task badges and per-group latest public head comments");
