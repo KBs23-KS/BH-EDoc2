@@ -80,7 +80,7 @@ assert.deepEqual(directorHeadRoutingProgress([
   "Deleted and pending-approval books are excluded");
 const statArea=workspace.slice(workspace.indexOf('className="grid grid-cols-2 gap-2 sm:gap-3"'),
   workspace.indexOf('className="grid items-start gap-4'));
-assert.ok(statArea.includes("directorHeadRoutingProgress"),"Director counts are derived from actual head-group actions");
+assert.ok(workspace.includes("directorHeadRoutingProgress(routed,dbUsers,systemSettings)"),"Director counts are derived from actual head-group actions");
 assert.ok(statArea.includes("directorProgress.pending"));
 assert.ok(statArea.includes("directorProgress.completed"));
 assert.ok(!statArea.includes("หนังสือเข้าอนุมัติแล้ว"),"Remove redundant total-approved third card");
