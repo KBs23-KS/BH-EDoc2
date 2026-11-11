@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState} from "react";
-import {headGroups,pendingHeadGroups,completedHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc,isRoutingEligibleDoc} from "./routing";
+import {headGroups,pendingHeadGroups,completedHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc,isRoutingEligibleDoc,directorHeadRoutingProgress} from "./routing";
 import {canReadDoc,recipientsOf} from "./workflow";
 
 // A two-stage selector avoids dumping every group and teacher at once.
@@ -173,6 +173,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   const uniqueHeadRows=rows=>rows.filter((x,i,all)=>all.findIndex(y=>y.doc.id===x.doc.id&&y.group===x.group)===i);
   const headPending=uniqueHeadRows(routed.flatMap(d=>pendingHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind}))));
   const headDone=uniqueHeadRows(routed.flatMap(d=>completedHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind}))));
+  const directorProgress=directorHeadRoutingProgress(routed,dbUsers,systemSettings);
   const activeHeadRows=headTab==="completed"?headDone:headPending;
   const display=canDirector?routed:activeHeadRows.map(x=>x.doc).filter((x,i,a)=>a.findIndex(k=>k.id===x.id)===i);
   const query=bookSearch.trim().toLocaleLowerCase("th-TH");
@@ -240,17 +241,17 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
       </div>
       <span className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800">{canDirector?"สิทธิ์ ผอ. / ผู้ดูแล":"สิทธิ์หัวหน้ากลุ่มงาน"}</span>
     </header>
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3">
       {[
-        {label:canDirector?"หนังสือที่เกษียณต่อได้":"รอดำเนินการ",value:canDirector?routed.length:headPending.length,icon:"◷",color:"text-blue-700 bg-blue-50"},
-        {label:"เกษียณแล้ว",value:canDirector?routed.filter(d=>(d.routingEntries||[]).length>0).length:headDone.length,icon:"✓",color:"text-emerald-700 bg-emerald-50"},
-        {label:"หนังสือเข้าอนุมัติแล้ว",value:routed.length,icon:"▤",color:"text-amber-700 bg-amber-50"}
+        {label:canDirector?"รอหัวหน้าเกษียณต่อ":"รอดำเนินการ",value:canDirector?directorProgress.pending:headPending.length,icon:"◷",color:"text-blue-700 bg-blue-50"},
+        {label:canDirector?"หัวหน้าเกษียณแล้ว":"เกษียณแล้ว",value:canDirector?directorProgress.completed:headDone.length,icon:"✓",color:"text-emerald-700 bg-emerald-50"}
       ].map(stat=><div key={stat.label} className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <span className={"hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg font-bold sm:flex "+stat.color}>{stat.icon}</span>
         <div className="min-w-0"><p className="text-[11px] font-medium leading-snug text-slate-500 sm:text-xs">{stat.label}</p>
           <p className="mt-0.5 text-xl font-extrabold tabular-nums text-slate-800 sm:text-2xl">{stat.value}</p></div>
       </div>)}
     </div>
+    {canDirector&&<p className="text-xs text-slate-500">ตัวเลขสรุปนับตามกลุ่มที่มีหัวหน้ารับผิดชอบ (หนังสือที่มอบหมายครูโดยตรงไม่นับเป็นงานรอหัวหน้า)</p>}
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
       <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="space-y-3 border-b border-slate-100 p-4 sm:p-5">
