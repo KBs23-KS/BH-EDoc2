@@ -153,7 +153,6 @@ function TeacherDirectoryPicker({users,selected,onChange,systemSettings,restrict
 }
 
 export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,onRoute,onHeadAction,onOpen,focusDocId=null}) {
-  const managed=headGroups(currentUser,systemSettings);
   const canDirector=["director","admin"].includes(currentUser.role);
   const [selectedDoc,setSelectedDoc]=useState(focusDocId||"");
   const [activeGroup,setActiveGroup]=useState("");
@@ -166,84 +165,215 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   const [confirm,setConfirm]=useState(false);
   const [supersedes,setSupersedes]=useState("");
   const [headTab,setHeadTab]=useState("pending");
+  const [bookSearch,setBookSearch]=useState("");
+  const [choice,setChoice]=useState(canDirector?"director-groups":"head-ack");
   const routed=documents.filter(isRoutingEligibleDoc);
-  // Show a document under "pending" only when the current head has not handled this group.
-  // A head appointed to two groups can have the same document in both tabs, once per group.
+  // A head appointed to multiple groups must complete each group separately.
+  // Keep these exact tab relationships so existing workflow regression remains enforced.
   const uniqueHeadRows=rows=>rows.filter((x,i,all)=>all.findIndex(y=>y.doc.id===x.doc.id&&y.group===x.group)===i);
   const headPending=uniqueHeadRows(routed.flatMap(d=>pendingHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind}))));
   const headDone=uniqueHeadRows(routed.flatMap(d=>completedHeadGroups(d,currentUser,systemSettings).map(g=>({doc:d,group:g.group,kind:g.kind}))));
   const activeHeadRows=headTab==="completed"?headDone:headPending;
   const display=canDirector?routed:activeHeadRows.map(x=>x.doc).filter((x,i,a)=>a.findIndex(k=>k.id===x.id)===i);
-  const doc=display.find(d=>d.id===selectedDoc)||display[0];
+  const query=bookSearch.trim().toLocaleLowerCase("th-TH");
+  const filteredDisplay=query?display.filter(d=>[d.subject,d.docNumber,d.from].some(x=>String(x||"").toLocaleLowerCase("th-TH").includes(query))):display;
+  const doc=filteredDisplay.find(d=>d.id===selectedDoc)||filteredDisplay[0];
   const myGroup=activeHeadRows.filter(x=>x.doc.id===doc?.id);
-  const group=activeGroup&&myGroup.some(x=>x.group===activeGroup)?activeGroup:myGroup[0]?.group;
+  // A single matched group is automatic. Multiple eligible groups require an explicit choice.
+  const group=activeGroup&&myGroup.some(x=>x.group===activeGroup)?activeGroup:(myGroup.length===1?myGroup[0].group:"");
   const kind=myGroup.find(x=>x.group===group)?.kind;
   const completed=(doc?.headActions||[]).filter(e=>e.group===group).at(-1);
   useEffect(()=>{
     if(canDirector)return;
     // Reuse the current recipients as a starting point when editing a completed action.
-    // Selection remains user-controlled after this initial switch.
     setIds(headTab==="completed"?(completed?.userIds||[]):[]);
     setBroadcastAllTeachers(headTab==="completed"&&completed?.broadcastAllTeachers===true);
+    setChoice(headTab==="completed"?(completed?.broadcastAllTeachers?"head-broadcast":"head-teachers"):"head-ack");
     setConfirm(false);
   },[canDirector,headTab,doc?.id,group]);
   const directorAssignable=(doc?.routingEntries||[]).filter(e=>(e.userIds||[]).length&&!(doc.routingEntries||[]).some(n=>n.supersedes===e.id));
   const candidates=dbUsers.filter(u=>["teacher","clerk"].includes(u.role)&&u.status!=="inactive"&&(canDirector||kind==="admin"||u.subjectArea===group));
+  const chooseAction=next=>{
+    setChoice(next);setConfirm(false);
+    if(next==="director-all"){setAll(true);setGroups([]);setIds([]);setSupersedes("");}
+    else if(canDirector){setAll(false);}
+    if(next==="head-broadcast"){setBroadcastAllTeachers(true);setIds([]);}
+    else if(!canDirector){setBroadcastAllTeachers(false);if(next==="head-ack")setIds([]);}
+  };
+  const selectBook=id=>{setSelectedDoc(id);setActiveGroup("");setConfirm(false);setIds([]);setGroups([]);setBroadcastAllTeachers(false);setAll(false);setMessage("");setSupersedes("");setChoice(canDirector?"director-groups":"head-ack");};
+  function switchHeadTab(tab){
+    setHeadTab(tab);setSelectedDoc("");setActiveGroup("");setIds([]);setBroadcastAllTeachers(false);setMessage("");setConfirm(false);setBookSearch("");
+  }
+  const unableToSave=!doc||busy||(!canDirector&&!group)||(canDirector&&!all&&!groups.length&&!ids.length)||
+    (!canDirector&&(choice==="head-teachers"&&!ids.length))||(!canDirector&&!!completed&&choice==="head-ack")||
+    (canDirector&&!!supersedes&&!ids.length);
   async function save(){
-    if(!doc||!isRoutingEligibleDoc(doc))return;
-    if(canDirector&&!all&&!groups.length&&!ids.length)return;
-    if(!canDirector&&!group)return;
+    if(!doc||!isRoutingEligibleDoc(doc)||unableToSave)return;
     if(!confirm){setConfirm(true);return;}
     setBusy(true);
     try{
       if(canDirector)await onRoute(doc,{groups,userIds:ids,all,message,supersedes});
-      else await onHeadAction(doc,{group,userIds:broadcastAllTeachers?[]:ids,message,reassign:!!completed,broadcastAllTeachers});
-      setSelectedDoc("");setActiveGroup("");setGroups([]);setIds([]);setBroadcastAllTeachers(false);setMessage("");setConfirm(false);setAll(false);setSupersedes("");
+      else await onHeadAction(doc,{group,userIds:choice==="head-teachers"?ids:[],message,reassign:!!completed,broadcastAllTeachers:choice==="head-broadcast"});
+      setSelectedDoc("");setActiveGroup("");setGroups([]);setIds([]);setBroadcastAllTeachers(false);setMessage("");setConfirm(false);setAll(false);setSupersedes("");setChoice(canDirector?"director-groups":"head-ack");
     }finally{setBusy(false);}
   }
-  function switchHeadTab(tab){
-    setHeadTab(tab);setSelectedDoc("");setActiveGroup("");setIds([]);setBroadcastAllTeachers(false);setMessage("");setConfirm(false);
-  }
-  return <div className="space-y-5 max-w-5xl mx-auto">
-    <header className="bhs-modern-page-title"><div><p className="text-xs uppercase tracking-widest text-blue-500 font-bold">BHS / ROUTING</p><h2 className="text-2xl font-bold text-slate-800">เกษียณและมอบหมายหนังสือ</h2><p className="text-sm text-slate-500 mt-1">หนังสือที่ดำเนินการแล้วจะย้ายไปแท็บเกษียณแล้ว เพื่อดูย้อนหลังและเปลี่ยนผู้รับมอบหมายได้</p></div><span className="bhs-modern-counter">{canDirector?routed.length:headPending.length} รายการรอดำเนินการ</span></header>
-    {!canDirector&&<div role="tablist" aria-label="สถานะการเกษียณของหัวหน้า" className="flex flex-wrap gap-2">
-      <button type="button" role="tab" aria-selected={headTab==="pending"} onClick={()=>switchHeadTab("pending")}
-        className={`rounded-xl border px-4 py-2.5 text-sm font-bold ${headTab==="pending"?"bg-[#003366] text-white border-[#003366]":"bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
-        รอเกษียณต่อ ({headPending.length})
-      </button>
-      <button type="button" role="tab" aria-selected={headTab==="completed"} onClick={()=>switchHeadTab("completed")}
-        className={`rounded-xl border px-4 py-2.5 text-sm font-bold ${headTab==="completed"?"bg-[#003366] text-white border-[#003366]":"bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}>
-        เกษียณแล้ว ({headDone.length})
-      </button>
-    </div>}
-    {!display.length&&<div className="bhs-modern-panel p-8 text-center text-slate-500">{canDirector?"ไม่มีหนังสือเข้าที่สามารถเกษียณต่อได้":headTab==="pending"?"ไม่มีหนังสือรอเกษียณต่อแล้ว":"ยังไม่มีหนังสือที่เกษียณแล้ว"}</div>}
-    {!!display.length&&<div className="grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-4">
-      <section className="bhs-modern-panel overflow-hidden"><div className="p-4 border-b font-semibold">{canDirector?"เลือกหนังสือ":headTab==="pending"?"หนังสือที่รอเกษียณ":"หนังสือที่เกษียณแล้ว"}</div><div className="max-h-[560px] overflow-y-auto divide-y">{display.map(d=><button key={d.id} onClick={()=>{setSelectedDoc(d.id);setActiveGroup("");setConfirm(false);setIds([]);setBroadcastAllTeachers(false);setGroups([]);setMessage("");setSupersedes("")}} className={"block w-full text-left p-4 hover:bg-blue-50 "+(doc?.id===d.id?"bg-blue-50":"")}><div className="text-xs font-bold text-blue-600">{d.docNumber||d.type}</div><div className="font-semibold text-sm text-slate-800 mt-1">{d.subject}</div><div className="text-xs text-slate-500 mt-2">{d.status}</div>{!canDirector&&<div className="text-xs text-slate-500 mt-1">กลุ่ม: {activeHeadRows.filter(x=>x.doc.id===d.id).map(x=>x.group).join(", ")}</div>}</button>)}</div></section>
-      <section className="bhs-modern-panel p-4 md:p-5 space-y-4">
-        <div><h3 className="font-bold text-lg text-slate-800">{doc?.subject}</h3><button className="text-xs text-blue-600 underline mt-1" onClick={()=>onOpen(doc.id)}>เปิดดูเอกสารและข้อเกษียณ</button></div>
-        {!canDirector&&<div><label className="text-xs font-bold text-slate-600">เกษียณในฐานะหัวหน้ากลุ่ม</label><select value={group||""} onChange={e=>{setActiveGroup(e.target.value);setIds([]);setBroadcastAllTeachers(false);setConfirm(false)}} className="w-full p-3 border rounded-xl mt-1 text-sm">{myGroup.map(x=><option key={x.group} value={x.group}>{x.group}</option>)}</select></div>}
-        {canDirector&&directorAssignable.length>0&&<label className="text-xs text-slate-600 block">เปลี่ยนผู้รับมอบหมายเดิม (ไม่บังคับ)
-          <select value={supersedes} onChange={e=>setSupersedes(e.target.value)} className="w-full border bg-white rounded-xl p-3 mt-1 text-sm">
-            <option value="">เกษียณ / มอบหมายใหม่ (ไม่แทนรายการเดิม)</option>
+  const actions=canDirector?[
+    {id:"director-groups",icon:"▦",name:"มอบหมายกลุ่มงาน",hint:"ส่งต่อกลุ่มงานหรือกลุ่มสาระ"},
+    {id:"director-teachers",icon:"♙",name:"มอบหมายครู",hint:"ค้นหาและเลือกเป็นรายคน"},
+    {id:"director-all",icon:"◎",name:"แจ้งทุกคน",hint:"แจ้งตามสิทธิ์ผู้รับหนังสือ"}
+  ]:completed?[
+    {id:"head-teachers",icon:"♙",name:"เปลี่ยนผู้รับมอบหมาย",hint:"แก้รายชื่อครูที่ได้รับงาน"},
+    {id:"head-broadcast",icon:"◎",name:"ประชาสัมพันธ์ครูทุกคน",hint:"แจ้งเพื่ออ่านและรับทราบ"}
+  ]:[
+    {id:"head-ack",icon:"✓",name:"รับทราบ",hint:"จบงานของหัวหน้ากลุ่ม"},
+    {id:"head-teachers",icon:"♙",name:"มอบหมายครู",hint:"ส่งงานให้ครูรายบุคคล"},
+    {id:"head-broadcast",icon:"◎",name:"ประชาสัมพันธ์ทุกคน",hint:"ให้ครูทุกคนอ่านและรับทราบ"}
+  ];
+  const directive=doc?.directorCommand||[...(doc?.routingEntries||[])].at(-1)?.message||"";
+  const chosenRecipientNames=ids.map(id=>dbUsers.find(u=>u.id===id)?.name||id);
+  return <div className="mx-auto max-w-7xl space-y-5" data-testid="modern-routing-workspace">
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <p className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-blue-600">BHS / DOCUMENT WORKFLOW</p>
+        <h2 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">เกษียณและมอบหมายหนังสือ</h2>
+        <p className="mt-1 text-sm leading-relaxed text-slate-500">จัดการหนังสือ ส่งต่อ และประชาสัมพันธ์อย่างเป็นระบบ</p>
+      </div>
+      <span className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800">{canDirector?"สิทธิ์ ผอ. / ผู้ดูแล":"สิทธิ์หัวหน้ากลุ่มงาน"}</span>
+    </header>
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+      {[
+        {label:canDirector?"หนังสือที่เกษียณต่อได้":"รอดำเนินการ",value:canDirector?routed.length:headPending.length,icon:"◷",color:"text-blue-700 bg-blue-50"},
+        {label:"เกษียณแล้ว",value:canDirector?routed.filter(d=>(d.routingEntries||[]).length>0).length:headDone.length,icon:"✓",color:"text-emerald-700 bg-emerald-50"},
+        {label:"หนังสือเข้าอนุมัติแล้ว",value:routed.length,icon:"▤",color:"text-amber-700 bg-amber-50"}
+      ].map(stat=><div key={stat.label} className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+        <span className={"hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg font-bold sm:flex "+stat.color}>{stat.icon}</span>
+        <div className="min-w-0"><p className="text-[11px] font-medium leading-snug text-slate-500 sm:text-xs">{stat.label}</p>
+          <p className="mt-0.5 text-xl font-extrabold tabular-nums text-slate-800 sm:text-2xl">{stat.value}</p></div>
+      </div>)}
+    </div>
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-3 border-b border-slate-100 p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-2"><div>
+            <h3 className="text-base font-extrabold text-slate-800">รายการหนังสือ</h3>
+            <p className="text-xs text-slate-500">เลือกหนังสือเพื่อเกษียณและดำเนินการต่อ</p>
+          </div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{display.length} เรื่อง</span></div>
+          {!canDirector&&<div className="flex gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="สถานะการเกษียณของหัวหน้า">
+            <button type="button" role="tab" aria-selected={headTab==="pending"} onClick={()=>switchHeadTab("pending")}
+              className={"min-w-0 flex-1 rounded-lg px-2 py-2 text-xs font-bold sm:text-sm "+(headTab==="pending"?"bg-white text-blue-800 shadow-sm":"text-slate-500 hover:bg-white/70")}>รอเกษียณต่อ ({headPending.length})</button>
+            <button type="button" role="tab" aria-selected={headTab==="completed"} onClick={()=>switchHeadTab("completed")}
+              className={"min-w-0 flex-1 rounded-lg px-2 py-2 text-xs font-bold sm:text-sm "+(headTab==="completed"?"bg-white text-blue-800 shadow-sm":"text-slate-500 hover:bg-white/70")}>เกษียณแล้ว ({headDone.length})</button>
+          </div>}
+          <input type="search" value={bookSearch} onChange={e=>setBookSearch(e.target.value)} aria-label="ค้นหาหนังสือ"
+            placeholder="ค้นหาเลขรับหรือชื่อเรื่อง..." className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-400"/>
+        </div>
+        <div className="max-h-[680px] space-y-2 overflow-y-auto p-3 sm:p-4">
+          {filteredDisplay.map(d=><button type="button" key={d.id} onClick={()=>selectBook(d.id)}
+            aria-current={doc?.id===d.id?"true":undefined}
+            className={"w-full rounded-xl border p-3.5 text-left transition-colors sm:p-4 "+(doc?.id===d.id?"border-blue-300 bg-blue-50 shadow-[inset_3px_0_0_#3b82f6]":"border-transparent bg-white hover:border-slate-200 hover:bg-slate-50")}>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-extrabold text-blue-700">เลขรับ {d.docNumber||"—"}</span><span className="text-slate-400">{d.date||""}</span></div>
+            <p className="mt-2 line-clamp-2 break-words text-sm font-bold leading-relaxed text-slate-800">{d.subject}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">{d.status}</span>
+              {d.urgency&&d.urgency!=="ปกติ"&&<span className={"rounded-md px-2 py-1 text-[11px] font-bold "+(d.urgency==="ด่วนที่สุด"?"bg-red-100 text-red-700":"bg-orange-100 text-orange-700")}>{d.urgency}</span>}
+              {!canDirector&&<span className="text-[11px] text-slate-500">กลุ่ม: {activeHeadRows.filter(x=>x.doc.id===d.id).map(x=>x.group).join(", ")}</span>}
+            </div>
+          </button>)}
+          {!filteredDisplay.length&&<p className="rounded-xl bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">{display.length?"ไม่พบหนังสือที่ค้นหา":canDirector?"ไม่มีหนังสือเข้าที่สามารถเกษียณต่อได้":headTab==="pending"?"ไม่มีหนังสือรอเกษียณต่อแล้ว":"ยังไม่มีหนังสือที่เกษียณแล้ว"}</p>}
+        </div>
+      </section>
+      {doc&&<section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] font-extrabold uppercase tracking-wider text-blue-600">รายละเอียดหนังสือที่เลือก</p>
+          <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">{doc.status}</span>
+        </div>
+        <h3 className="mt-2 break-words text-lg font-extrabold leading-relaxed text-slate-900">{doc.subject}</h3>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">เลขรับ {doc.docNumber||"—"} • {doc.date||"ไม่ระบุวันที่"} • หนังสือเข้า</p>
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <p className="text-sm font-extrabold text-slate-800">ข้อสั่งการจากผู้อำนวยการ</p>
+          <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/70 p-3 text-sm leading-relaxed text-slate-700">
+            {directive||"ไม่มีข้อความข้อสั่งการเพิ่มเติม"}
+          </div>
+          <button type="button" onClick={()=>onOpen(doc.id)} className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-50">
+            <span aria-hidden="true">↗</span> เปิดดูเอกสารและข้อเกษียณ
+          </button>
+          <p className="mt-1.5 text-[11px] text-slate-500">ดูไฟล์หนังสือเข้า ประวัติข้อเกษียณ และผู้รับทราบในหน้ารายละเอียดเดิม (ไม่มีไฟล์ลงนามของ ผอ.)</p>
+        </div>
+        {!canDirector&&<div className="mt-5 border-t border-slate-100 pt-4">
+          <p className="text-sm font-extrabold text-slate-800">ดำเนินการในฐานะหัวหน้ากลุ่ม</p>
+          {myGroup.length===1?<div className="mt-2 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 font-bold text-emerald-700" aria-hidden="true">✓</span>
+            <div className="min-w-0"><p className="break-words text-sm font-bold text-emerald-900">{group}</p><p className="text-xs text-emerald-700">ระบบระบุกลุ่มงานให้อัตโนมัติ</p></div>
+          </div>:<label className="mt-2 block space-y-1">
+            <span className="text-xs font-semibold text-slate-600">หนังสือถึงหลายกลุ่ม กรุณาเลือกฐานะที่ต้องการเกษียณ</span>
+            <select value={group} onChange={e=>{setActiveGroup(e.target.value);setIds([]);setBroadcastAllTeachers(false);setMessage("");setConfirm(false)}} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm">
+              <option value="">— เลือกกลุ่มที่รับหนังสือ —</option>
+              {myGroup.map(x=><option key={x.group} value={x.group}>{x.group}</option>)}
+            </select>
+          </label>}
+        </div>}
+        {(!canDirector&&completed)&&<div className="mt-4 space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <p className="font-extrabold">เกษียณแล้ว {completed.at?new Date(completed.at).toLocaleString("th-TH"):""}</p>
+          <p>ข้อเกษียณล่าสุด: {completed.message||"รับทราบแล้ว"}</p>
+          <p>ผู้รับเดิม: {completed.broadcastAllTeachers?"ประชาสัมพันธ์ครูทุกคน":(completed.userIds||[]).map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")||"หัวหน้ารับทราบเอง"}</p>
+          {completed.broadcastAllTeachers&&<p>การเปลี่ยนภายหลังจะไม่เรียกคืนสิทธิ์อ่านจากครูที่ได้รับหนังสือไปแล้ว</p>}
+        </div>}
+        {canDirector&&directorAssignable.length>0&&<label className="mt-4 block space-y-1">
+          <span className="text-xs font-bold text-slate-700">เปลี่ยนผู้รับเดิม (ไม่บังคับ)</span>
+          <select value={supersedes} onChange={e=>{setSupersedes(e.target.value);setConfirm(false)}} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm">
+            <option value="">เกษียณ/มอบหมายใหม่ ไม่แทนรายการเดิม</option>
             {directorAssignable.map(e=><option key={e.id} value={e.id}>แทนรายการ {new Date(e.at||0).toLocaleString("th-TH")} — {(e.userIds||[]).map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")}</option>)}
           </select>
+          {supersedes&&<p className="text-[11px] text-amber-700">การเปลี่ยนผู้รับเดิมต้องเลือกครูรายบุคคลอย่างน้อยหนึ่งคน</p>}
         </label>}
-        {completed&&<div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
-          <p className="font-bold">เกษียณแล้ว {completed.at?new Date(completed.at).toLocaleString("th-TH"):""}</p>
-          <p>ข้อเกษียณล่าสุด: {completed.message||"รับทราบแล้ว"}</p>
-          <p>ผู้รับมอบหมายล่าสุด: {completed.broadcastAllTeachers?"ประชาสัมพันธ์ครูทุกคน (ไม่ใช่งานมอบหมาย)":(completed.userIds||[]).map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")||"ไม่มี (หัวหน้ารับทราบเอง)"}</p>
-          {completed.broadcastAllTeachers&&<p>การเปลี่ยนรายชื่อภายหลังจะไม่เรียกคืนสิทธิ์อ่านจากครูที่ได้รับหนังสือไปแล้ว</p>}
-          <p>สามารถแก้รายชื่อผู้รับมอบหมายได้ โดยระบบจะเก็บประวัติการเปลี่ยนแปลงไว้</p>
+        {(canDirector||group)&&<div className="mt-5 border-t border-slate-100 pt-4">
+          <p className="text-sm font-extrabold text-slate-800">{canDirector?"ต้องการเกษียณหรือมอบหมายอย่างไร?":"ต้องการดำเนินการอย่างไร?"}</p>
+          <div className={"mt-3 grid gap-2 "+(actions.length===2?"grid-cols-2":"grid-cols-3")} role="group" aria-label="เลือกวิธีดำเนินการ">
+            {actions.map(action=><button type="button" key={action.id} aria-pressed={choice===action.id}
+              onClick={()=>chooseAction(action.id)} className={"flex min-w-0 flex-col items-center justify-center gap-2 rounded-xl border p-2.5 text-center transition-colors sm:min-h-[93px] sm:p-3 "+(choice===action.id?"border-blue-500 bg-blue-50 text-blue-800 shadow-sm":"border-slate-200 bg-white text-slate-600 hover:bg-blue-50")}>
+              <span className="text-xl font-extrabold" aria-hidden="true">{action.icon}</span>
+              <span className="text-xs font-bold leading-snug sm:text-sm">{action.name}</span>
+              <span className="hidden text-[10px] leading-snug opacity-80 sm:block">{action.hint}</span>
+            </button>)}
+          </div>
+          <div className="mt-3 space-y-3">
+            {canDirector&&choice==="director-groups"&&<div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={value=>{setGroups(value);setConfirm(false)}} userIds={ids} setUserIds={value=>{setIds(value);setConfirm(false)}}/>
+            </div>}
+            {(choice==="director-teachers"||choice==="head-teachers")&&<TeacherDirectoryPicker key={String(doc.id)+":"+group+":"+choice} users={candidates} systemSettings={systemSettings}
+              restrictedSubject={!canDirector&&kind==="subject"?group:""} selected={ids} onChange={next=>{setIds(next);setConfirm(false)}}/>}
+            {(choice==="director-all"||choice==="head-broadcast")&&<div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900">
+              <p className="font-extrabold">{canDirector?"แจ้งผู้รับหนังสือทุกคน":"ประชาสัมพันธ์ถึงครูทุกคน"}</p>
+              <p className="mt-1">{canDirector?"ส่งหนังสือถึงครูและบุคลากรที่เปิดใช้งานตามสิทธิ์ของระบบ":"เพิ่มครูทุกคนที่เปิดใช้งานเป็นผู้รับหนังสือเพื่ออ่านและกดรับทราบ ไม่สร้างงานมอบหมายรายบุคคล"}</p>
+              <p className="mt-1 text-xs font-semibold text-amber-800">ตรวจสอบว่าไม่มีข้อมูลจำกัดเฉพาะกลุ่มก่อนยืนยัน</p>
+            </div>}
+            {choice==="head-ack"&&!canDirector&&<p className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">รับทราบหนังสือในฐานะหัวหน้ากลุ่ม และจบงานของกลุ่มนี้โดยไม่มอบหมายรายบุคคล</p>}
+            {canDirector&&!all&&(groups.length>0||ids.length>0)&&<p className="rounded-xl border border-blue-100 bg-blue-50 p-2.5 text-xs text-blue-800">รายการผู้รับที่เลือกไว้ {groups.length} กลุ่ม / {ids.length} คน — สามารถสลับระหว่างมอบหมายกลุ่มกับมอบหมายครูเพื่อเลือกเพิ่มเติมได้</p>}
+          </div>
         </div>}
-        {canDirector?<RoutingPicker dbUsers={dbUsers} systemSettings={systemSettings} groups={groups} setGroups={setGroups} userIds={ids} setUserIds={setIds} allowAll all={all} setAll={setAll}/>:<HeadRecipientPicker key={String(doc?.id)+":"+group+":"+headTab} users={broadcastAllTeachers?dbUsers.filter(u=>u.role==="teacher"&&u.status!=="inactive"):candidates} kind={kind} group={group} dbUsers={dbUsers} systemSettings={systemSettings} selected={ids} onChange={next=>{setIds(next);setConfirm(false)}} reassign={!!completed} broadcastAllTeachers={broadcastAllTeachers} onBroadcastChange={next=>{setBroadcastAllTeachers(next);setConfirm(false)}}/>}
-        <label className="block space-y-1"><span className="font-semibold text-sm text-slate-700">ข้อเกษียณ / ข้อสั่งการ</span><textarea value={message} onChange={e=>setMessage(e.target.value)} rows={3} className="w-full p-3 border rounded-xl text-sm" placeholder="บันทึกข้อสั่งการตามหนังสือ..."/></label>
-        {!canDirector&&!completed&&!ids.length&&!broadcastAllTeachers&&<p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3">ไม่เลือกครู = หัวหน้ากดรับทราบและจบงานส่วนของตน</p>}
-        {confirm&&<div className="border border-amber-200 bg-amber-50 p-3 rounded-xl text-sm"><b>ตรวจสอบก่อนยืนยัน</b><p>ถึงกลุ่ม: {canDirector?(all?"ทุกคน":groups.join(", ")||"—"):group}</p><p>ถึงครู: {broadcastAllTeachers?"ประชาสัมพันธ์ถึงครูทุกคนที่เปิดใช้งาน (ไม่มีงานมอบหมาย)":ids.map(id=>dbUsers.find(u=>u.id===id)?.name).join(", ")||"ไม่มอบหมายรายบุคคล"}</p><p>ข้อสั่งการ: {message||"—"}</p></div>}
-        <button disabled={busy||(!canDirector&&!!completed&&!ids.length&&!broadcastAllTeachers)} onClick={save} className="bg-blue-700 hover:bg-blue-800 text-white rounded-xl w-full py-3 text-sm font-bold disabled:opacity-50">{busy?"กำลังบันทึก...":confirm?"ยืนยันและบันทึก":completed||supersedes?"ตรวจสอบการเปลี่ยนผู้รับ":"ตรวจสอบก่อนเกษียณ"}</button>
-      </section>
-    </div>}
+        {(canDirector||group)&&<div className="mt-5 border-t border-slate-100 pt-4">
+          <label htmlFor="head-routing-message" className="block text-sm font-extrabold text-slate-800">ข้อเกษียณ / ข้อสั่งการ</label>
+          <textarea id="head-routing-message" value={message} onChange={e=>{setMessage(e.target.value);setConfirm(false)}} rows={3}
+            className="mt-2 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-blue-400" placeholder="บันทึกข้อสั่งการตามหนังสือ..."/>
+        </div>}
+        {confirm&&<div role="status" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-extrabold">ตรวจสอบก่อนยืนยัน</p>
+          <p className="mt-1">หนังสือ: {doc.subject}</p>
+          <p>ฐานะ/กลุ่ม: {canDirector?(all?"ทุกคน":groups.join(", ")||"ผู้รับรายบุคคล"):group}</p>
+          <p>วิธีดำเนินการ: {actions.find(x=>x.id===choice)?.name||"—"}</p>
+          <p>ถึงครู: {choice==="head-broadcast"?"ประชาสัมพันธ์ครูทุกคน (ไม่มีงานมอบหมาย)":all?"ทุกคน":chosenRecipientNames.join(", ")||"ไม่มอบหมายรายบุคคล"}</p>
+          <p>ข้อสั่งการ: {message||"—"}</p>
+          <button type="button" onClick={()=>setConfirm(false)} className="mt-2 text-xs font-bold text-blue-700 underline">กลับไปแก้ไข</button>
+        </div>}
+        {(canDirector||group)&&<button type="button" disabled={unableToSave} onClick={save}
+          className="mt-4 w-full rounded-xl bg-[#174A7E] px-4 py-3.5 text-sm font-extrabold text-white shadow-sm hover:bg-[#103658] disabled:cursor-not-allowed disabled:opacity-50">
+          {busy?"กำลังบันทึก...":confirm?"ยืนยันและบันทึก":completed||supersedes?"ตรวจสอบการเปลี่ยนผู้รับ":"ตรวจสอบก่อนบันทึก"}
+        </button>}
+      </section>}
+    </div>
   </div>;
 }
+
 function EventLine({actor,desc,date}) {return <div className="flex gap-3 text-sm"><span className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 shrink-0"/><div><b className="text-slate-700">{actor}</b><div className="text-slate-600">{desc}</div><div className="text-xs text-slate-400 mt-1">{date?new Date(date).toLocaleString("th-TH"):""}</div></div></div>;}
 export function DocumentDetail({doc,allDocs=[],currentUser,dbUsers,systemSettings,onAcknowledge,onAcknowledgeAssignment,onOpenRouting,onBack}) {
   const [tab,setTab]=useState("document"),[busy,setBusy]=useState(false);
