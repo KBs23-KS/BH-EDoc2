@@ -1,51 +1,65 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {headGroups,pendingHeadGroups} from "../src/routing.js";
+import {headGroups,pendingHeadGroups,directorHeadRoutingProgress} from "../src/routing.js";
+import {shouldShowRoleMenu} from "../src/menuVisibility.js";
 
 const source=readFileSync(new URL("../src/RoutingWorkspace.jsx",import.meta.url),"utf8");
-const workspace=source.slice(source.indexOf("function ModernHeadRoutingWorkspace("),source.indexOf("function EventLine("));
-const directorWorkspace=source.slice(source.indexOf("function LegacyDirectorRoutingWorkspace("),source.indexOf("export function RoutingWorkspace("));
-const directory=source.slice(source.indexOf("function TeacherDirectoryPicker("),source.indexOf("function LegacyHeadRecipientPicker("));
+const workspace=source.slice(source.indexOf("export function RoutingWorkspace("),source.indexOf("function EventLine("));
+const directory=source.slice(source.indexOf("function TeacherDirectoryPicker("),source.indexOf("export function RoutingWorkspace("));
 
-assert.ok(source.includes("export function DocumentDetail("),"Existing detail route remains available");
-assert.ok(workspace.includes("onOpen(doc.id)"),"Detail button must open the existing document/retirement view");
-assert.ok(workspace.includes("เปิดดูเอกสารและข้อเกษียณ"),"Detail link uses the correct book title");
-assert.ok(!workspace.includes("ดูเอกสารฉบับลงนาม"),"Incoming letters do not pretend to have director-signed PDF");
-assert.ok(!workspace.includes("ดูหนังสือต้นฉบับ</button>"),"Remove duplicate action beside the primary button");
+assert.ok(source.includes("export function DocumentDetail("),"Existing detail view remains available");
+assert.ok(workspace.includes("onOpen(doc.id)"),"Open existing original incoming document and routing details");
+assert.ok(workspace.includes("เปิดดูเอกสารและข้อเกษียณ"),"Correct document detail action");
+assert.ok(!workspace.includes("ดูเอกสารฉบับลงนาม"),"Incoming letter is not director-signed");
+assert.ok(!workspace.includes("ดูหนังสือต้นฉบับ</button>"),"No duplicate footer document button");
 
-assert.ok(workspace.includes('data-testid="modern-routing-workspace"'),"Modern layout scoped to routing page");
-assert.ok(workspace.includes("lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]"),"Responsive two-column layout");
-assert.ok(workspace.includes("ค้นหาเลขรับหรือชื่อเรื่อง"),"Book search exists");
-assert.ok(workspace.includes("activeHeadRows=headTab"),"Pending/completed head tabs retained");
+assert.equal(shouldShowRoleMenu("routing","director",false),false,
+  "The director routing sidebar menu remains hidden");
+assert.equal(shouldShowRoleMenu("tasks","director",false),true,
+  "The director's primary งานที่ต้องดำเนินการ stays visible");
+assert.equal(shouldShowRoleMenu("routing","admin",false),true,
+  "Admin routing menu remains available");
+assert.equal(shouldShowRoleMenu("routing","teacher",true),true,
+  "Head menu remains available");
+assert.ok(workspace.includes('const canDirector=["director","admin"].includes(currentUser.role)'),
+  "Role-specific actions are retained in the single modern screen");
+assert.ok(!source.includes("LegacyDirectorRoutingWorkspace"),
+  "Director/admin do not open a legacy screen anymore");
+assert.ok(workspace.includes('data-testid="modern-routing-workspace"'));
+assert.ok(workspace.includes("lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]"));
+assert.ok(workspace.includes("ค้นหาเลขรับหรือชื่อเรื่อง"));
+assert.ok(workspace.includes("activeHeadRows=headTab"));
 assert.ok(workspace.includes('switchHeadTab("pending")'));
 assert.ok(workspace.includes('switchHeadTab("completed")'));
-assert.ok(workspace.includes("myGroup.length===1"),"Single matched group should be shown automatically");
-assert.ok(workspace.includes('myGroup.length===1?myGroup[0].group:""'),"More than one group requires explicit head choice");
-assert.ok(workspace.includes("setActiveGroup(e.target.value)"),"Multiple groups can still be selected manually");
+assert.ok(workspace.includes("myGroup.length===1?myGroup[0].group:\"\""),
+  "Automatic group selection only when one eligible group");
+assert.ok(workspace.includes("setActiveGroup(e.target.value)"));
 
-for (const mode of ['"head-ack"','"head-teachers"','"head-broadcast"']) {
-  assert.ok(workspace.includes(mode),"Missing action card mode "+mode);
-}
-assert.ok(workspace.includes("choice===action.id"),"Action card visibly tracks selection");
-assert.ok(workspace.includes("if(!confirm){setConfirm(true);return;}"),"Two-stage confirmation preserved");
-assert.ok(workspace.includes("await onHeadAction(doc,"),"Existing head authorization is invoked");
-assert.ok(directorWorkspace.includes("await onRoute(doc,"),"Legacy director route remains unchanged");
-assert.ok(source.includes('["director","admin"].includes(props.currentUser?.role)'),"Director/admin roles use the legacy routing screen");
-assert.ok(source.includes("<LegacyDirectorRoutingWorkspace {...props}/>"),"Director screen is delegated to the original component");
-assert.ok(source.includes("<ModernHeadRoutingWorkspace {...props}/>"),"Modern screen is restricted to head routing");
-assert.ok(workspace.includes("reassign:!!completed"),"Reassignment semantics remain");
-assert.ok(workspace.includes("disabled={unableToSave}"),"Invalid requests are not submitted");
+for (const mode of [
+  '"head-ack"','"head-teachers"','"head-broadcast"',
+  '"director-groups"','"director-teachers"','"director-all"'
+]) assert.ok(workspace.includes(mode),"Missing action "+mode);
+assert.ok(workspace.includes("choice===action.id"));
+assert.ok(workspace.includes("if(!confirm){setConfirm(true);return;}"));
+assert.ok(workspace.includes("await onHeadAction(doc,"),"Existing authorization for heads");
+assert.ok(workspace.includes("await onRoute(doc,"),"Existing director/admin authorized routing");
+assert.ok(workspace.includes("setGroups([]);setIds([]);setAll(next===\"director-all\")"),
+  "Switching director action clears recipients hidden in the other mode");
+assert.ok(workspace.includes("reassign:!!completed"));
+assert.ok(workspace.includes("disabled={unableToSave}"));
 
 assert.ok(directory.includes('label:"กลุ่มงาน"'));
 assert.ok(directory.includes('label:"กลุ่มสาระฯ"'));
 assert.ok(directory.includes('label:"รายชื่อทั้งหมด"'));
 assert.ok(directory.includes('!restrictedSubject||u.subjectArea===restrictedSubject'),
-  "Subject heads cannot see teachers outside their assigned subject");
-assert.ok(directory.includes("mode===\"all\"?eligible"),"All names is a directory view, not automatic selection");
+  "Subject heads cannot see teachers outside eligible subject");
+assert.ok(directory.includes('mode==="all"?eligible'),
+  "All directory mode does not auto-assign everyone");
 assert.ok(directory.includes('allDisplayedSelected?"ยกเลิกที่แสดง":"เลือกทั้งหมดที่แสดง"'),
-  "Bulk selection requires deliberate action");
-assert.ok(directory.includes("new Set([...selected,...displayedIds])"),"Changing scopes preserves selected recipients");
-assert.ok(directory.includes("selected.includes(u.id)"),"Individual checkbox selection is explicit");
+  "Explicit selection required");
+assert.ok(directory.includes("new Set([...selected,...displayedIds])"),
+  "Changing scope keeps intentionally selected names");
+assert.ok(directory.includes("selected.includes(u.id)"));
 
 const person={id:"H",role:"teacher",status:"active",adminDept:"กลุ่มบริหารงานบุคคล",subjectArea:"ภาษาไทย"};
 const settings={
@@ -54,17 +68,24 @@ const settings={
 };
 const book={type:"หนังสือเข้า",status:"เผยแพร่แล้ว",assignedTo:"-",
   routingEntries:[{id:"r",groups:["กลุ่มบริหารงานบุคคล","ภาษาไทย"]}],headActions:[]};
-assert.equal(pendingHeadGroups(book,person,settings).length,2,"Head can receive two separate groups");
-assert.equal(pendingHeadGroups({...book,routingEntries:[{id:"r",groups:["ภาษาไทย"]}]},person,settings).length,1,
-  "When only one group is routed, head may process without choosing a group");
-
-
+assert.equal(pendingHeadGroups(book,person,settings).length,2);
+assert.equal(pendingHeadGroups({...book,routingEntries:[{id:"r",groups:["ภาษาไทย"]}]},person,settings).length,1);
+const completedBook={...book,headActions:[{id:"a",group:"ภาษาไทย"}]};
+const directlyAssigned={...book,routingEntries:[{id:"direct",groups:[],userIds:["T1"]}]};
+const duplicateGroups={...book,routingEntries:[{id:"a",groups:["ภาษาไทย"]},{id:"b",groups:["ภาษาไทย"]}]};
+assert.deepEqual(directorHeadRoutingProgress([completedBook,directlyAssigned,duplicateGroups],[person],settings),
+  {pending:2,completed:1},"Count active routed head-group responsibilities, not all approved docs");
+assert.deepEqual(directorHeadRoutingProgress([completedBook],[{...person,status:"inactive"}],settings),
+  {pending:0,completed:0},"Inactive head should not create pending work");
+assert.deepEqual(directorHeadRoutingProgress([{...book,status:"รอผู้อำนวยการ"},{...book,isDeleted:true}],[person],settings),
+  {pending:0,completed:0},"Exclude unapproved and deleted books");
 const statArea=workspace.slice(workspace.indexOf('className="grid grid-cols-2 gap-2 sm:gap-3"'),
   workspace.indexOf('className="grid items-start gap-4'));
-assert.ok(statArea.includes("headPending.length"),"The pending counter is scoped to this head");
-assert.ok(statArea.includes("headDone.length"),"The completed counter is scoped to this head");
-assert.ok(!statArea.includes("หนังสือเข้าอนุมัติแล้ว"),"Remove irrelevant all-approved third card in head view");
-assert.ok(directorWorkspace.includes("bhs-modern-page-title"),"Original director/admin UI retained");
-assert.ok(!directorWorkspace.includes('data-testid="modern-routing-workspace"'),"Modern UI not shown to director/admin");
+assert.ok(workspace.includes("directorHeadRoutingProgress(routed,dbUsers,systemSettings)"));
+assert.ok(statArea.includes("directorProgress.pending"));
+assert.ok(statArea.includes("directorProgress.completed"));
+assert.ok(statArea.includes("headPending.length"));
+assert.ok(statArea.includes("headDone.length"));
+assert.ok(!statArea.includes("หนังสือเข้าอนุมัติแล้ว"));
 
-console.log("PASS: modern head routing, original director routing, two-card stats and safe teacher directory");
+console.log("PASS: modern director and head routing, director menu hidden, safe recipients, accurate two-card stats");
