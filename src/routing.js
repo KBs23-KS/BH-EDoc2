@@ -42,6 +42,37 @@ export function routingGroups(doc) {
 export function headCompleted(doc,group) {
   return (doc?.headActions||[]).some(e=>e.group===group);
 }
+/**
+ * Read-only summaries for incoming-letter public broadcasts.
+ * Only the latest non-superseded action for each group is visible. A later
+ * reassignment or acknowledgement must not leave an obsolete broadcast badge.
+ * The event and original history in Firestore are never modified.
+ */
+export function headBroadcastSummaries(doc) {
+  if (!isRoutingEligibleDoc(doc) || !Array.isArray(doc.headActions)) return [];
+  const entries=doc.headActions;
+  const superseded=new Set(entries.map(e=>e?.supersedes).filter(Boolean));
+  const latestByGroup=new Map();
+  for (const entry of entries) {
+    if (!entry || typeof entry.group!=="string" || !entry.group.trim() ||
+        superseded.has(entry.id)) continue;
+    const at=Number(entry.at)||0;
+    const previous=latestByGroup.get(entry.group);
+    // A newer timestamp wins; later array position wins ties (legacy data).
+    if (!previous || at>=Number(previous.at||0)) latestByGroup.set(entry.group,entry);
+  }
+  return [...latestByGroup.values()]
+    .filter(entry=>entry.broadcastAllTeachers===true)
+    .sort((a,b)=>(Number(b.at)||0)-(Number(a.at)||0))
+    .map(entry=>({
+      id:entry.id||entry.group,
+      group:entry.group.trim(),
+      byName:typeof entry.byName==="string"?entry.byName.trim():"",
+      message:typeof entry.message==="string"?entry.message.trim():"",
+      at:Number(entry.at)||0
+    }));
+}
+
 export function pendingHeadGroups(doc,user,settings) {
   return isRoutingEligibleDoc(doc) ? headGroups(user,settings).filter(g=>routingGroups(doc).includes(g.group)&&!headCompleted(doc,g.group)) : [];
 }
