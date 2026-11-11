@@ -56,7 +56,8 @@ const actions=readFileSync(new URL("../src/routingActions.js",import.meta.url),"
 assert.match(assignmentUi,/ยังไม่รับทราบ/);
 assert.match(assignmentUi,/รับทราบแล้ว/);
 assert.match(assignmentUi,/acknowledgedAssignmentEvents/);
-assert.match(headUi,/<option value="broadcast">ประชาสัมพันธ์ครูทุกคน<\/option>/);
+assert.match(headUi,/id:"head-broadcast".*ประชาสัมพันธ์ครูทุกคน/,"Modern head broadcast action card remains available");
+assert.match(headUi,/broadcastAllTeachers:choice==="head-broadcast"/,"Broadcast action stays separate from individual assignments");
 assert.match(headUi,/aspect-\[210\/297\]/,"PDF viewer uses A4 portrait ratio");
 assert.match(headUi,/min-h-\[800px\]/,"PDF viewer is taller on tablets and desktops");
 assert.match(actions,/broadcastAllTeachers\?broadcastRecipients:userIds/,"broadcast affects recipients snapshot");
