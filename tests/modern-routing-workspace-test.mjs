@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {headGroups,pendingHeadGroups} from "../src/routing.js";
+import {headGroups,pendingHeadGroups,directorHeadRoutingProgress} from "../src/routing.js";
 
 const source=readFileSync(new URL("../src/RoutingWorkspace.jsx",import.meta.url),"utf8");
 const workspace=source.slice(source.indexOf("export function RoutingWorkspace("),source.indexOf("function EventLine("));
@@ -54,4 +54,36 @@ assert.equal(pendingHeadGroups(book,person,settings).length,2,"Head can receive 
 assert.equal(pendingHeadGroups({...book,routingEntries:[{id:"r",groups:["ภาษาไทย"]}]},person,settings).length,1,
   "When only one group is routed, head may process without choosing a group");
 
-console.log("PASS: modern routing page, incoming detail link, role-specific actions and safe directory scoping");
+
+const registeredGroups={
+  ...book,
+  headActions:[{id:"A1",group:"ภาษาไทย",by:"H",at:100}]
+};
+const directTeacherOnly={id:"DIRECT",type:"หนังสือเข้า",status:"เผยแพร่แล้ว",
+  routingEntries:[{id:"d",groups:[],userIds:["T1"]}],headActions:[]};
+const duplicatedGroup={
+  id:"DUP",type:"หนังสือเข้า",status:"เผยแพร่แล้ว",
+  routingEntries:[{id:"r1",groups:["ภาษาไทย"]},{id:"r2",groups:["ภาษาไทย"]}],headActions:[]
+};
+assert.deepEqual(
+  directorHeadRoutingProgress([registeredGroups,directTeacherOnly,duplicatedGroup],
+    [person],settings),
+  {pending:2,completed:1},
+  "Director counts head-group tasks, not all approved books or duplicate routes");
+assert.deepEqual(directorHeadRoutingProgress([registeredGroups],
+  [{...person,status:"inactive"}],settings),{pending:0,completed:0},
+  "Never count head groups without active authorized heads");
+assert.deepEqual(directorHeadRoutingProgress([
+  {...registeredGroups,isDeleted:true},
+  {...registeredGroups,status:"รอผู้อำนวยการ"}
+], [person],settings),{pending:0,completed:0},
+  "Deleted and pending-approval books are excluded");
+const statArea=workspace.slice(workspace.indexOf('className="grid grid-cols-2 gap-2 sm:gap-3"'),
+  workspace.indexOf('className="grid items-start gap-4'));
+assert.ok(statArea.includes("directorHeadRoutingProgress"),"Director counts are derived from actual head-group actions");
+assert.ok(statArea.includes("directorProgress.pending"));
+assert.ok(statArea.includes("directorProgress.completed"));
+assert.ok(!statArea.includes("หนังสือเข้าอนุมัติแล้ว"),"Remove redundant total-approved third card");
+assert.ok(!statArea.includes("value:routed.length"),"Do not label all approved books as pending work");
+
+console.log("PASS: modern routing page, accurate two-card stats, role actions and safe directory scoping");
