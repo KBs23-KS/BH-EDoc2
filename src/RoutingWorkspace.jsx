@@ -80,71 +80,78 @@ export function RoutingPicker({dbUsers,systemSettings,groups,setGroups,userIds,s
     </div>}
   </div>;
 }
-function HeadRecipientPicker({users,kind,group,dbUsers,systemSettings,selected,onChange,reassign=false,broadcastAllTeachers=false,onBroadcastChange=()=>{}}) {
-  const [mode,setMode]=useState(broadcastAllTeachers?"broadcast":"");
-  const [chosenGroup,setChosenGroup]=useState("");
-  const [chosenSubject,setChosenSubject]=useState("");
+// A unified directory picker for both directors and heads. The user chooses how
+// to view the directory before names appear. Filters never grant extra permissions.
+function TeacherDirectoryPicker({users,selected,onChange,systemSettings,restrictedSubject=""}) {
+  const [mode,setMode]=useState("");
+  const [chosen,setChosen]=useState("");
   const [search,setSearch]=useState("");
-  const admin=kind==="admin";
-  const options=mode==="admin"?(systemSettings.adminDepts||[]):mode==="subject"?(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้"):[];
-  const narrowed=admin
-    ? mode==="all"||mode==="person"?users:mode==="admin"&&chosenGroup?users.filter(u=>u.adminDept===chosenGroup):mode==="subject"&&chosenGroup?users.filter(u=>u.subjectArea===chosenGroup):mode==="both"&&(chosenGroup||chosenSubject)?users.filter(u=>(chosenGroup&&u.adminDept===chosenGroup)||(chosenSubject&&u.subjectArea===chosenSubject)):[]
-    : (mode==="own"||mode==="person")?users.filter(u=>u.subjectArea===group):[];
-  const filtered=narrowed.filter(u=>[u.name,u.adminDept,u.subjectArea].some(v=>String(v||"").toLocaleLowerCase("th-TH").includes(search.toLocaleLowerCase("th-TH"))));
+  const eligible=users.filter(u=>["teacher","clerk"].includes(u.role)&&u.status!=="inactive"&&(!restrictedSubject||u.subjectArea===restrictedSubject));
+  const modes=[
+    {id:"admin",label:"กลุ่มงาน"},
+    {id:"subject",label:"กลุ่มสาระฯ"},
+    {id:"all",label:"รายชื่อทั้งหมด"}
+  ];
+  const configured=mode==="admin"?(systemSettings.adminDepts||[]):(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้");
+  const field=mode==="admin"?"adminDept":"subjectArea";
+  const availableGroups=configured.filter(name=>eligible.some(u=>u[field]===name));
+  const filteredByScope=mode==="all"?eligible:(chosen&&["admin","subject"].includes(mode)?eligible.filter(u=>u[field]===chosen):[]);
+  const textQuery=search.trim().toLocaleLowerCase("th-TH");
+  const visible=filteredByScope.filter(u=>[u.name,u.adminDept,u.subjectArea].some(v=>String(v||"").toLocaleLowerCase("th-TH").includes(textQuery)));
   const toggle=id=>onChange(selected.includes(id)?selected.filter(x=>x!==id):[...selected,id]);
-  return <div className="space-y-3">
-    <label className="block text-sm font-semibold text-slate-700" htmlFor="head-route-mode">
-      ขั้นที่ 1 เลือกวิธีค้นหาครูที่จะเกษียณต่อ
-    </label>
-    <select id="head-route-mode" value={mode} onChange={e=>{
-      const next=e.target.value;
-      setMode(next);setChosenGroup("");setChosenSubject("");setSearch("");
-      onBroadcastChange(next==="broadcast");
-      if(next==="broadcast")onChange([]);
-    }}
-      className="w-full p-3 border bg-white rounded-xl text-sm">
-      <option value="">-- กดเลือกก่อน จึงแสดงรายชื่อครูให้ติ๊ก --</option>
-      <option value="broadcast">ประชาสัมพันธ์ครูทุกคน</option>
-      {admin
-        ? <><option value="admin">กลุ่มบริหารงาน</option><option value="subject">กลุ่มสาระการเรียนรู้</option><option value="both">ทั้งกลุ่มบริหารงานและกลุ่มสาระ</option><option value="person">เจาะจงครูรายบุคคล</option></>
-        : <><option value="own">ครูในกลุ่มสาระ {group}</option><option value="person">เจาะจงครูในกลุ่มสาระของตน</option></>}
-    </select>
-    {mode==="broadcast"&&<div className="border border-blue-200 bg-blue-50 rounded-xl p-3 text-sm text-blue-900 space-y-2">
-      <p className="font-bold">ประชาสัมพันธ์ถึงครูทุกคนที่บัญชีเปิดใช้งาน</p>
-      <p>เพิ่มครูทุกคนเป็นผู้รับหนังสือเพื่ออ่านและกดรับทราบ โดยไม่สร้างงานมอบหมายรายบุคคล และไม่ส่งให้บัญชีที่ปิดใช้งาน</p>
-      <p className="text-amber-800 font-semibold">โปรดตรวจว่าเอกสารไม่มีข้อมูลที่ต้องจำกัดเฉพาะกลุ่ม ก่อนยืนยัน</p>
-    </div>}
-    {admin&&(mode==="admin"||mode==="subject")&&<label className="block space-y-1">
-      <span className="block text-sm font-semibold text-slate-700">ขั้นที่ 2 เลือก{mode==="admin"?"กลุ่มบริหารงาน":"กลุ่มสาระ"}ที่จะค้นหารายชื่อ</span>
-      <select value={chosenGroup} onChange={e=>{setChosenGroup(e.target.value);setSearch("");}}
-        className="w-full border rounded-xl bg-white p-3 text-sm">
-        <option value="">-- เลือกกลุ่ม --</option>
-        {options.map(name=><option key={name} value={name}>{name}</option>)}
-      </select>
-    </label>}
-    {admin&&mode==="both"&&<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <label className="block space-y-1"><span className="text-xs font-semibold text-slate-700">เลือกกลุ่มบริหารงาน</span><select value={chosenGroup} onChange={e=>setChosenGroup(e.target.value)} className="w-full border rounded-xl bg-white p-3 text-sm"><option value="">-- ไม่เลือก --</option>{(systemSettings.adminDepts||[]).map(name=><option key={name} value={name}>{name}</option>)}</select></label>
-      <label className="block space-y-1"><span className="text-xs font-semibold text-slate-700">เลือกกลุ่มสาระ</span><select value={chosenSubject} onChange={e=>setChosenSubject(e.target.value)} className="w-full border rounded-xl bg-white p-3 text-sm"><option value="">-- ไม่เลือก --</option>{(systemSettings.subjectAreas||[]).filter(x=>x!=="ไม่มีกลุ่มสาระการเรียนรู้").map(name=><option key={name} value={name}>{name}</option>)}</select></label>
-    </div>}
-    {((admin&&(mode==="person"||mode==="all"||Boolean(chosenGroup)||Boolean(chosenSubject)))||(!admin&&(mode==="own"||mode==="person")))&&<div className="space-y-2">
-      <label className="block text-sm font-semibold text-slate-700">ติ๊กเลือกชื่อครู (เลือกได้หลายคน)</label>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อครู..." className="w-full p-3 border rounded-xl text-sm"/>
-      <div className="max-h-52 overflow-y-auto rounded-xl border bg-white divide-y">
-        {filtered.map(u=><label key={u.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-blue-50">
-          <input type="checkbox" checked={selected.includes(u.id)} onChange={()=>toggle(u.id)}/>
-          <span>{u.name}</span>
-        </label>)}
-        {!filtered.length&&<p className="p-3 text-sm text-slate-400">ไม่พบรายชื่อครูในกลุ่มที่เลือก</p>}
+  const displayedIds=visible.map(u=>u.id);
+  const allDisplayedSelected=displayedIds.length>0&&displayedIds.every(id=>selected.includes(id));
+  const toggleDisplayed=()=>onChange(allDisplayedSelected?selected.filter(id=>!displayedIds.includes(id)):[...new Set([...selected,...displayedIds])]);
+  const selectedNames=selected.map(id=>eligible.find(u=>u.id===id)?.name).filter(Boolean);
+  return <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4" data-testid="routing-teacher-directory">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <p className="text-sm font-extrabold text-slate-800">ค้นหาและเลือกครูผู้รับมอบหมาย</p>
+        <p className="mt-1 text-xs text-slate-500">เลือกกลุ่มงาน กลุ่มสาระฯ หรือแสดงรายชื่อทั้งหมดก่อนติ๊กครู</p>
       </div>
+      <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-800">เลือกแล้ว {selected.length} คน</span>
+    </div>
+    <div className="grid grid-cols-3 gap-1.5 sm:gap-2" role="group" aria-label="กรองรายชื่อผู้รับมอบหมาย">
+      {modes.map(item=><button key={item.id} type="button" aria-pressed={mode===item.id} onClick={()=>{setMode(item.id);setChosen("");setSearch("");}}
+        className={"min-h-[42px] rounded-xl border px-2 py-2 text-xs font-bold transition-colors sm:text-sm "+(mode===item.id?"border-blue-500 bg-blue-50 text-blue-800 shadow-sm":"border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50")}>{item.label}</button>)}
+    </div>
+    {mode==="all"&&<p className="text-xs text-blue-700">แสดงรายชื่อครูและบุคลากรที่คุณมีสิทธิ์มอบหมายได้ทั้งหมด — ยังไม่ได้เลือกทุกคนอัตโนมัติ</p>}
+    {(mode==="admin"||mode==="subject")&&<label className="block space-y-1">
+      <span className="text-xs font-bold text-slate-700">เลือก{mode==="admin"?"กลุ่มงาน":"กลุ่มสาระการเรียนรู้"}</span>
+      <select value={chosen} onChange={e=>{setChosen(e.target.value);setSearch("");}} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm">
+        <option value="">— เลือกกลุ่มเพื่อแสดงรายชื่อ —</option>
+        {availableGroups.map(x=><option value={x} key={x}>{x}</option>)}
+      </select>
+      {!availableGroups.length&&<span className="block text-xs text-slate-500">ไม่พบกลุ่มที่มีผู้ใช้ตรงตามสิทธิ์การมอบหมาย</span>}
+    </label>}
+    {(mode==="all"||Boolean(chosen))&&<>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input aria-label="ค้นหารายชื่อครู" value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อครู..."
+          className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"/>
+        <button type="button" onClick={toggleDisplayed} disabled={!visible.length}
+          className="rounded-xl border border-blue-200 bg-white px-3 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+          {allDisplayedSelected?"ยกเลิกที่แสดง":"เลือกทั้งหมดที่แสดง"} ({visible.length})
+        </button>
+      </div>
+      <div className="grid max-h-56 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+        {visible.map(u=><label key={u.id} className={"flex cursor-pointer items-start gap-2 rounded-xl border p-2.5 text-sm "+(selected.includes(u.id)?"border-blue-200 bg-blue-50":"border-slate-200 bg-white hover:bg-blue-50")}>
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-blue-700" checked={selected.includes(u.id)} onChange={()=>toggle(u.id)}/>
+          <span className="min-w-0 flex-1"><span className="block break-words font-semibold text-slate-800">{u.name}</span>
+            <span className="block text-[11px] text-slate-500">{u.adminDept||u.subjectArea||""}</span></span>
+        </label>)}
+        {!visible.length&&<div className="col-span-full rounded-xl bg-white p-3 text-center text-sm text-slate-500">ไม่พบรายชื่อครูในตัวกรองนี้</div>}
+      </div>
+    </>}
+    {!mode&&<div className="rounded-xl border border-dashed border-slate-200 bg-white p-4 text-center text-xs text-slate-500">เลือกหมวดรายชื่อก่อน เพื่อแสดงรายชื่อครูที่ต้องการติ๊ก</div>}
+    {selectedNames.length>0&&<div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+      <p className="text-xs font-bold text-blue-800">รายชื่อที่เลือกไว้ ({selectedNames.length})</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">{selected.filter(id=>eligible.some(u=>u.id===id)).map(id=><button key={id} type="button" onClick={()=>toggle(id)}
+        title="นำรายชื่อนี้ออก" className="rounded-full border border-blue-200 bg-white px-2.5 py-1 text-xs text-blue-800 hover:bg-blue-100">{eligible.find(u=>u.id===id)?.name} ×</button>)}</div>
+      <p className="mt-2 text-[11px] text-blue-700">เปลี่ยนกลุ่มได้โดยรายชื่อที่เลือกก่อนหน้าจะยังอยู่</p>
     </div>}
-    {!!selected.length&&<div className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-1">
-      <b>เลือกครูแล้ว {selected.length} คน</b>
-      <p>{selected.map(id=>dbUsers.find(u=>u.id===id)?.name||id).join(", ")}</p>
-      <p>เปลี่ยนกลุ่มเพื่อเลือกเพิ่มได้ รายชื่อเดิมไม่หาย</p>
-    </div>}
-    {!selected.length&&mode!=="broadcast"&&<p className="text-xs text-slate-500">{reassign?"เลือกครูที่ต้องการมอบหมายอย่างน้อย 1 คนก่อนบันทึกการเปลี่ยนแปลง":"ถ้าไม่มีครูต้องมอบหมาย สามารถกดรับทราบในฐานะหัวหน้าได้เลย"}</p>}
   </div>;
 }
+
 export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,onRoute,onHeadAction,onOpen,focusDocId=null}) {
   const managed=headGroups(currentUser,systemSettings);
   const canDirector=["director","admin"].includes(currentUser.role);
