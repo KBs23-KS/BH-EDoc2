@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "node tests/head-routing-tabs-test.mjs && node tests/assignment-broadcast-a4-test.mjs && node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && npm run test:head-broadcast-ui && vite build",
+    "build": "node tests/head-routing-tabs-test.mjs && node tests/assignment-broadcast-a4-test.mjs && node tests/document-register-readability-test.mjs && node tests/document-file-policy-test.mjs && node tests/persistent-session-pdf-scroll-test.mjs && node tests/username-case-insensitive-test.mjs && npm run test:head-broadcast-ui && npm run test:modern-routing-ui && vite build",
     "preview": "vite preview",
     "test:push": "node tests/push-events-test.mjs && node tests/push-notification-integration-test.mjs && node tests/push-incoming-badge-test.mjs && node tests/push-all-category-badge-test.mjs && node tests/push-official-crest-test.mjs",
-    "test:head-broadcast-ui": "node tests/head-broadcast-register-badge-test.mjs"
+    "test:head-broadcast-ui": "node tests/head-broadcast-register-badge-test.mjs",
+    "test:modern-routing-ui": "node tests/modern-routing-workspace-test.mjs"
   },
   "dependencies": {
     "firebase": "^12.1.0",
