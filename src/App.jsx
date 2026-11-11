@@ -2817,11 +2817,11 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
             <div key={docObj.id} className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-gray-200 w-full overflow-hidden">
               <div className="mb-3">
                 <div className="flex flex-wrap gap-2 mb-2 items-center">
-                  <span className="inline-flex min-h-[34px] items-center justify-center rounded-lg border border-blue-200 bg-blue-100 px-3 py-1.5 text-sm font-bold leading-5 text-blue-800">{docObj.type}</span>
-                  <span className={`inline-flex min-h-[34px] items-center justify-center rounded-lg border px-3 py-1.5 text-sm font-bold leading-5 ${docObj.status === DOC_STATUS.WAITING_DEPUTY ? "border-sky-300 bg-sky-100 text-sky-900" : "border-amber-300 bg-amber-100 text-amber-900"}`}>{docObj.status}</span>
+                  <span className="inline-flex min-h-[30px] items-center justify-center rounded-lg border border-blue-200 bg-blue-100 px-2.5 py-1 text-[13px] font-bold leading-5 text-blue-800">{docObj.type}</span>
+                  <span className={`inline-flex min-h-[30px] items-center justify-center rounded-lg border px-2.5 py-1 text-[13px] font-bold leading-5 ${docObj.status === DOC_STATUS.WAITING_DEPUTY ? "border-sky-300 bg-sky-100 text-sky-900" : "border-amber-300 bg-amber-100 text-amber-900"}`}>{docObj.status}</span>
                   <DocumentVersionBadge docObj={docObj} />
                   {docObj.urgency && docObj.urgency !== "ปกติ" && (
-                     <span className={`inline-flex min-h-[34px] items-center justify-center rounded-lg border border-transparent px-3 py-1.5 text-sm font-bold leading-5 text-white ${docObj.urgency === 'ด่วนที่สุด' ? 'bg-red-600' : docObj.urgency === 'ด่วนมาก' ? 'bg-red-500' : 'bg-orange-500'}`}>
+                     <span className={`inline-flex min-h-[30px] items-center justify-center rounded-lg border border-transparent px-2.5 py-1 text-[13px] font-bold leading-5 text-white ${docObj.urgency === 'ด่วนที่สุด' ? 'bg-red-600' : docObj.urgency === 'ด่วนมาก' ? 'bg-red-500' : 'bg-orange-500'}`}>
                        {docObj.urgency}
                      </span>
                   )}
@@ -3241,9 +3241,9 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                   <td className="min-w-0 px-4 md:px-5 py-4 align-top text-[11px] md:text-xs">
                     <div className="mb-3 flex w-full min-w-0 items-center justify-center text-center"><StatusBadge status={docObj.status} /></div>
                     <div className="space-y-2">
-                      {docObj.assignedTo && <div className="bg-yellow-50 border border-yellow-100 p-2 rounded"><span className="font-bold text-yellow-800">แจ้ง/มอบหมาย:</span> <span className="text-yellow-700 break-words">{docObj.assignedTo}</span></div>}
-                      {docObj.directorCommand && <div className="bg-green-50 border border-green-100 p-2 rounded"><span className="font-bold text-green-800">ผอ.:</span> <span className="text-green-700 break-words">{docObj.directorCommand}</span></div>}
                       {docObj.deputyComment && <div className="bg-blue-50 border border-blue-100 p-2 rounded"><span className="font-bold text-blue-800">รองฯ:</span> <span className="text-blue-700 break-words">{docObj.deputyComment}</span></div>}
+                      {docObj.directorCommand && <div className="bg-green-50 border border-green-100 p-2 rounded"><span className="font-bold text-green-800">ผอ.:</span> <span className="text-green-700 break-words">{docObj.directorCommand}</span></div>}
+                      {docObj.assignedTo && <div className="bg-yellow-50 border border-yellow-100 p-2 rounded"><span className="font-bold text-yellow-800">แจ้ง/มอบหมาย:</span> <span className="text-yellow-700 break-words">{docObj.assignedTo}</span></div>}
                       {docObj.rejectReason && <div className="bg-red-50 border border-red-100 p-2 rounded"><span className="font-bold text-red-800">ส่งกลับแก้ไข:</span> <span className="text-red-700 break-words">{docObj.rejectReason}</span></div>}
                       {headBroadcasts.map(head => (
                         <div key={head.id} className="min-w-0 rounded-lg border border-violet-200 bg-violet-50 p-3">
