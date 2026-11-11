@@ -43,6 +43,26 @@ export function headCompleted(doc,group) {
   return (doc?.headActions||[]).some(e=>e.group===group);
 }
 
+/** Progress of head-group handoffs across eligible incoming documents.
+ * Direct assignments to teachers are not head-group tasks. A document
+ * routed to two authorized groups contributes two separate responsibilities.
+ */
+export function directorHeadRoutingProgress(documents,users,settings) {
+  const responsibleGroups=new Set((users||[])
+    .filter(activeUser)
+    .flatMap(user=>headGroups(user,settings).map(item=>item.group)));
+  let pending=0,completed=0;
+  for(const doc of documents||[]) {
+    if(!isRoutingEligibleDoc(doc))continue;
+    for(const group of routingGroups(doc)) {
+      if(!responsibleGroups.has(group))continue;
+      if(headCompleted(doc,group))completed++;
+      else pending++;
+    }
+  }
+  return {pending,completed};
+}
+
 /**
  * Read-only summaries for incoming-letter public broadcasts.
  * Only the latest non-superseded action for each group is visible. A later
