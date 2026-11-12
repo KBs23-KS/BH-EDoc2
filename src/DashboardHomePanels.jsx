@@ -1,7 +1,7 @@
 import React from "react";
 import {Inbox,FileText,CheckCircle,FileSignature,Bell,ArrowUpRight,Clock3,Activity,ClipboardList,AlertCircle} from "lucide-react";
 import {canReadDoc,eventTime,recipientsOf} from "./workflow";
-import {formatDocumentNumber} from "./incomingReceiptDisplay";
+import {formatDocumentNumber} from "./incomingReceiptDisplay.js";
 import {canViewRouted,pendingHeadGroups,pendingAssignmentEvents} from "./routing";
 
 const finished=["เผยแพร่แล้ว","อนุมัติ/สั่งการแล้ว"];
