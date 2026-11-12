@@ -1,6 +1,7 @@
 import React,{useEffect,useMemo,useState} from "react";
 import {headGroups,pendingHeadGroups,completedHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc,isRoutingEligibleDoc,directorHeadRoutingProgress} from "./routing";
 import {canReadDoc,recipientsOf} from "./workflow";
+import {formatIncomingReceiptNumber,formatDocumentNumber} from "./incomingReceiptDisplay.js";
 
 // A two-stage selector avoids dumping every group and teacher at once.
 // Selection stays intact when switching categories, allowing mixed group + direct routes.
@@ -177,7 +178,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
   const activeHeadRows=headTab==="completed"?headDone:headPending;
   const display=canDirector?routed:activeHeadRows.map(x=>x.doc).filter((x,i,a)=>a.findIndex(k=>k.id===x.id)===i);
   const query=bookSearch.trim().toLocaleLowerCase("th-TH");
-  const filteredDisplay=query?display.filter(d=>[d.subject,d.docNumber,d.from].some(x=>String(x||"").toLocaleLowerCase("th-TH").includes(query))):display;
+  const filteredDisplay=query?display.filter(d=>[d.subject,d.docNumber,formatIncomingReceiptNumber(d.docNumber,""),d.from].some(x=>String(x||"").toLocaleLowerCase("th-TH").includes(query))):display;
   const doc=filteredDisplay.find(d=>d.id===selectedDoc)||filteredDisplay[0];
   const myGroup=activeHeadRows.filter(x=>x.doc.id===doc?.id);
   // A single matched group is automatic. Multiple eligible groups require an explicit choice.
@@ -275,7 +276,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
           {filteredDisplay.map(d=><button type="button" key={d.id} onClick={()=>selectBook(d.id)}
             aria-current={doc?.id===d.id?"true":undefined}
             className={"w-full rounded-xl border p-3.5 text-left transition-colors sm:p-4 "+(doc?.id===d.id?"border-blue-300 bg-blue-50 shadow-[inset_3px_0_0_#3b82f6]":"border-transparent bg-white hover:border-slate-200 hover:bg-slate-50")}>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-extrabold text-blue-700">เลขรับ {d.docNumber||"—"}</span><span className="text-slate-400">{d.date||""}</span></div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-extrabold text-blue-700">เลขรับ {formatIncomingReceiptNumber(d.docNumber,"—")}</span><span className="text-slate-400">{d.date||""}</span></div>
             <p className="mt-2 line-clamp-2 break-words text-sm font-bold leading-relaxed text-slate-800">{d.subject}</p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <span className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700">{d.status}</span>
@@ -292,7 +293,7 @@ export function RoutingWorkspace({documents,currentUser,dbUsers,systemSettings,o
           <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-700">{doc.status}</span>
         </div>
         <h3 className="mt-2 break-words text-lg font-extrabold leading-relaxed text-slate-900">{doc.subject}</h3>
-        <p className="mt-1 text-xs leading-relaxed text-slate-500">เลขรับ {doc.docNumber||"—"} • {doc.date||"ไม่ระบุวันที่"} • หนังสือเข้า</p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">เลขรับ {formatIncomingReceiptNumber(doc.docNumber,"—")} • {doc.date||"ไม่ระบุวันที่"} • หนังสือเข้า</p>
         <div className="mt-4 border-t border-slate-100 pt-4">
           <p className="text-sm font-extrabold text-slate-800">ข้อสั่งการจากผู้อำนวยการ</p>
           <div className="mt-2 rounded-xl border border-blue-100 bg-blue-50/70 p-3 text-sm leading-relaxed text-slate-700">
@@ -399,7 +400,7 @@ export function DocumentDetail({doc,allDocs=[],currentUser,dbUsers,systemSetting
   if(!canRead)return <div className="bhs-modern-panel p-8">คุณไม่มีสิทธิ์ดูเอกสารนี้</div>;
   return <div className="max-w-5xl mx-auto space-y-4">
     <div className="flex flex-wrap gap-2 justify-between items-center"><button className="text-sm text-blue-700 font-semibold" onClick={()=>onBack()}>← กลับ</button><div className="flex flex-wrap gap-2"><button onClick={copyLink} className="bhs-modern-outline">คัดลอกลิงก์เอกสาร</button>{idx>=0&&idx<visible.length-1&&<button className="bhs-modern-outline" onClick={()=>onBack(visible[idx+1].id)}>เอกสารถัดไป →</button>}</div></div>
-    <header className="bhs-modern-panel p-5 space-y-2"><p className="text-xs font-bold text-blue-700">{doc.docNumber||doc.type}</p><h2 className="text-xl md:text-2xl font-bold text-slate-800">{doc.subject}</h2><p className="text-sm text-slate-500">{doc.type} · {doc.status} · ไฟล์แนบ {files.length} ไฟล์</p></header>
+    <header className="bhs-modern-panel p-5 space-y-2"><p className="text-xs font-bold text-blue-700">{formatDocumentNumber(doc,doc.type)}</p><h2 className="text-xl md:text-2xl font-bold text-slate-800">{doc.subject}</h2><p className="text-sm text-slate-500">{doc.type} · {doc.status} · ไฟล์แนบ {files.length} ไฟล์</p></header>
     {last&&<div className="rounded-xl p-4 bg-blue-50 border border-blue-100"><b className="text-blue-800 text-sm">ข้อสั่งการ / ประวัติล่าสุด</b><div className="text-sm mt-2">{last.desc}</div><div className="text-xs text-slate-500 mt-1">{last.actor} · {last.date?new Date(last.date).toLocaleString("th-TH"):""}</div></div>}
     <div className="flex flex-wrap gap-2">
       {target&&!acked&&isFinalDoc(doc)&&<button disabled={busy} onClick={()=>act(()=>onAcknowledge(doc))} className="bg-emerald-700 text-white rounded-xl px-4 py-2 text-sm font-bold">รับทราบหนังสือ</button>}

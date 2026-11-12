@@ -1,6 +1,7 @@
 import React from "react";
 import {Inbox,FileText,CheckCircle,FileSignature,Bell,ArrowUpRight,Clock3,Activity,ClipboardList,AlertCircle} from "lucide-react";
 import {canReadDoc,eventTime,recipientsOf} from "./workflow";
+import {formatDocumentNumber} from "./incomingReceiptDisplay.js";
 import {canViewRouted,pendingHeadGroups,pendingAssignmentEvents} from "./routing";
 
 const finished=["เผยแพร่แล้ว","อนุมัติ/สั่งการแล้ว"];
@@ -76,7 +77,7 @@ export default function DashboardHomePanels({documents=[],currentUser,dbUsers=[]
           <span className={"bhs-home-item-icon "+(item.type==="priority"?"bhs-panel-amber":"bhs-panel-blue")}>
             {item.type==="priority"?<AlertCircle size={19}/>:<FileText size={18}/>}</span>
           <span className="bhs-home-item-main"><strong>{item.doc.subject}</strong>
-            <small>{item.title} · {item.doc.docNumber||item.doc.type}</small></span>
+            <small>{item.title} · {formatDocumentNumber(item.doc,item.doc.type)}</small></span>
           <span className="bhs-home-item-meta">{shortDate(eventTime(item.doc))}</span>
         </button>)}
         {!actionItems.length&&<div className="bhs-home-empty"><CheckCircle size={24}/><strong>ไม่มีรายการค้างที่ต้องจัดการ</strong><span>เมื่อมีงานใหม่ ระบบจะแสดงที่นี่</span></div>}
