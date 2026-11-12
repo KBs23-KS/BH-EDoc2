@@ -1,7 +1,7 @@
 import React,{useState} from 'react';
 import {matchingDocs,docYear,canReadDoc,canViewPending,pendingAgeDays,recipientsOf,URGENCY,sortUrgency,quarterlySeries} from './workflow';
 import {exportPdf,exportXlsx} from './reportExport';
-import {formatDocumentNumber} from './incomingReceiptDisplay';
+import {formatDocumentNumber} from './incomingReceiptDisplay.js';
 import {preferredDocumentFile,signedPublicationMissing,fileLink} from './documentFilePolicy.js';
 const kinds=['หนังสือเข้า','เลขคำสั่งโรงเรียน','คำสั่งโรงเรียน','ขอเลขที่หนังสือออก','หนังสือเวียนแจ้งรับทราบ'];
 const statuses=['รอรองผู้อำนวยการ','รอผู้อำนวยการ','ส่งกลับแก้ไข','อนุมัติ/สั่งการแล้ว','เผยแพร่แล้ว'];
