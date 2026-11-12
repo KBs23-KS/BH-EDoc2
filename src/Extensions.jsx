@@ -1,6 +1,7 @@
 import React,{useState} from 'react';
 import {matchingDocs,docYear,canReadDoc,canViewPending,pendingAgeDays,recipientsOf,URGENCY,sortUrgency,quarterlySeries} from './workflow';
 import {exportPdf,exportXlsx} from './reportExport';
+import {formatDocumentNumber} from './incomingReceiptDisplay';
 import {preferredDocumentFile,signedPublicationMissing,fileLink} from './documentFilePolicy.js';
 const kinds=['หนังสือเข้า','เลขคำสั่งโรงเรียน','คำสั่งโรงเรียน','ขอเลขที่หนังสือออก','หนังสือเวียนแจ้งรับทราบ'];
 const statuses=['รอรองผู้อำนวยการ','รอผู้อำนวยการ','ส่งกลับแก้ไข','อนุมัติ/สั่งการแล้ว','เผยแพร่แล้ว'];
@@ -31,7 +32,7 @@ export function SearchCenter({documents,orderReservations=[],outgoingReservation
       const preferred=preferredDocumentFile(d);
       const missingSigned=signedPublicationMissing(d);
       return <div className="border rounded-lg p-3 space-y-1" key={`${d.type}-${d.id}`}>
-        <div className="flex justify-between gap-3"><b className="text-sm">{d.subject}</b><span className="text-xs text-gray-500 shrink-0">{d.docNumber||'-'}</span></div>
+        <div className="flex justify-between gap-3"><b className="text-sm">{d.subject}</b><span className="text-xs text-gray-500 shrink-0">{formatDocumentNumber(d)}</span></div>
         <p className="text-xs text-gray-500">{d.type} | {d.date||'-'} | {d.status||'-'}</p>
         {preferred ? <a href={fileLink(preferred.file)} rel="noreferrer" target="_blank"
           className={`text-xs underline ${preferred.signed?"text-green-700 font-bold":"text-blue-700"}`}>
@@ -52,7 +53,7 @@ export function PendingReport({documents,currentUser}) {
   return <div className="bg-white rounded-xl shadow p-5 space-y-4"><h2 className={heading}>ติดตามเอกสารค้างดำเนินการ</h2>
     <p className="text-sm text-gray-500">รายการที่ต้องดำเนินการ {amount(docs.length)} รายการ — ระยะเวลาเริ่มนับตั้งแต่เข้าสู่ขั้นตอนปัจจุบัน</p>
     <div className="flex gap-2"><select className={cn} value={status} onChange={e=>setStatus(e.target.value)}><option value="">ทุกสถานะที่ค้าง</option>{statuses.slice(0,3).map(x=><option key={x}>{x}</option>)}</select><select className={cn} value={sort} onChange={e=>setSort(e.target.value)}><option value="age">ค้างนานสุดก่อน</option><option value="recent">สร้างล่าสุดก่อน</option></select></div>
-    {docs.map(d=><div key={d.id} className="border p-3 rounded-lg"><b className="text-sm">{d.docNumber||'-'} — {d.subject}</b><p className="text-xs text-gray-600">{d.status} | รอ {pendingAgeDays(d)} วัน | {d.status==='ส่งกลับแก้ไข'?'ผู้สร้างเอกสาร':d.status==='รอผู้อำนวยการ'?'ผู้อำนวยการ':'รองผู้อำนวยการ'}</p>{d.files?.[0]?.url && <a className="text-xs underline text-blue-700" href={d.files[0].url} target="_blank" rel="noreferrer">เปิด PDF</a>}</div>)}
+    {docs.map(d=><div key={d.id} className="border p-3 rounded-lg"><b className="text-sm">{formatDocumentNumber(d)} — {d.subject}</b><p className="text-xs text-gray-600">{d.status} | รอ {pendingAgeDays(d)} วัน | {d.status==='ส่งกลับแก้ไข'?'ผู้สร้างเอกสาร':d.status==='รอผู้อำนวยการ'?'ผู้อำนวยการ':'รองผู้อำนวยการ'}</p>{d.files?.[0]?.url && <a className="text-xs underline text-blue-700" href={d.files[0].url} target="_blank" rel="noreferrer">เปิด PDF</a>}</div>)}
     {!docs.length&&<p className="text-sm text-gray-500">ไม่มีรายการค้างในขอบเขตที่มีสิทธิ์เห็น</p>}
   </div>;
 }
@@ -64,7 +65,7 @@ export function AckReport({documents,currentUser,dbUsers,onReminder,onAddRecipie
   const done=new Set(doc?.acknowledgedBy||[]),visible=people.filter(p=>show==='all'||(show==='done'?done.has(p.id):!done.has(p.id)));
   const mayRemind=['admin','director','deputy'].includes(currentUser.role);
   return <div className="bg-white rounded-xl shadow p-5 space-y-4"><h2 className={heading}>รายงานผู้รับทราบเอกสาร</h2>
-    <select className={cn} value={doc?.id||''} onChange={e=>setId(e.target.value)}>{accessible.map(d=><option key={d.id} value={d.id}>{d.docNumber||'-'} — {d.subject}</option>)}</select>
+    <select className={cn} value={doc?.id||''} onChange={e=>setId(e.target.value)}>{accessible.map(d=><option key={d.id} value={d.id}>{formatDocumentNumber(d)} — {d.subject}</option>)}</select>
     {doc&&<><div className="bhs-ack-progress" role="group" aria-label="ความคืบหน้าการรับทราบ">
       <div className="flex justify-between items-center gap-2 text-sm font-semibold"><span>ความคืบหน้าการรับทราบ</span>
         <span className="text-blue-700">{people.filter(p=>done.has(p.id)).length} / {people.length} คน ({people.length?Math.round(people.filter(p=>done.has(p.id)).length/people.length*100):0}%)</span>
