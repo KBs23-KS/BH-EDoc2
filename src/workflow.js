@@ -1,4 +1,4 @@
-import {formatDocumentNumber} from "./incomingReceiptDisplay";
+import {formatDocumentNumber} from "./incomingReceiptDisplay.js";
 /** Pure business rules shared by reports, notifications, and publication. */
 export const URGENCY = {"ด่วนที่สุด":4,"ด่วนมาก":3,"ด่วน":2,"ปกติ":1};
 export const FINAL_STATES = ["เผยแพร่แล้ว", "อนุมัติ/สั่งการแล้ว"];
