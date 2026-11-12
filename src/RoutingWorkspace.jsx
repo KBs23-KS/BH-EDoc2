@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState} from "react";
 import {headGroups,pendingHeadGroups,completedHeadGroups,pendingAssignmentEvents,routingGroups,canViewRouted,isFinalDoc,isRoutingEligibleDoc,directorHeadRoutingProgress} from "./routing";
 import {canReadDoc,recipientsOf} from "./workflow";
-import {formatIncomingReceiptNumber,formatDocumentNumber} from "./incomingReceiptDisplay";
+import {formatIncomingReceiptNumber,formatDocumentNumber} from "./incomingReceiptDisplay.js";
 
 // A two-stage selector avoids dumping every group and teacher at once.
 // Selection stays intact when switching categories, allowing mixed group + direct routes.
