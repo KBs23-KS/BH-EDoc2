@@ -1,5 +1,5 @@
 import React,{useState} from "react";
-import {formatDocumentNumber} from "./incomingReceiptDisplay";
+import {formatDocumentNumber} from "./incomingReceiptDisplay.js";
 import {pendingAssignmentEvents,acknowledgedAssignmentEvents} from "./routing";
 
 /**
