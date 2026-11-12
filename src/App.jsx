@@ -60,6 +60,7 @@ import {
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
 import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
+import {INCOMING_RECEIPT_PREFIX,formatIncomingReceiptNumber,formatDocumentNumber,rawIncomingReceiptNumber} from "./incomingReceiptDisplay";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
@@ -2829,7 +2830,7 @@ function TasksView({ documents, currentUser, dbUsers, systemSettings, showToast 
                 <h3 className="font-bold text-base md:text-lg text-gray-800 mt-1 break-words">{docObj.subject}</h3>
                 
                 <div className="text-xs md:text-sm text-gray-500 mt-2 space-y-1">
-                   {docObj.type === "หนังสือเข้า" && <p><span className="font-bold text-gray-700">เลขรับ:</span> {docObj.docNumber || "-"}</p>}
+                   {docObj.type === "หนังสือเข้า" && <p><span className="font-bold text-gray-700">เลขรับ:</span> {formatIncomingReceiptNumber(docObj.docNumber)}</p>}
                    {docObj.type === "คำสั่งโรงเรียน" && <p><span className="font-bold text-gray-700">เลขที่คำสั่ง:</span> {docObj.docNumber || "-"}</p>}
                    <p><span className="font-bold text-gray-700">วันที่:</span> {formatThaiDate(docObj.date)}</p>
                    <p><span className="font-bold text-gray-700">จาก:</span> <span className="break-words">{docObj.from} {docObj.department && `(${docObj.department})`}</span></p>
@@ -2956,7 +2957,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
     if (filterType && doc.type !== filterType) return false;
     if (filterStatus && doc.status !== filterStatus) return false;
     if (filterDate && doc.date !== filterDate) return false;
-    return (doc.subject + doc.type + doc.from + (doc.docNumber||"")).toLowerCase().includes(search.toLowerCase());
+    return (doc.subject + doc.type + doc.from + (doc.docNumber||"") + (doc.type==="หนังสือเข้า"?formatIncomingReceiptNumber(doc.docNumber,""):"")).toLowerCase().includes(search.toLowerCase());
   });
 
   useEffect(()=>setPage(1),[search,filterType,filterStatus,filterDate,filterYear,pageSize]);
@@ -3200,7 +3201,7 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
                     {docObj.date === getTodayIso() && <span className="bhs-new-today-badge text-[10px] md:text-[11px] font-extrabold px-2.5 py-0.5 rounded-full whitespace-nowrap">ใหม่ วันนี้</span>}
                   </div>
                   <div className="text-[11px] md:text-xs text-gray-500 mb-0.5 flex flex-wrap gap-x-3 gap-y-1">
-                       {docObj.type === "หนังสือเข้า" && <span><span className="font-medium text-gray-700">เลขรับ:</span> {docObj.docNumber || "-"}</span>}
+                       {docObj.type === "หนังสือเข้า" && <span><span className="font-medium text-gray-700">เลขรับ:</span> {formatIncomingReceiptNumber(docObj.docNumber)}</span>}
                        {docObj.type === "คำสั่งโรงเรียน" && <span><span className="font-medium text-gray-700">เลขที่คำสั่ง:</span> {docObj.docNumber || "-"}</span>}
                        <span><span className="font-medium text-gray-700">วันที่:</span> {formatThaiDate(docObj.date)}</span>
                        <span><span className="font-medium text-gray-700">ประเภท:</span> {docObj.type}</span>
@@ -3494,7 +3495,14 @@ function AdvancedSearchTable({ documents, title, currentUser, dbUsers, systemSet
               {["หนังสือเข้า", "คำสั่งโรงเรียน"].includes(editForm.type) && (
                 <div>
                   <label className="block text-xs sm:text-sm font-bold mb-1.5 text-gray-700">{editForm.type === "หนังสือเข้า" ? "เลขรับ" : "เลขที่คำสั่ง"}</label>
-                  <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" value={editForm.docNumber} onChange={(e) => setEditForm({ ...editForm, docNumber: e.target.value })} />
+                  {editForm.type === "หนังสือเข้า" ? (
+                    <div className="flex w-full min-w-0 overflow-hidden rounded-lg border border-gray-300 focus-within:ring-2 focus-within:ring-blue-500">
+                      <span className="flex shrink-0 items-center bg-blue-50 px-2.5 text-xs font-bold text-blue-800 sm:px-3 sm:text-sm" aria-hidden="true">{INCOMING_RECEIPT_PREFIX}</span>
+                      <input aria-label="เลขรับหลังคำนำหน้า ศธ 04295.047/" type="text" inputMode="numeric" className="w-full min-w-0 flex-1 p-2 sm:p-2.5 outline-none text-sm" value={rawIncomingReceiptNumber(editForm.docNumber)} onChange={(e) => setEditForm({ ...editForm, docNumber: rawIncomingReceiptNumber(e.target.value) })} />
+                    </div>
+                  ) : (
+                    <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" value={editForm.docNumber} onChange={(e) => setEditForm({ ...editForm, docNumber: e.target.value })} />
+                  )}
                 </div>
               )}
 
@@ -3689,7 +3697,12 @@ function FormDocument({ docType, documents = [], changeMenu, backMenu, currentUs
 
           {docType === "หนังสือเข้า" && (
             <div className="md:col-span-2"><label className="block text-xs sm:text-sm font-bold mb-1.5">เลขรับ</label>
-              <input className="w-full border p-2.5 rounded-lg text-sm" value={form.docNumber} onChange={e=>setForm({...form,docNumber:e.target.value})} required /></div>
+              <div className="flex w-full min-w-0 overflow-hidden rounded-lg border border-gray-300 focus-within:ring-2 focus-within:ring-blue-500">
+                <span className="flex shrink-0 items-center bg-blue-50 px-2.5 text-xs font-bold text-blue-800 sm:px-3 sm:text-sm" aria-hidden="true">{INCOMING_RECEIPT_PREFIX}</span>
+                <input aria-label="เลขรับหลังคำนำหน้า ศธ 04295.047/" inputMode="numeric" className="w-full min-w-0 flex-1 p-2.5 text-sm outline-none" placeholder="เช่น 1281" value={rawIncomingReceiptNumber(form.docNumber)} onChange={e=>setForm({...form,docNumber:rawIncomingReceiptNumber(e.target.value)})} required />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">กรอกเฉพาะเลขรับ ระบบแสดงคำนำหน้าให้อัตโนมัติ</p>
+            </div>
           )}
           {docType === "คำสั่งโรงเรียน" && <div className="md:col-span-2">
             <label className="block text-sm font-bold mb-1.5">เลือกเลขคำสั่งที่จองไว้ *</label>
