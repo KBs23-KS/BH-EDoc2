@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import {PDFDocument} from 'pdf-lib';
-import {formatDocumentNumber} from './incomingReceiptDisplay';
+import {formatDocumentNumber} from './incomingReceiptDisplay.js';
 
 const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 const col=(i)=>{let s='';for(let n=i+1;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;};
