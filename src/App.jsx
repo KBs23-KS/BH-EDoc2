@@ -60,7 +60,7 @@ import {
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
 import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
-import {INCOMING_RECEIPT_PREFIX,formatIncomingReceiptNumber,formatDocumentNumber,rawIncomingReceiptNumber} from "./incomingReceiptDisplay";
+import {INCOMING_RECEIPT_PREFIX,formatIncomingReceiptNumber,formatDocumentNumber,rawIncomingReceiptNumber} from "./incomingReceiptDisplay.js";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
 import { SearchCenter, PendingReport, AckReport, ExportRegisters, StatsDashboard } from "./Extensions";
