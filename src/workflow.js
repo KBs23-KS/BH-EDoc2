@@ -1,3 +1,4 @@
+import {formatDocumentNumber} from "./incomingReceiptDisplay";
 /** Pure business rules shared by reports, notifications, and publication. */
 export const URGENCY = {"ด่วนที่สุด":4,"ด่วนมาก":3,"ด่วน":2,"ปกติ":1};
 export const FINAL_STATES = ["เผยแพร่แล้ว", "อนุมัติ/สั่งการแล้ว"];
@@ -55,7 +56,7 @@ export function canViewPending(user,doc) {
 export function docYear(d) {const n=Number(String(d.date||"").slice(0,4));return n>=2400?n:n>1900?n+543:0;}
 export function matchingDocs(docs,{q="",year="",type="",status="",start="",end="",urgency=""}={}) {
   const tokens=q.toLocaleLowerCase("th-TH").trim().split(/\s+/).filter(Boolean);
-  return docs.filter(d=>(!year||String(docYear(d))===String(year))&&(!type||d.type===type)&&(!status||d.status===status)&&(!urgency||d.urgency===urgency)&&(!start||d.date>=start)&&(!end||d.date<=end)&&tokens.every(t=>[d.subject,d.docNumber,d.from,d.department,d.responsibleName,d.type].join(" ").toLocaleLowerCase("th-TH").includes(t)));
+  return docs.filter(d=>(!year||String(docYear(d))===String(year))&&(!type||d.type===type)&&(!status||d.status===status)&&(!urgency||d.urgency===urgency)&&(!start||d.date>=start)&&(!end||d.date<=end)&&tokens.every(t=>[d.subject,d.docNumber,formatDocumentNumber(d,""),d.from,d.department,d.responsibleName,d.type].join(" ").toLocaleLowerCase("th-TH").includes(t)));
 }
 export function sortUrgency(items) {return [...items].sort((a,b)=>(URGENCY[b.urgency]||1)-(URGENCY[a.urgency]||1)||eventTime(b)-eventTime(a));}
 export function quarterlySeries(docs,year,type="") {return Array.from({length:12},(_,i)=>({month:i+1,count:docs.filter(d=>docYear(d)===Number(year)&&(!type||d.type===type)&&Number(String(d.date).slice(5,7))===i+1).length}));}
