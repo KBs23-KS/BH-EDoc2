@@ -1,4 +1,5 @@
 import React,{useState} from "react";
+import {formatDocumentNumber} from "./incomingReceiptDisplay";
 import {pendingAssignmentEvents,acknowledgedAssignmentEvents} from "./routing";
 
 /**
@@ -37,7 +38,7 @@ export default function AssignmentsWorkspace({documents=[],currentUser,onOpen}){
         return <button key={doc.id+":"+event.id} type="button" onClick={()=>onOpen(doc.id)}
           className="w-full text-left border border-slate-200 p-4 rounded-xl hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 transition-colors space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-bold text-blue-700">{doc.docNumber||doc.type}</span>
+            <span className="text-xs font-bold text-blue-700">{formatDocumentNumber(doc,doc.type)}</span>
             <span className={`text-xs font-bold rounded-full px-2.5 py-1 ${tab==="pending"?"text-amber-800 bg-amber-50 border border-amber-200":"text-green-800 bg-green-50 border border-green-200"}`}>
               {tab==="pending"?"ยังไม่รับทราบ":"รับทราบแล้ว"}
             </span>
