@@ -59,7 +59,7 @@ import {
 } from "firebase/firestore";
 import { PdfSignatureEditor } from "./PdfSignatureEditor";
 import {canArchiveTrialOrder,canRestoreTrialOrder} from "./orderTrialArchive";
-import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
+import {parseRegisterNumber,occupiedRegisterNumbers,nextAvailableNumber,registerAllocationStart,checkLinkedOrder,registerCounterStamp,incomingNumberConflict,incomingDocumentYear,canManageDocument} from "./orderNumberPolicy";
 import {INCOMING_RECEIPT_PREFIX,formatIncomingReceiptNumber,formatDocumentNumber,rawIncomingReceiptNumber} from "./incomingReceiptDisplay.js";
 import { createFullBackup, restoreFullBackup, inspectFullBackup } from "./backup";
 import {loadSavedBackupSecret,saveBackupSecret,forgetBackupSecret} from "./backupSecretPrefs";
@@ -322,7 +322,7 @@ async function reserveSequentialNumber({ kind, collectionName, numberField, date
   ]);
   const occupied=occupiedRegisterNumbers(kind,rows.docs.map(x=>({id:x.id,...x.data()})),
     docs.docs.map(x=>({id:x.id,...x.data()})));
-  const start=before.exists()?(Number(before.data().lastNumber)||0)+1:1;
+  const start=registerAllocationStart(year,occupied,before.exists()?before.data():null);
   const next=nextAvailableNumber(start,year,occupied);
   const newRef=getDocumentRef(collectionName,uniqueId(kind));
   return runTransaction(db,async tx=>{
@@ -332,7 +332,7 @@ async function reserveSequentialNumber({ kind, collectionName, numberField, date
       throw new Error("มีการจองเลขหรือแก้เลขระหว่างตรวจสอบ กรุณากดบันทึกอีกครั้ง");
     // Commit the number, cursor and audit atomically. No historical rows are overwritten.
     const now=Date.now(),revision=(Number(live.exists()?live.data().revision:0)||0)+1;
-    tx.set(counterRef,{lastNumber:next.sequence,kind,year,revision,updatedAt:now},{merge:true});
+    tx.set(counterRef,{lastNumber:next.sequence,manualNextNumber:null,kind,year,revision,updatedAt:now},{merge:true});
     tx.set(newRef,{...data,[numberField]:next.text,[dateField]:dateValue,status:"reserved",
       createdBy:user.id,responsibleName:user.name,createdAt:now,
       history:[{action:"จองเลข",by:user.id,time:now,subject:data.subject}]});
@@ -1384,12 +1384,31 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
 
       if (form.id) {
         const original = reservations.find(r => r.id === form.id);
-        if (original?.status === "canceled") throw new Error("ต้องใช้เมนูคืนเลขที่ยกเลิกสำหรับรายการนี้");
-        await updateDoc(getDocumentRef(OUTGOING_RESERVE_PATH, form.id), {
-          subject: payload.subject, responsibleDept: payload.responsibleDept,
-          remark: payload.remark, updatedAt: Date.now(), updatedBy: currentUser.id
+        if (!original || original.status === "canceled") throw new Error("รายการไม่พร้อมแก้ไข");
+        const admin=currentUser.role==="admin";
+        if(!admin&&original.createdBy!==currentUser.id)throw new Error("แก้ไขได้เฉพาะรายการของตนเอง");
+        const parsed=parseRegisterNumber(admin?form.docNumber:original.docNumber);
+        const previous=parseRegisterNumber(original.docNumber);
+        if(!parsed||!previous)throw new Error("เลขหนังสือต้องเป็นรูปแบบ เช่น 1/2569");
+        const changed=parsed.text!==original.docNumber;
+        if(admin&&buddhistYear(payload.docDate)!==parsed.year)throw new Error("ปีของเลขหนังสือต้องตรงกับวันที่ออกหนังสือ");
+        if(changed&&!window.confirm("ยืนยันแก้เลข "+original.docNumber+" เป็น "+parsed.text+"? ไฟล์ PDF และหนังสือที่ส่งออกแล้วจะไม่เปลี่ยนตาม")){setIsSubmitting(false);return;}
+        const years=[...new Set([previous.year,parsed.year])];
+        const refs=years.map(y=>getDocumentRef(COUNTERS_PATH,`OUT-${y}`));
+        const before=await Promise.all(refs.map(ref=>getDocFromServer(ref)));
+        const [rows,docs]=await Promise.all([getDocsFromServer(getCollectionRef(OUTGOING_RESERVE_PATH)),getDocsFromServer(getCollectionRef(DOCS_PATH))]);
+        const used=occupiedRegisterNumbers("OUT",rows.docs.map(x=>({id:x.id,...x.data()})),docs.docs.map(x=>({id:x.id,...x.data()})),original.id);
+        if(changed&&used.has(parsed.text))throw new Error("เลขนี้มีอยู่แล้ว กรุณาเลือกเลขอื่น");
+        await runTransaction(db,async tx=>{
+          const ref=getDocumentRef(OUTGOING_RESERVE_PATH,form.id),fresh=await tx.get(ref);
+          if(!fresh.exists()||fresh.data().status==="canceled"||fresh.data().docNumber!==original.docNumber||(!admin&&fresh.data().createdBy!==currentUser.id))throw new Error("ข้อมูลเปลี่ยน กรุณาเปิดแก้ไขใหม่");
+          const live=await Promise.all(refs.map(ref=>tx.get(ref)));
+          if(live.some((v,i)=>v.exists()!==before[i].exists()||registerCounterStamp(v.data())!==registerCounterStamp(before[i].data())))throw new Error("มีการจองหรือแก้เลขระหว่างบันทึก กรุณาลองใหม่");
+          const now=Date.now();
+          tx.update(ref,{subject:payload.subject,responsibleDept:payload.responsibleDept,remark:payload.remark,...(admin?{docNumber:parsed.text,docDate:payload.docDate}:{}),updatedAt:now,updatedBy:currentUser.id,history:arrayUnion({action:"แก้ไขรายการจองเลข",by:currentUser.id,time:now,from:original.docNumber,to:parsed.text})});
+          if(changed)refs.forEach((ref,i)=>tx.set(ref,{kind:"OUT",year:years[i],revision:(Number(live[i].data()?.revision)||0)+1,updatedAt:now},{merge:true}));
+          tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)),auditPayload(currentUser,"แก้ไขรายการจองเลข","OUT",form.id,original.docNumber+" → "+parsed.text+" / "+payload.subject));
         });
-        writeAuditLog(currentUser, "แก้ไขรายการจองเลข", "OUT", form.id, payload.subject);
         showToast("แก้ไขข้อมูลสำเร็จ", "success");
       } else {
         const number = await reserveSequentialNumber({
@@ -1414,11 +1433,17 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("ไม่พบรายการจอง");
         if (snap.data().linkedDocumentId) throw new Error("รายการนี้เชื่อมกับคำสั่งแล้ว ไม่สามารถยกเลิกได้");
+        if(snap.data().status==="canceled")throw new Error("รายการถูกยกเลิกแล้ว");
+        if(currentUser.role!=="admin"&&snap.data().createdBy!==currentUser.id)throw new Error("ยกเลิกได้เฉพาะรายการของตนเอง");
+        const parsed=parseRegisterNumber(snap.data().docNumber);
+        if(!parsed)throw new Error("เลขทะเบียนไม่ถูกต้อง");
+        const counterRef=getDocumentRef(COUNTERS_PATH,`OUT-${parsed.year}`),counter=await tx.get(counterRef);
+        tx.set(counterRef,{kind:"OUT",year:parsed.year,revision:(Number(counter.data()?.revision)||0)+1,updatedAt:Date.now()},{merge:true});
         tx.update(ref, {status: "canceled", canceledBy: currentUser.id, canceledAt: Date.now(),
           history: arrayUnion({action: "ยกเลิกเลขจอง", by: currentUser.id, time: Date.now(), subject: snap.data().subject})});
         tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"ยกเลิกเลขจอง","OUT",docToDelete,snap.data()["docNumber"]));
       });
-      showToast("ยกเลิกแล้ว ระบบจะข้ามเลขนี้ ไม่แจกซ้ำ", "success");
+      showToast("ยกเลิกแล้ว ระบบจะรันต่อจากเลขสูงสุดที่ยังใช้งาน", "success");
     } catch(err) { showToast("ยกเลิกไม่สำเร็จ: " + err.message, "error"); }
     setDocToDelete(null);
   };
@@ -1596,7 +1621,7 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
               <div className="p-4 sm:p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
                 <div>
                   <label className="block text-xs sm:text-sm font-bold mb-1.5 text-gray-700">เลขที่ <span className="text-red-500">*</span></label>
-                  <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-blue-700 bg-blue-50" value={form.id ? form.docNumber : "ระบบออกเลขให้เมื่อบันทึกสำเร็จ"} readOnly placeholder="เลขอัตโนมัติ" />
+                  <input type="text" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold text-blue-700 bg-blue-50" value={form.id ? form.docNumber : "ระบบออกเลขให้เมื่อบันทึกสำเร็จ"} onChange={e=>setForm({...form,docNumber:e.target.value})} readOnly={!form.id||currentUser.role!=="admin"} placeholder="เลขอัตโนมัติ" />
                   {!form.id && <p className="text-[10px] text-gray-500 mt-1">เลขจริงจะปรากฏหลังบันทึกสำเร็จ</p>}
                 </div>
                 <div>
@@ -1605,7 +1630,7 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
                 </div>
                 <div>
                   <label className="block text-xs sm:text-sm font-bold mb-1.5 text-gray-700">วันที่ออกหนังสือ <span className="text-red-500">*</span></label>
-                  <input type="date" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" value={form.docDate} disabled={Boolean(form.id)} onChange={(e) => setForm({ ...form, docDate: e.target.value })} required />
+                  <input type="date" className="w-full border border-gray-300 p-2 sm:p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" value={form.docDate} disabled={Boolean(form.id)&&currentUser.role!=="admin"} onChange={(e) => setForm({ ...form, docDate: e.target.value })} required />
                 </div>
                 
                 <div className="grid grid-cols-1 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
@@ -1660,7 +1685,7 @@ function OutgoingReservationsView({ reservations, currentUser, systemSettings, s
            <div className="bg-white p-5 sm:p-6 rounded-xl shadow-xl w-full max-w-[95%] sm:max-w-sm text-center animate-fade-in">
              <AlertCircle size={40} className="mx-auto text-red-500 mb-3 sm:mb-4 sm:w-12 sm:h-12" />
              <h3 className="text-base sm:text-lg font-bold mb-2">ยกเลิกการขอเลขหนังสือออก?</h3>
-             <p className="text-xs sm:text-sm text-gray-500 mb-5 sm:mb-6">ยกเลิกแล้วเลขนี้จะไม่ถูกแจกซ้ำโดยอัตโนมัติ</p>
+             <p className="text-xs sm:text-sm text-gray-500 mb-5 sm:mb-6">หากเป็นเลขท้ายสุด ระบบจะนำกลับมาใช้ใหม่ โปรดยืนยันว่าไม่ได้ส่งหนังสือออกไปแล้ว</p>
              <div className="flex gap-2 sm:gap-3">
                <button onClick={() => setDocToDelete(null)} className="flex-1 px-3 sm:px-4 py-2 bg-gray-100 text-xs sm:text-sm font-bold rounded hover:bg-gray-200 transition-colors">ยกเลิก</button>
                <button onClick={handleDelete} className="flex-1 px-3 sm:px-4 py-2 bg-red-600 text-white text-xs sm:text-sm font-bold rounded hover:bg-red-700 transition-colors">ยืนยันการยกเลิก</button>
@@ -1875,11 +1900,17 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
         const snap = await tx.get(ref);
         if (!snap.exists()) throw new Error("ไม่พบรายการจอง");
         if (snap.data().linkedDocumentId) throw new Error("รายการนี้เชื่อมกับคำสั่งแล้ว ไม่สามารถยกเลิกได้");
+        if(snap.data().status==="canceled")throw new Error("รายการถูกยกเลิกแล้ว");
+        if(currentUser.role!=="admin"&&snap.data().createdBy!==currentUser.id)throw new Error("ยกเลิกได้เฉพาะรายการของตนเอง");
+        const parsed=parseRegisterNumber(snap.data().orderNumber);
+        if(!parsed)throw new Error("เลขทะเบียนไม่ถูกต้อง");
+        const counterRef=getDocumentRef(COUNTERS_PATH,`ORDER-${parsed.year}`),counter=await tx.get(counterRef);
+        tx.set(counterRef,{kind:"ORDER",year:parsed.year,revision:(Number(counter.data()?.revision)||0)+1,updatedAt:Date.now()},{merge:true});
         tx.update(ref, {status: "canceled", canceledBy: currentUser.id, canceledAt: Date.now(),
           history: arrayUnion({action: "ยกเลิกเลขจอง", by: currentUser.id, time: Date.now(), subject: snap.data().subject})});
         tx.set(doc(getCollectionRef(AUDIT_LOG_PATH)), auditPayload(currentUser,"ยกเลิกเลขจอง","ORDER",docToDelete,snap.data()["orderNumber"]));
       });
-      showToast("ยกเลิกแล้ว ระบบจะข้ามเลขนี้ ไม่แจกซ้ำ", "success");
+      showToast("ยกเลิกแล้ว ระบบจะรันต่อจากเลขสูงสุดที่ยังใช้งาน", "success");
     } catch(err) { showToast("ยกเลิกไม่สำเร็จ: " + err.message, "error"); }
     setDocToDelete(null);
   };
@@ -2004,6 +2035,11 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
            registerCounterStamp(preflight.counterBefore.exists()?preflight.counterBefore.data():null))
           throw new Error("มีคนจองเลขระหว่างกู้คืน กรุณาลองใหม่");
       }
+      const archiveNumber=parseRegisterNumber(reservation.orderNumber);
+      if(!archiveNumber)throw new Error("เลขทะเบียนไม่ถูกต้อง");
+      const archiveCounterRef=getDocumentRef(COUNTERS_PATH,`ORDER-${archiveNumber.year}`);
+      const archiveCounter=preflight?null:await tx.get(archiveCounterRef);
+      if(!preflight)tx.set(archiveCounterRef,{kind:"ORDER",year:archiveNumber.year,revision:(Number(archiveCounter.data()?.revision)||0)+1,updatedAt:Date.now()},{merge:true});
       const now=Date.now(),action=restore?"กู้คืนรายการทดลอง":"จัดเก็บรายการทดลอง";
       tx.update(resRef,{
         trialArchived:!restore,
@@ -2033,7 +2069,7 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
     if(currentUser.role!=="admin"||bulkBusy||!selectedTrialIds.length)return;
     if(selectedTrialIds.length>50)return showToast("เลือกจัดเก็บได้ครั้งละไม่เกิน 50 รายการ","error");
     const ids=[...selectedTrialIds];
-    if(!window.confirm("ยืนยันจัดเก็บรายการทดลอง "+ids.length+" รายการ?\\nระบบซ่อนเลขจองและคำสั่งร่างที่เชื่อมกัน โดยไม่ลบ PDF ไม่ลบประวัติ และไม่คืนเลขไปใช้ซ้ำ"))return;
+    if(!window.confirm("ยืนยันจัดเก็บรายการทดลอง "+ids.length+" รายการ?\\nระบบซ่อนเลขจองและคำสั่งร่างที่เชื่อมกัน โดยไม่ลบ PDF ไม่ลบประวัติ และเลขท้ายสุดอาจถูกนำกลับมาใช้ใหม่"))return;
     setBulkBusy(true);setBulkProgress("กำลังตรวจสอบรายการ...");
     let completed=0;const failures=[];
     for(let k=0;k<ids.length;k++){
@@ -2411,7 +2447,7 @@ function OrderReservationsView({ reservations, documents=[], currentUser, system
            <div className="bg-white p-5 sm:p-6 rounded-xl shadow-xl w-full max-w-[95%] sm:max-w-sm text-center animate-fade-in">
              <AlertCircle size={40} className="mx-auto text-red-500 mb-3 sm:mb-4 sm:w-12 sm:h-12" />
              <h3 className="text-base sm:text-lg font-bold mb-2">ยกเลิกเลขคำสั่งนี้?</h3>
-             <p className="text-xs sm:text-sm text-gray-500 mb-5 sm:mb-6">เลขที่ยกเลิกจะถูกข้าม ไม่แจกให้ผู้อื่นอัตโนมัติ แต่แอดมินสามารถนำกลับมาใช้ใหม่ได้</p>
+             <p className="text-xs sm:text-sm text-gray-500 mb-5 sm:mb-6">หากเป็นเลขท้ายสุด ระบบจะนำกลับมาใช้ใหม่ แต่จะไม่เติมเลขว่างระหว่างทาง</p>
              <div className="flex gap-2 sm:gap-3">
                <button onClick={() => setDocToDelete(null)} className="flex-1 px-3 sm:px-4 py-2 bg-gray-100 text-xs sm:text-sm font-bold rounded hover:bg-gray-200 transition-colors">ยกเลิก</button>
                <button onClick={handleDelete} className="flex-1 px-3 sm:px-4 py-2 bg-red-600 text-white text-xs sm:text-sm font-bold rounded hover:bg-red-700 transition-colors">ยืนยันการยกเลิก</button>
@@ -3908,6 +3944,8 @@ function AdminRegisterNumberSettings({ currentUser, showToast }) {
           kind: registerKind,
           year: selectedYear,
           lastNumber: next - 1,
+          manualNextNumber: next,
+          manualStartFloor: next,
           revision: (Number(liveSnap.exists()?liveSnap.data().revision:0)||0)+1,
           manualSetAt: timestamp,
           manualSetBy: currentUser.id,
