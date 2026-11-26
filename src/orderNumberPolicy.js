@@ -12,7 +12,7 @@ export function occupiedRegisterNumbers(kind,reservations=[],documents=[],except
   for(const r of reservations)if(r.id!==exceptReservationId&&visibleReservation(r)){
     const num=parseRegisterNumber(r[field]);if(num)used.add(num.text);
   }
-  for(const d of documents)if(d.type===type&&visibleDocument(d)&&d.reservationId!==exceptReservationId&&!except.has(d.id)){
+  for(const d of documents)if(d.type===type&&visibleDocument(d)&&(!exceptReservationId||d.reservationId!==exceptReservationId)&&!except.has(d.id)){
     const num=parseRegisterNumber(d.docNumber);if(num)used.add(num.text);
   }
   return used;
@@ -23,13 +23,50 @@ export function nextAvailableNumber(start,year,occupied){
   }
   throw Error("เลขทะเบียนเกินขอบเขตที่กำหนด");
 }
+/** Normal allocation continues after the largest visible number, never fills an interior gap.
+ * An explicit admin override is a one-time exception; a deliberately raised starting floor
+ * survives a trailing cancellation. Historical cursors alone never keep a deleted tail occupied.
+ */
+export function highestRegisterSequence(year,occupied){
+  let highest=0;
+  for(const value of occupied){
+    const parsed=parseRegisterNumber(value);
+    if(parsed?.year===year)highest=Math.max(highest,parsed.sequence);
+  }
+  return highest;
+}
+export function pendingManualRegisterNumber(counter){
+  if(!counter)return null;
+  if(Object.prototype.hasOwnProperty.call(counter,"manualNextNumber")){
+    const n=Number(counter.manualNextNumber);
+    return Number.isSafeInteger(n)&&n>0&&n<=999999999?n:null;
+  }
+  // Legacy manual settings written before this release, if not yet consumed.
+  if(counter.manualSetAt&&counter.manualSetAt===counter.updatedAt){
+    const n=(Number(counter.lastNumber)||0)+1;
+    return Number.isSafeInteger(n)&&n>0&&n<=999999999?n:null;
+  }
+  return null;
+}
+/** Preserve explicit manual settings through non-allocation counter changes. */
+export function carryRegisterManualSettings(counter){
+  const pending=pendingManualRegisterNumber(counter);
+  const raw=Number(counter?.manualStartFloor);
+  const floor=Number.isSafeInteger(raw)&&raw>0&&raw<=999999999?raw:pending??1;
+  return {manualNextNumber:pending,manualStartFloor:floor};
+}
+export function registerAllocationStart(year,occupied,counter){
+  const manual=pendingManualRegisterNumber(counter);
+  const floor=carryRegisterManualSettings(counter).manualStartFloor;
+  return manual??Math.max(floor,highestRegisterSequence(year,occupied)+1);
+}
 export function checkLinkedOrder(res,doc){
   if(!res?.linkedDocumentId)return "";
   if(!doc||doc.id!==res.linkedDocumentId||doc.reservationId!==res.id||doc.type!=="คำสั่งโรงเรียน"||doc.docNumber!==res.orderNumber)
     return "เลขคำสั่งกับเอกสารที่เชื่อมไม่ตรงกัน กรุณาตรวจสอบก่อนแก้ไขหรือลบ";
   return "";
 }
-export const registerCounterStamp=data=>JSON.stringify([Number(data?.lastNumber)||0,Number(data?.updatedAt)||0,Number(data?.revision)||0]);
+export const registerCounterStamp=data=>JSON.stringify([Number(data?.lastNumber)||0,Number(data?.updatedAt)||0,Number(data?.revision)||0,pendingManualRegisterNumber(data),Number(data?.manualStartFloor)||1]);
 
 /** Incoming book numbers are unique among active incoming letters within the same Buddhist year. */
 export const incomingDocumentYear = date => {
