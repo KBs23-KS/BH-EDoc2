@@ -4,8 +4,8 @@ const source=fs.readFileSync(join(__dirname,"../src/App.jsx"),"utf8");
 const start=source.indexOf("async function reserveSequentialNumber("),end=source.indexOf("\nfunction PageNavigator(",start);
 if(start<0||end<0)throw new Error("Allocator not found");
 (async()=>{
-  const {occupiedRegisterNumbers,nextAvailableNumber,registerAllocationStart,registerCounterStamp}=await import("../src/orderNumberPolicy.js");
-  const db=new Map();let id=0;
+  const {occupiedRegisterNumbers,nextAvailableNumber,registerAllocationStart,carryRegisterManualSettings,registerCounterStamp}=await import("../src/orderNumberPolicy.js");
+  const db=new Map();let id=0;let beforeTransaction=null;
   const coll=name=>name,ref=(name,key)=>({id:key,key:name+"/"+key});
   const snap=value=>({exists:()=>value!==undefined,data:()=>value});
   const snapshotCol=name=>({docs:[...db].filter(([key])=>key.startsWith(name+"/")).map(([key,item])=>({id:key.slice(name.length+1),data:()=>item}))});
@@ -16,8 +16,9 @@ if(start<0||end<0)throw new Error("Allocator not found");
     doc:name=>ref(name,"log"+(++id)),auditPayload:()=>({action:"test"}),
     getDocFromServer:async r=>snap(db.get(r.key)),
     getDocsFromServer:async name=>snapshotCol(name),
-    occupiedRegisterNumbers,nextAvailableNumber,registerAllocationStart,registerCounterStamp,
+    occupiedRegisterNumbers,nextAvailableNumber,registerAllocationStart,carryRegisterManualSettings,registerCounterStamp,
     runTransaction:async(_,fn)=>{
+      if(beforeTransaction){const change=beforeTransaction;beforeTransaction=null;change();}
       const writes=[];
       const tx={get:async r=>snap(db.get(r.key)),set:(r,data,{merge}={})=>writes.push([r.key,merge?{...(db.get(r.key)||{}),...data}:data])};
       const result=await fn(tx);
@@ -54,6 +55,21 @@ if(start<0||end<0)throw new Error("Allocator not found");
     assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"124/2571");
     db.set(col+"/123",{[field]:"123/2571",status:"canceled"});
     assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"125/2571");
+    // Delete the entire trailing range, including the reissued tail.
+    for(const [key,row] of db)if(key.startsWith(col+"/")&&Number(row[field]?.split("/")[0])>122)db.set(key,{...row,status:"canceled"});
+    assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"123/2571");
+    // A changed counter after the preflight must prevent a stale booking.
+    beforeTransaction=()=>{const key="counter/"+kind+"-2571";db.set(key,{...db.get(key),revision:99});};
+    await assert.rejects(book(kind,col,field,dateField,"2028-01-01"),/ระหว่างตรวจสอบ/);
+    assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"124/2571");
+    // Explicit override is allowed once, then automatic numbers follow the highest.
+    db.set("counter/"+kind+"-2571",{lastNumber:119,manualNextNumber:120,manualStartFloor:120,revision:100});
+    assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"120/2571");
+    assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"125/2571");
+    db.set("counter/"+kind+"-2571",{lastNumber:199,manualNextNumber:200,manualStartFloor:200,revision:101});
+    assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"200/2571");
+    for(const [key,row] of db)if(key.startsWith(col+"/")&&row[field]==="200/2571")db.set(key,{...row,status:"canceled"});
+    assert.equal(await book(kind,col,field,dateField,"2028-01-01"),"200/2571");
   }
   console.log("Numbering: active-only uniqueness, historical reuse, signed documents, yearly isolation PASS");
 })().catch(e=>{console.error(e);process.exitCode=1});
