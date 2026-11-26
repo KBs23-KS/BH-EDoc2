@@ -48,9 +48,16 @@ export function pendingManualRegisterNumber(counter){
   }
   return null;
 }
+/** Preserve explicit manual settings through non-allocation counter changes. */
+export function carryRegisterManualSettings(counter){
+  const pending=pendingManualRegisterNumber(counter);
+  const raw=Number(counter?.manualStartFloor);
+  const floor=Number.isSafeInteger(raw)&&raw>0&&raw<=999999999?raw:pending??1;
+  return {manualNextNumber:pending,manualStartFloor:floor};
+}
 export function registerAllocationStart(year,occupied,counter){
   const manual=pendingManualRegisterNumber(counter);
-  const floor=Math.max(1,Number(counter?.manualStartFloor)||1);
+  const floor=carryRegisterManualSettings(counter).manualStartFloor;
   return manual??Math.max(floor,highestRegisterSequence(year,occupied)+1);
 }
 export function checkLinkedOrder(res,doc){
